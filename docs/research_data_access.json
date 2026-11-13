@@ -55,6 +55,17 @@
     "scope": "Existing price/financial component APIs; macro remains pinned Lake; research only"
   },
   "current_coverage_source": "verified catalog datasets and execution-linked quality report; never this static index",
+  "a4_dated_vintage_component": {
+    "guide": "docs/A4_RTDSM_VINTAGES_V1.md",
+    "reader": "tools/a4_rtdsm_sources.py:read_generation",
+    "schema": "a4-rtdsm-vintage-bundle-v1",
+    "shared_archive_prefix": "shared-research-v1/macro-primary",
+    "source_ids": ["rtdsm:EMPLOY", "rtdsm:PCPI", "rtdsm:RUC"],
+    "historical_use": "DATE_ARCHIVE_RESEARCH_ONLY; documented conservative availability bounds, not exact announcement times",
+    "current_risk_operands_replaced": false,
+    "source_admitted": false,
+    "training_admitted": false
+  },
   "a4_primary_component": {
     "guide": "docs/A4_PRIMARY_DATA_OPERATIONS.md",
     "producer": "tools/collect_a4_primary_data.py",

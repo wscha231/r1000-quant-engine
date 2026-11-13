@@ -68,6 +68,8 @@
     "native_risk_axes_changed": false
   },
   "learning_release": "Exact trial plus externally pinned policy; immutable request replay and fixed code/math/recipe binding; maximum32MiB within the existing64MiB total",
+  "dated_vintage_research": {"reader": "tools/a4_rtdsm_sources.py", "guide": "docs/A4_RTDSM_VINTAGES_V1.md", "schema": "a4-rtdsm-vintage-bundle-v1", "source_ids": ["rtdsm:EMPLOY", "rtdsm:PCPI", "rtdsm:RUC"], "historical_use": "DATE_ARCHIVE_RESEARCH_ONLY", "publication_time_verified": false, "native_risk_inputs_replaced": false, "training_admitted": false},
+  "long_horizon_preparation": "Optional504-session capacity bound only; original seven-horizon release family and20-window evidence requirement unchanged",
   "macro_condition_diagnosis": "docs/A4_MACRO_CONDITION_DIAGNOSIS_V1.md; descriptive family pressures and completion blockers; no calibrated equity-return direction or native-risk override",
   "benchmark_direction_research": "SPY S&P500 and QQQ Nasdaq100 ETF proxies; seven separate horizons, absolute released-return sign versus relative macro contribution, per-feature OOS hit rate/baseline/BY evidence; no weighted return or calibrated up probability; original14-target family retained",
   "qe_research_context": "Official dated policy/implementation evidence and independent policy episodes required; reserve or asset growth, TGA changes, rate cuts and QT cessation alone do not certify QE; no fitted QE likelihood from current balance context",

@@ -1,5 +1,71 @@
 # Agent Shared Lessons Ledger
 
+### 2026-11-13 KST — Dated macro archives require explicit availability precision
+
+- RTDSM employment/CPI monthly vintage labels do not establish announcement
+  instants; unemployment has quarterly vintages of monthly observations. Use
+  separately labeled conservative month-end/day-end New York bounds with null
+  publication timestamps. Preserve the source's deep-history and correction
+  caveats; no initial-release or operational PIT claim follows from replay.
+- Keep complete original workbooks, pinned method documents and the notice in
+  the existing primary archive. A bounded24-month view within each vintage is
+  a feature-preparation scope, not the full raw history or global absence. Never
+  fill a missing latest value from a newer vintage or multiply a quarterly
+  snapshot into daily independent samples.
+- New dated-vintage learning rows require exact original/normalized replay and
+  independent purpose/source-policy pins. A caller's edited earlier clock must
+  fail even if it supplies a newly hashed input policy. Extra resolver objects
+  share the existing object/byte budget; frozen releases also bind this adapter.
+- Keep the504-session capacity bound separate from the seven-horizon learning
+  family. No price collection, actual price fitting, policy activation, A3/A5
+  connection or accepted model/portfolio mutation accompanies this preparation.
+
+### 2026-11-13 KST — Separate account entitlement from retained-file qualification
+
+- Owner-approved read-only UI inspection established a Basic Market Data plan
+  and a signed customer-agreement entry. Official Alpaca documentation supports
+  historical SIP queries ending at least fifteen minutes earlier without the
+  paid real-time subscription. Do not require an upgrade for completed daily
+  history or treat Basic as a supplier-rights denial. No subscription, account,
+  credential or trading settings were changed.
+- The UI's signed agreement version was23.2025.05, while its generic download
+  link served V26.2026.07. Preserve both facts; the current public PDF is not the
+  account's executed older copy. General backtesting documentation supports the
+  personal research purpose, but is not a complete account-bound retention or
+  source-admission receipt. Resolve applicable scope rather than demanding a
+  blanket custom AI-training letter or declaring the use prohibited.
+- Re-read SPY/QQQ consumer caches with the existing stable reader. Both retained
+  their previously verified hashes and2,639 rows through2026-07-02; metadata had
+  only the pandas schema. Those files do not establish their supplier/account,
+  adjustment or historical availability. Today's Alpaca login cannot supply
+  missing lineage or authorize unrelated-provider bytes. Managed Source includes
+  SPY but not QQQ; this is membership evidence, not global archive absence.
+- PR763 exact head e083476af12b1403dc6b765910a3889b753d38ba passed236/236 hosted
+  checks in4042.24s (run43336812993/job131594939008), with exact-head clean review
+  and zero unresolved threads. Expected-head merge produced
+  4a48d63020354c85ae61ccfb300abb1c97f64d91. This is source publication, not an
+  actual new fit/backtest, scheduled-run completion or model approval.
+
+### 2026-11-13 KST — Check long-horizon feasibility before extending learning
+
+- A 504-session label cannot meet the current twenty-window prefilter within
+  the 10,000-session input ceiling: even complete dense data permit only
+  nineteen nonoverlapping mature windows before OOS training/purge. At least
+  10,101 sessions are needed for that prefilter alone. The previously verified
+  2,639-row SPY/QQQ cache permits at most five such windows; this arithmetic is
+  neither a new data qualification nor a fit/backtest. Do not duplicate sparse
+  releases, splice pre-inception index history into an ETF, or lower the gate
+  simply to emit a long-term forecast. Keep limited-evidence scenarios separate.
+- Philadelphia Fed RTDSM is a candidate dated-vintage research route, not an
+  already admitted input. Employment/CPI monthly vintages and unemployment
+  quarterly vintages have different timing; a vintage label is not an exact
+  intraday release clock. Review original documentation/caveats, applicable
+  rights and a dedicated bounded adapter before binding it to learning. Never
+  relabel it as the existing forward-only Board/BLS captures or FRED archive.
+- Account-specific Alpaca/feed applicability still needs read-only verification.
+  Public backtesting documentation is relevant evidence, not a blanket denial
+  or a completed retention/training review. Preserve the current learning hold.
+
 ### 2026-11-13 KST — Benchmark direction and QE are separate research questions
 
 - The existing expanding study already measures OOS direction accuracy against

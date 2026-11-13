@@ -19,6 +19,7 @@ from tools import a4_liquidity_analysis as analysis
 from tools.a4_primary_sources import semantic_register
 from tools.a4_primary_macro_sources import registers as economic_registers
 from tools import macro_technical_study as study
+from tools import a4_rtdsm_sources as vintage
 from tools import free_market_context as free
 from tools.macro_history_sources import digest, encoded, exclusive
 from tools.check_run287_do_not_repeat import evaluate_candidate, load_registry
@@ -69,10 +70,10 @@ def validate_inputs(payload, policy, expected_policy_sha256, artifact_resolver):
     originals = {r["original_sha256"] for r in observations}
     originals.update(r["original_sha256"] for rows in prices.values() for r in rows)
     check(callable(artifact_resolver) and len(originals) <= 128, "A4_LEARNING_ORIGINAL_RESOLVER")
-    reserved=0
+    reserved=0; original_cache={}
     primary_register = semantic_register()
     economic=economic_registers()
-    allowed_sources={"fred:"+sid for sid in analysis.SERIES}|{"frb:"+sid for sid in primary_register}|{provider+':'+sid for provider,register in economic.items() for sid in register}|{"nyfed:"+sid for sid in ("SOFR","TGCR","EFFR")}|{"price:"+target for target in analysis.TARGETS}
+    allowed_sources={"fred:"+sid for sid in analysis.SERIES}|{"frb:"+sid for sid in primary_register}|{provider+':'+sid for provider,register in economic.items() for sid in register}|{"nyfed:"+sid for sid in ("SOFR","TGCR","EFFR")}|{"price:"+target for target in analysis.TARGETS}|{'rtdsm:'+sid for sid in vintage.register()}
     for sha in sorted(originals):
         binding = bindings.get(sha, {})
         source_ids=binding.get("source_ids")
@@ -94,10 +95,43 @@ def validate_inputs(payload, policy, expected_policy_sha256, artifact_resolver):
             check(binding.get('historical_use') == 'FORWARD_CAPTURE_ONLY', 'A4_PRIMARY_HISTORY_NOT_PIT')
         raw = artifact_resolver(sha)
         check(type(raw) is bytes and len(raw)==binding["size_bytes"] and digest(raw) == sha, "A4_LEARNING_ORIGINAL_HASH")
+        original_cache[sha]=raw
+    # Dated-vintage inputs must replay the exact archived workbook, documented
+    # availability rule and paired normalization. Policy flags cannot backdate
+    # an edited export. Additional manifest/document/codec bytes share the cap.
+    class VintageResolver:
+        def read(self,path):
+            nonlocal reserved
+            check(path.startswith(vintage.p.PREFIX+'/'), 'A4_LEARNING_VINTAGE_SCOPE')
+            suffix=path[len(vintage.p.PREFIX)+1:]
+            check(re.fullmatch(r'(objects/[a-f0-9]{64}|generations/[a-f0-9]{64}\.json)',suffix),
+                'A4_LEARNING_VINTAGE_SCOPE')
+            sha=suffix.rsplit('/',1)[-1].removesuffix('.json')
+            if sha not in original_cache:
+                raw=artifact_resolver(sha)
+                check(type(raw) is bytes and 0<len(raw)<=vintage.MAX_RAW and digest(raw)==sha,
+                    'A4_LEARNING_VINTAGE_OBJECT')
+                reserved+=len(raw)
+                check(reserved<=64*1024**2 and len(original_cache)<128,'A4_LEARNING_SOURCE_BYTE_BUDGET')
+                original_cache[sha]=raw
+            return original_cache[sha]
+    vintage_members={}
+    for sha in sorted(originals):
+        binding=bindings[sha];source_ids=binding['source_ids']
+        if not any(s.startswith('rtdsm:') for s in source_ids):continue
+        check(len(source_ids)==1 and binding['historical_use']=='DATE_ARCHIVE_RESEARCH_ONLY',
+            'A4_LEARNING_VINTAGE_BINDING')
+        generation=binding.get('vintage_manifest_sha256')
+        check(generation==binding['source_receipt_sha256'],'A4_LEARNING_VINTAGE_RECEIPT')
+        replay,manifest=vintage.read_generation(VintageResolver(),generation,cutoff=cutoff)
+        check(manifest['original_sha256']==sha and source_ids==['rtdsm:'+vintage.FEEDS[manifest['feed']][0]]
+            and manifest['rights_notice_sha256'] in policy.get('reviewed_rights_pins',[]),
+            'A4_LEARNING_VINTAGE_BINDING')
+        vintage_members[sha]={digest(encoded(r)) for r in replay}
     chosen_sources={}
     for row in observations:
         provider, _, sid=row["source_id"].partition(":")
-        register = {**primary_register,**economic['frb']} if provider == 'frb' else economic[provider] if provider in {'ust','bls'} else analysis.SERIES
+        register = vintage.register() if provider=='rtdsm' else {**primary_register,**economic['frb']} if provider == 'frb' else economic[provider] if provider in {'ust','bls'} else analysis.SERIES
         check(sid in register,"A4_LEARNING_SOURCE_ID")
         check(chosen_sources.setdefault(row['logical_id'],row['source_id'])==row['source_id'],
               'A4_LEARNING_CHOOSE_ONE_SOURCE_PER_LOGICAL_SERIES')
@@ -111,6 +145,9 @@ def validate_inputs(payload, policy, expected_policy_sha256, artifact_resolver):
               "A4_LEARNING_OBSERVATION_AFTER_COLLECTION")
         check(free.utc(row["available_at"]) <= free.utc(cutoff), "A4_LEARNING_FUTURE_OBSERVATION")
         binding = bindings[row["original_sha256"]]
+        if provider=='rtdsm':
+            check(digest(encoded(row)) in vintage_members.get(row['original_sha256'],set()),
+                'A4_LEARNING_VINTAGE_ROW_REPLAY')
         check(row["source_id"] in binding.get("source_ids", []), "A4_LEARNING_SOURCE_BINDING")
         if binding["historical_use"] == "FORWARD_CAPTURE_ONLY":
             check(free.utc(row["available_at"]) >= free.utc(row["collected_at"]), "A4_LEARNING_BACKDATED_CURRENT")
@@ -120,6 +157,20 @@ def validate_inputs(payload, policy, expected_policy_sha256, artifact_resolver):
             check("price:"+target in bindings[row["original_sha256"]].get("source_ids",[]),
                   "A4_LEARNING_PRICE_SOURCE_BINDING")
     return sessions
+
+
+def prospective_horizon_capacity(session_count, horizon=504):
+    """Dense arithmetic bound only; does not generate labels, fit or admit data."""
+    check(type(session_count) is int and 0<=session_count<=10000 and
+        type(horizon) is int and 1<=horizon<=504,'A4_RESEARCH_CAPACITY_BUDGET')
+    count=study.independent_windows(range(max(0,session_count-horizon-1)),horizon)
+    return dict(horizon_sessions=horizon,calendar_sessions=session_count,
+        dense_mature_nonoverlap_window_upper_bound=count,required_nonoverlap_windows=20,
+        minimum_sessions_before_oos_training=20*(horizon+1)+1,
+        sufficient_even_before_oos=count>=20,price_coverage_verified=False,
+        sparse_release_counts_verified=False,actual_backtest_executed=False,
+        registered_learning_horizon=horizon in analysis.HORIZONS,
+        status='CAPACITY_BOUND_ONLY_NOT_EVIDENCE')
 
 
 def replay_features(observations, sessions):
@@ -253,7 +304,7 @@ def fit_trial(payload, policy, expected_policy_sha256, artifact_resolver, *, reg
     result=dict(schema=SCHEMA,month=cadence(payload["cutoff"])["month"],cutoff=payload["cutoff"],
         input_sha256=digest(encoded(payload)),policy_sha256=expected_policy_sha256,
         feature_recipe_sha256=digest(encoded(FEATURES)),code_sha256=digest(Path(__file__).read_bytes()),
-        math_dependencies={Path(module.__file__).name:digest(Path(module.__file__).read_bytes()) for module in (study,analysis)},
+        math_dependencies={Path(module.__file__).name:digest(Path(module.__file__).read_bytes()) for module in (study,analysis,vintage)},
         targets=list(analysis.TARGETS),horizons=list(analysis.HORIZONS),outcomes=list(OUTCOMES),
         tests_declared=len(rows),results=rows,do_not_repeat=preflight,
         status="CHALLENGER_PROPOSAL_ONLY",promotion_state="INDEPENDENT_REVIEW_REQUIRED",**SAFETY)
@@ -337,7 +388,7 @@ def forecast_release(report, trial, policy, expected_policy_sha256, *, created_a
           "A4_FORECAST_CREATION_CLOCK")
     check(trial["feature_recipe_sha256"]==digest(encoded(FEATURES)),"A4_LEARNING_RECIPE_CHANGED")
     check(trial.get("code_sha256")==digest(Path(__file__).read_bytes()) and trial.get("math_dependencies")==
-          {Path(module.__file__).name:digest(Path(module.__file__).read_bytes()) for module in (study,analysis)},
+          {Path(module.__file__).name:digest(Path(module.__file__).read_bytes()) for module in (study,analysis,vintage)},
           "A4_LEARNING_MODEL_CODE_CHANGED")
     points={"funding:"+key:r["value"] if r["status"]=="OBSERVED" else None
             for key,r in report["funding"]["spreads"].items()}
