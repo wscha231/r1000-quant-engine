@@ -25,6 +25,13 @@ def rows(sid, values):
     return a.parse_original(raw(sid, values), dict(source_id="fred:"+sid, collected_at=COLLECTED))
 
 
+def h10_rows(start="2026-11-02", collected="2026-11-14T03:35:42Z"):
+    point = a.parse_original(raw("DTWEXBGS", [(start, 120)]),
+                             dict(source_id="fred:DTWEXBGS", collected_at=collected))[0]
+    return [dict(point, source_id="frb:H10_BROAD", observation_date=(date.fromisoformat(start)+timedelta(days=n)).isoformat(),
+                 value=120+n, collected_at=collected, available_at=collected) for n in range(5)]
+
+
 def analyze(sources):
     entries, blobs = [], {}
     for n, (sid, body) in enumerate(sources):
@@ -38,6 +45,88 @@ def analyze(sources):
 
 
 class LiquidityTests(unittest.TestCase):
+    def test_h10_daily_observations_follow_weekly_publication_without_changing_clocks(self):
+        history = h10_rows()
+        out = a.summarize(history, "2026-11-14T06:36:37Z")
+        self.assertEqual(out["status"], "OBSERVED")
+        self.assertEqual(out["observation_date"], "2026-11-06")
+        self.assertEqual(out["max_age_days"], 7)
+        self.assertEqual(out["available_at"], history[-1]["available_at"])
+        self.assertIsNone(out["published_at"])
+        self.assertFalse(out["historical_pit_certified"])
+        calendar = out["publication_freshness"]
+        self.assertEqual(calendar["latest_scheduled_release_at"], "2026-11-09T21:15:00+00:00")
+        self.assertEqual(calendar["next_scheduled_release_at"], "2026-11-16T21:15:00+00:00")
+        self.assertFalse(calendar["scheduled_times_are_actual_availability"])
+        self.assertTrue(a.current_observation(out, "2026-11-14T06:36:37Z"))
+
+    def test_h10_release_boundary_and_fresh_fetch_cannot_renew_the_old_week(self):
+        before = "2026-11-16T21:14:59Z"
+        at = "2026-11-16T21:15:00Z"
+        history = h10_rows()
+        point = a.summarize(history, before)
+        self.assertTrue(a.current_observation(point, before))
+        self.assertFalse(a.current_observation(point, at))
+        for collected in ("2026-11-14T03:35:42Z", "2026-11-16T21:16:00Z"):
+            stale = a.summarize(h10_rows(collected=collected), "2026-11-16T21:17:00Z")
+            self.assertEqual(stale["status"], "STALE")
+            self.assertIsNone(stale["value"])
+
+    def test_h10_expected_week_gaps_nulls_and_unexpected_early_values_are_not_masked(self):
+        for mode in ("missing", "null", "old_week", "future_week", "early_capture"):
+            with self.subTest(mode=mode):
+                history = h10_rows()
+                if mode == "missing": del history[2]
+                if mode == "null": history[2]["value"] = None
+                if mode == "old_week": history = h10_rows("2026-10-26")
+                if mode == "future_week": history = h10_rows("2026-11-09")
+                if mode == "early_capture": history = h10_rows(collected="2026-11-09T21:14:59Z")
+                out = a.summarize(history, "2026-11-14T06:36:37Z")
+                self.assertNotEqual(out["status"], "OBSERVED")
+                self.assertIsNone(out["value"])
+                self.assertFalse(a.current_observation(out, "2026-11-14T06:36:37Z"))
+        history = h10_rows(); history[-1]["value"] = None
+        self.assertEqual(a.summarize(history, "2026-11-14T06:36:37Z")["status"], "MISSING")
+
+    def test_h10_federal_monday_holiday_dst_and_calendar_review_window(self):
+        holiday = a.h10_schedule("2026-09-07T21:00:00Z")
+        self.assertEqual(holiday["next_scheduled_release_at"], "2026-09-08T20:15:00+00:00")
+        due = a.h10_schedule("2026-09-08T20:15:00Z")
+        self.assertEqual(due["expected_period_start"], "2026-08-31")
+        self.assertEqual(due["expected_period_end"], "2026-09-04")
+        self.assertEqual(a.h10_schedule("2026-03-09T20:15:00Z")["latest_scheduled_release_at"], "2026-03-09T20:15:00+00:00")
+        self.assertEqual(a.h10_schedule("2026-03-02T21:15:00Z")["latest_scheduled_release_at"], "2026-03-02T21:15:00+00:00")
+        self.assertNotIn("2026-11-11", a.h10_schedule("2026-11-16T21:15:00Z")["required_observation_dates"])
+        self.assertIsNone(a.h10_schedule("2008-11-14T00:00:00Z"))
+        self.assertIsNone(a.h10_schedule("2036-11-14T00:00:00Z"))
+
+    def test_h10_future_versions_preserve_the_fixed_past_and_fred_mirror_keeps_own_rule(self):
+        now = "2026-11-14T06:36:37Z"
+        history = h10_rows()
+        later = [dict(r, value=r["value"]+10, available_at="2026-11-17T00:00:00Z") for r in history]
+        first = a.visible_histories(history, now)["broad_usd"]
+        second = a.visible_histories(history+later, now)["broad_usd"]
+        self.assertEqual(a.summarize(first, now), a.summarize(second, now))
+        mirror = [dict(r, source_id="fred:DTWEXBGS") for r in history]
+        out = a.summarize(mirror, now)
+        self.assertEqual(out["status"], "STALE")
+        self.assertNotIn("publication_freshness", out)
+
+    def test_h10_terminal_federal_holiday_null_is_retained_as_a_scheduled_non_observation(self):
+        history = h10_rows("2026-12-21", collected="2026-12-28T21:16:00Z")
+        history[-1]["value"] = None
+        out = a.summarize(history, "2026-12-29T10:00:00Z")
+        self.assertEqual(out["status"], "OBSERVED")
+        self.assertEqual(out["observation_date"], "2026-12-24")
+        self.assertEqual(out["changes"]["1"]["value"], 1)
+        proof = out["publication_freshness"]
+        self.assertEqual(proof["source_terminal_observation_date"], "2026-12-25")
+        self.assertEqual(proof["scheduled_non_observation_dates"], ["2026-12-25"])
+        self.assertIsNone(history[-1]["value"])
+        self.assertTrue(a.current_observation(out, "2026-12-29T10:00:00Z"))
+        history[-1]["value"] = 125
+        self.assertEqual(a.summarize(history, "2026-12-29T10:00:00Z")["status"], "UNEXPECTED_PUBLICATION_PERIOD")
+
     def test_spreads_use_basis_points_and_share_one_evidence_family(self):
         data = []
         for sid, v in (("SOFR", 4.2), ("TGCR", 4.1), ("IORB", 4.0), ("DFF", 3.98)):

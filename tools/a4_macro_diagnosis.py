@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import math
 from tools import free_market_context as f
+from tools import a4_liquidity_analysis as analysis
 
 WINDOWS = {
     'SHORT': dict(daily=5, weekly=1, monthly=1),
@@ -15,15 +16,14 @@ WINDOWS = {
 }
 PROVENANCE = ('source_id', 'observation_date', 'available_at', 'collected_at',
               'published_at', 'original_sha256', 'normalized_sha256',
-              'measurement_basis', 'seasonal_basis', 'bank_aggregation')
+              'measurement_basis', 'seasonal_basis', 'bank_aggregation', 'publication_freshness')
 
 
 def observed(row, cutoff):
     if not isinstance(row, dict) or row.get('status') != 'OBSERVED': return False
     value = row.get('value')
     return (type(value) in (float, int) and math.isfinite(value)
-        and f.utc(row['available_at']) <= f.utc(cutoff)
-        and 0 <= (f.utc(cutoff).date()-f.iso_date(row['observation_date'])).days <= row['max_age_days'])
+        and analysis.current_observation(row, cutoff))
 
 
 def measurement(panel, key, period, orientation, cutoff):
