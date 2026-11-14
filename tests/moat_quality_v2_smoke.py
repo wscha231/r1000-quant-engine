@@ -305,6 +305,15 @@ class MoatQualityV2Smoke(unittest.TestCase):
             with self.subTest(mode=mode), self.assertRaises(MoatQualityContractError):
                 evaluate_packet(value, "2026-09-19T02:00:00Z", resolver)
 
+    def test_current_observation_extreme_offset_is_a_typed_refusal(self):
+        value = packet()
+        row = value["dimensions"][DIMENSIONS[0]]["evidence"][0]
+        row["available_at"] = "0001-01-01T00:00:00+14:00"
+        current_observation(row)
+        row["publisher_reported_date"] = "0001-01-01"
+        with self.assertRaisesRegex(MoatQualityContractError, "current_observation_publisher_date"):
+            evaluate_packet(value, "2026-09-19T02:00:00Z", resolver)
+
     def test_current_observation_receipt_json_and_size_guards(self):
         for raw in (b'{"status":"ORIGINALS_CAPTURED","status":"ORIGINALS_CAPTURED"}',
                     b'{"value":NaN}', b'{"value":1e999}', b'x'*(64*1024+1)):

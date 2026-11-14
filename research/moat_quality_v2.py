@@ -229,7 +229,11 @@ def _validated_current_observation(row, available_at, as_of, raw_resolver):
             raise MoatQualityContractError("current_observation_publisher_date") from exc
         # A day annotation is not an instant. Allow the largest civil UTC offset
         # while refusing dates beyond any possible local capture day.
-        _require(reported <= (collected.astimezone(timezone.utc) + timedelta(hours=14)).date(),
+        try:
+            latest_civil_day = (collected.astimezone(timezone.utc) + timedelta(hours=14)).date()
+        except (OverflowError, ValueError) as exc:
+            raise MoatQualityContractError("current_observation_publisher_date") from exc
+        _require(reported <= latest_civil_day,
                  "current_observation_future_publisher_date")
     else:
         _require(precision == "UNKNOWN" and day is None, "current_observation_publisher_precision")

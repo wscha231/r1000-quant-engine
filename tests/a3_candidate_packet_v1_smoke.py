@@ -144,6 +144,14 @@ class Tests(unittest.TestCase):
       with self.subTest(mode=mode), self.assertRaises(A3CandidatePacketError):
         evaluate_packet(value,"2026-09-19T02:00:00Z",resolver)
 
+  def test_current_public_observation_extreme_offset_is_a_typed_refusal(self):
+    value=packet(); obj=graph(); obj["historical_pit_certified"]=False
+    row=obj["sources"][1]; row["available_at"]="0001-01-01T00:00:00+14:00"
+    current_observation(row, RAW); row["publisher_reported_date"]="0001-01-01"
+    value["artifacts"]["source_graph"]={"kind":"SOURCE_GRAPH",**add("CURRENT-GRAPH",obj)}
+    with self.assertRaisesRegex(A3CandidatePacketError,"current_observation_publisher_date"):
+      evaluate_packet(value,"2026-09-19T02:00:00Z",resolver)
+
   def test_scenario_not_er(self):
     out=evaluate_packet(packet(), "2026-09-19T02:00:00Z", resolver)
     self.assertEqual(out["status"],"SCENARIO_RESEARCH_COMPLETE")
