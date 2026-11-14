@@ -87,6 +87,15 @@ hashes and total byte bound are rechecked before copying. Native risk gates,
 all ten axes and A5 policy/independent review remain unchanged. The collector
 may succeed while the complete report truthfully remains `DATA_BLOCKED`.
 
+The same pinned current request can retain supplied FRED HY/IG credit originals
+(`fred:BAMLH0A0HYM2`, `fred:BAMLC0A0CM`, `macro` or `macro_v2`). These series are
+absent from the primary feeds. Keep exact bytes, source IDs, normalization and
+original collection clocks; neither a native credit score nor an ETF ratio can
+replace them. The input owner must separately qualify their applicable rights.
+This path makes no new licensed-source request or learning admission. Invalid,
+expired or tampered retained inputs refuse the entire retained group; fresh
+packet preparation does not refresh an old observation.
+
 `A4_RESEARCH_ENABLED` and `A4_RESEARCH_ALLOW_STATE_GENESIS` remain separate
 consumer/checkpoint settings. Collection does not enable a learning policy,
 manufacture an independent review, renew an expired policy or run a fullrun.

@@ -41,6 +41,11 @@ research bytes, not automatic Source/PIT or training admission.
   native state blocked while verified liquidity/bank/financing context remains
   inspectable. Native derived operands are archived once by exact hash when
   the reconstructed request/report is published.
+  The same newest request retains supplied FRED HY/IG originals missing from
+  the primary feeds, with their original specs and clocks. Publication and cold
+  restoration preserve these exact objects; `native_input_state.credit_originals`
+  counts verified originals separately from native risk operands. A credit
+  original does not make a missing native axis ready or establish supplier rights.
 - Historical evaluation uses the existing externally pinned learning request,
   original resolver, rights/source policy, NYSE calendar and return-basis checks.
   The index performs readiness validation, not a hidden fit or backtest.
@@ -100,7 +105,9 @@ an authority. Use exact snapshot/execution pins for historical queries.
 The publisher records its exact repository code SHA separately from the
 reusable catalog identity. Source/locator fingerprints are checked before and
 after construction; changing them during replay refuses publication. The
-twenty hash-bound risk/index/locator files use canonical LF bytes.
+hash-bound risk/index/locator files use canonical LF bytes. The index also binds
+the retained-input collector helper with LF-normalized code identity and refuses
+an implementation change during construction.
 
 Limits: eight capture references per view, nineteen registered feeds per
 capture, 150,000 selected native rows and64MiB cached original/normalized

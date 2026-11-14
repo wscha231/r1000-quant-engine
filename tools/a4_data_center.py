@@ -33,6 +33,7 @@ def index_identity():
     identity=market.implementation_identity()
     identity[Path(__file__).name]=digest(Path(__file__).read_bytes())
     identity[Path(vintage.__file__).name]=digest(Path(vintage.__file__).read_bytes())
+    identity[Path(collector.__file__).name]=digest(Path(collector.__file__).read_bytes().replace(b'\r\n',b'\n'))
     path=Path(__file__).resolve().parents[1]/'docs/research_data_access.json'
     identity[path.name]=digest(path.read_bytes())
     return identity
@@ -286,7 +287,7 @@ def restore_reference(transport,execution_sha,root,*,cutoff):
         try:
             market.verify_request(raw,ref['sha256'],cutoff,market.current_session(cutoff))
             for spec in request['inputs']:
-                if spec['kind'] not in {'risk_metrics','risk_calendar','risk_context'}:continue
+                if not collector.retained_source_input(spec):continue
                 body=p.read_object(transport,p.PREFIX+'/objects/'+pin(spec['sha256']),spec['sha256'],market.input_limit(spec))
                 dest=root/'inputs'/market.safe_path(spec['path']);exclusive(dest,body)
         except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
@@ -469,7 +470,7 @@ def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,prob
         if feed in f.FEEDS:entry['source_period']=meta['period']
         entries.append(entry)
     # Only the newest attempt may contribute a current native request, never an older fallback.
-    native_state=dict(status='NO_EXECUTION_PINNED_NATIVE_REQUEST',operands=0)
+    native_state=dict(status='NO_EXECUTION_PINNED_NATIVE_REQUEST',operands=0,credit_originals=0)
     if attempts:
         newest=max(attempts,key=lambda r:p.clock(r['cutoff']))
         source=roots[next(i for i,s in enumerate(captures) if s['execution_sha256']==newest['execution_sha256'])]
@@ -479,16 +480,19 @@ def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,prob
             raw=market.bounded(source/'inputs/request.json',256*1024)
             request=market.verify_request(raw,newest['analysis_request_sha256'],cutoff,market.current_session(cutoff))
             for spec in request['inputs']:
-                if spec['kind'] not in {'risk_metrics','risk_calendar','risk_context'}:continue
+                if not collector.retained_source_input(spec):continue
                 path=source/'inputs'/market.safe_path(spec['path']);body=market.bounded(path,market.input_limit(spec))
                 p.check(digest(body)==spec['sha256'] and not any(q.is_symlink() for q in (path,*path.parents)),
                     'DATA_CENTER_NATIVE_ORIGINAL')
                 name='native/'+spec['sha256'];exclusive(inputs/name,body);entries.append(dict(spec,path=name))
-            count=sum(s['kind'] in {'risk_metrics','risk_calendar','risk_context'} for s in entries)
-            native_state=dict(status='ORIGINAL_HASHES_VERIFIED' if count else 'NO_NATIVE_OPERANDS_IN_PINNED_REQUEST',operands=count)
+            count=sum(s['kind'] in collector.NATIVE_KINDS for s in entries)
+            credit=sum(collector.retained_source_input(s) and s['kind'] not in collector.NATIVE_KINDS for s in entries)
+            native_state=dict(status='ORIGINAL_HASHES_VERIFIED' if count else 'NO_NATIVE_OPERANDS_IN_PINNED_REQUEST',
+                operands=count,credit_originals=credit)
         except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
-            entries=[s for s in entries if s['kind'] not in {'risk_metrics','risk_calendar','risk_context'}]
-            native_state=dict(status='BLOCKED',operands=0,blocker='NATIVE_REQUEST_BINDING_CLOCK_OR_ORIGINAL_NOT_VERIFIED')
+            entries=[s for s in entries if not collector.retained_source_input(s)]
+            native_state=dict(status='BLOCKED',operands=0,credit_originals=0,
+                blocker='NATIVE_REQUEST_BINDING_CLOCK_OR_ORIGINAL_NOT_VERIFIED')
     request=dict(schema=market.REQUEST_SCHEMA_V2,market='US',session=market.current_session(cutoff),available_at=cutoff,
         expires_at=(now+timedelta(days=1)).isoformat(),inputs=entries)
     raw=encoded(request);exclusive(inputs/'request.json',raw);exclusive(inputs/'request.sha256',digest(raw).encode('ascii'))
@@ -533,10 +537,10 @@ def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,prob
     if transport is not None:
         try:
             if report.get('schema')=='market-analysis-report-v2':
-                # Native derived operands were not primary capture generations.
-                # Retain their exact bytes once by content hash for later replay.
+                # Native operands and supplied credit originals were not primary
+                # capture generations. Retain exact bytes once for later replay.
                 for spec in request['inputs']:
-                    if spec['kind'] not in {'risk_metrics','risk_calendar','risk_context'}:continue
+                    if not collector.retained_source_input(spec):continue
                     body=market.bounded(inputs/market.safe_path(spec['path']),market.input_limit(spec))
                     name=p.PREFIX+'/objects/'+spec['sha256'];transport.write(name,body)
                     p.check(p.read_object(transport,name,spec['sha256'],market.input_limit(spec))==body,'DATA_CENTER_NATIVE_READBACK')
