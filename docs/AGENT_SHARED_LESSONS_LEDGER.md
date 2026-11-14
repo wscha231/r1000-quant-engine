@@ -1,5 +1,21 @@
 # Agent Shared Lessons Ledger
 
+### 2026-11-14 KST — Preserve supplied credit originals through the A4 index
+
+- The official primary feed set has no HY/IG series. Copying only native risk
+  operands drops separately supplied credit originals at collection, indexing
+  and cold restore. Retain only the registered FRED HY/IG source roles with
+  exact bytes, original specs/clocks and the existing aggregate byte limits.
+- Keep credit originals separate from native risk operands; a scalar risk score
+  or ETF ratio cannot substitute for an OAS original. Invalid latest retained
+  inputs must not fall back to an older request or refresh old observations.
+  Durable paired replay preserves context, not supplier rights, PIT or learning
+  approval. Bind the collector helper in the index implementation identity.
+- Native preparation accepts a separately pinned current-credit request so its
+  fresh risk-only packet cannot discard those originals. Configured missing,
+  stale or changed credit fails before writing; preserve the existing native
+  axis gate and extend its hosted failure guards to the optional credit pin.
+
 ### 2026-11-14 KST — Replay the dated feature prefix before releasing forecasts
 
 - Current BLS observations cannot replace RTDSM's delayed monthly/quarterly

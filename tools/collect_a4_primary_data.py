@@ -20,6 +20,21 @@ from tools import market_analysis_engine as market
 from tools.macro_history_sources import digest, encoded, exclusive
 
 FEED_ORDER = ('sofr', 'tgcr', 'effr', 'h41', 'h8', 'prates')
+NATIVE_KINDS = frozenset({'risk_metrics', 'risk_calendar', 'risk_context'})
+CREDIT_SOURCES = frozenset({'fred:BAMLH0A0HYM2', 'fred:BAMLC0A0CM'})
+
+
+def credit_source_input(spec):
+    return spec['kind'] in {'macro', 'macro_v2'} and spec.get('source_id') in CREDIT_SOURCES
+
+
+def retained_source_input(spec):
+    """Keep native operands and supplied credit originals, never derived proxies.
+
+    The primary feeds do not contain these two credit series. Preserve their
+    existing source/hash/clock specification; this filter grants no data rights.
+    """
+    return spec['kind'] in NATIVE_KINDS or credit_source_input(spec)
 
 
 def publish_analysis(transport, request_raw, report_raw, *, cutoff):
@@ -105,15 +120,16 @@ def collect(output_dir, *, code_sha, fetcher=None, transport=None, existing_inpu
             if is_financing:entries[-1]['source_period']=manifest['period']
             if manifest['feed'] in economic.FEEDS:
                 entries[-1]['source_request_year']=manifest['request_year']
-        # Only a current, valid original request may supply native risk operands.
-        # A stale or corrupt restore never becomes a partial native-risk input.
+        # Only a current, valid original request may supply native risk operands
+        # and the credit originals absent from the primary feeds. A stale or
+        # corrupt restore never becomes a partial retained-source input.
         if existing_input_root is not None:
             try:
                 previous = Path(existing_input_root)
                 pin = market.bounded(previous/'request.sha256', 128).decode('ascii').strip()
                 raw = market.bounded(previous/'request.json', 256*1024)
                 req = market.verify_request(raw, pin, cutoff, session)
-                native = [s for s in req['inputs'] if s['kind'] in {'risk_metrics', 'risk_calendar', 'risk_context'}]
+                native = [s for s in req['inputs'] if retained_source_input(s)]
                 operands = []
                 for spec in native:
                     relative = market.safe_path(spec['path'])

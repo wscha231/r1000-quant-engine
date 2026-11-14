@@ -10,7 +10,7 @@ from urllib.error import HTTPError
 from tools import a4_data_center as d,a4_primary_sources as p,collect_a4_primary_data as c
 from tools.macro_history_sources import encoded,digest
 from tools.macro_research_checkpoint import LocalTransport
-from tests.a4_primary_sources_smoke import NOW,archive,nyfed
+from tests.a4_primary_sources_smoke import NOW,archive,nyfed,retained_credit_input
 
 
 def fetch(url,*args):
@@ -284,6 +284,38 @@ class DataCenterTests(unittest.TestCase):
             self.assertEqual(catalog['native_input_state']['status'],'BLOCKED')
             result=json.loads((root/'view/inputs/request.json').read_bytes())
             self.assertFalse(any(r['kind']=='risk_context' for r in result['inputs']))
+
+    def test_credit_originals_survive_collection_index_publication_and_cold_restore(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);request,bodies=retained_credit_input(root/'native');remote=LocalTransport(root/'remote')
+            spec=capture(root/'capture',transport=remote,native=root/'native')
+            a,ar=d.build([spec],cutoff=NOW,output_dir=root/'one',transport=remote,code_sha='b'*40)
+            for original in request['inputs'][1:3]:
+                self.assertEqual(remote.read(p.PREFIX+'/objects/'+original['sha256']),bodies[original['path']])
+            sparse=d.restore_reference(remote,spec['execution_sha256'],root/'reference',cutoff=NOW)
+            with patch.object(p,'capture',side_effect=AssertionError('provider called')):
+                b,br=d.build([sparse],cutoff=NOW,output_dir=root/'two',source_transport=remote)
+            self.assertEqual(a,b);self.assertEqual(ar['catalog_sha256'],br['catalog_sha256'])
+            self.assertEqual(b['native_input_state']['operands'],1)
+            self.assertEqual(b['native_input_state']['credit_originals'],2)
+            report=json.loads((root/'two/market_analysis.json').read_bytes())
+            self.assertEqual(report['macro_direction_inputs']['hy_oas']['value'],3.2)
+            self.assertEqual(report['macro_direction_inputs']['ig_oas']['available_at'],NOW)
+            self.assertEqual(report['status'],'DATA_BLOCKED')
+            self.assertFalse(br['model_fit_performed']);self.assertFalse(br['training_admitted'])
+
+    def test_changed_newest_credit_original_never_falls_back_to_an_older_request(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);_,bodies=retained_credit_input(root/'native');remote=LocalTransport(root/'remote')
+            first=capture(root/'first',transport=remote,native=root/'native')
+            later=(p.clock(NOW)+timedelta(minutes=1)).isoformat()
+            second=capture(root/'second',now=later,transport=remote,native=root/'native')
+            (root/'second/inputs/native'/digest(bodies['hy.csv'])).write_bytes(b'tampered')
+            catalog,_=d.build([first,second],cutoff=later,output_dir=root/'view')
+            self.assertEqual(catalog['native_input_state']['status'],'BLOCKED')
+            self.assertEqual(catalog['native_input_state']['credit_originals'],0)
+            request=json.loads((root/'view/inputs/request.json').read_bytes())
+            self.assertFalse(any(c.retained_source_input(s) for s in request['inputs']))
 
     def test_legacy_v1_core_receipt_is_read_without_rewriting_its_hash(self):
         with tempfile.TemporaryDirectory() as tmp:
