@@ -236,7 +236,9 @@ def normalize_fred(
     raw: bytes, expected_series_id: str, *, preserve_missing: bool = False
 ) -> pd.DataFrame:
     validate_csv_header_identity(raw, source="fred", uppercase=False)
-    frame = pd.read_csv(io.BytesIO(raw))
+    # Preserve the provider's lexical missing marker: an empty CSV field is
+    # distinct from malformed text or an unexpected literal NA on a holiday.
+    frame = pd.read_csv(io.BytesIO(raw), keep_default_na=False)
     columns = {
         str(column).replace("\ufeff", "").strip().lower(): column
         for column in frame.columns
@@ -269,14 +271,17 @@ def normalize_fred(
     ).dropna(subset=["observation_date"])
     non_observation_dates: list[str] = []
     if preserve_missing and expected_series_id in TREASURY_DAILY_YIELD_SERIES and not output.empty:
-        # H.15 does not publish on federal holidays. A literal provider '.' on
+        # H.15 does not publish on federal holidays. A provider empty/dot on
         # such a date is not a missing scheduled release. Do not create a value
         # for it: retain the last real observation's date and availability in
         # the existing as-of join. Ordinary-business-day gaps still block.
         holidays = USFederalHolidayCalendar().holidays(
             start=output["observation_date"].min(), end=output["observation_date"].max()
         )
-        no_release = output["observation_date"].isin(holidays) & frame[value_column].astype(str).str.strip().eq(".")
+        no_release = (
+            output["observation_date"].isin(holidays)
+            & frame[value_column].astype(str).str.strip().isin({"", "."})
+        )
         non_observation_dates = output.loc[no_release, "observation_date"].dt.strftime("%Y-%m-%d").tolist()
         output = output.loc[~no_release]
     if not preserve_missing:
@@ -961,7 +966,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                         first_date=observations["observation_date"].min(),
                         last_date=observations["observation_date"].max(),
                         note=("current vintage; historical use is FREE_PROXY only; "
-                              "Treasury federal-holiday literal-dot non-observations="
+                              "Treasury federal-holiday empty/dot non-observations="
                               + str(len(observations.attrs["scheduled_non_observation_dates"]))),
                         source_sha256_override=raw_sha,
                     )

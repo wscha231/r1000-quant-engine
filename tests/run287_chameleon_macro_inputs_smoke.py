@@ -663,12 +663,14 @@ def test_treasury_holiday_non_observation_keeps_original_clocks_and_business_day
     )
     for series in sorted(inputs.TREASURY_DAILY_YIELD_SERIES):
         raw = ("observation_date," + series + "\n2026-11-10,4.1\n"
-               "2026-11-11,.\n2026-11-12,4.2\n").encode()
+               "2026-11-11,\n2026-11-12,4.2\n").encode()
         observed = inputs.normalize_fred(raw, series, preserve_missing=True)
         if observed["observation_date"].dt.strftime("%Y-%m-%d").tolist() != ["2026-11-10", "2026-11-12"]:
             raise AssertionError("Treasury holiday created an observation")
         if observed.attrs["scheduled_non_observation_dates"] != ["2026-11-11"]:
             raise AssertionError("Holiday classification lost its audit dates")
+        dot = inputs.normalize_fred(raw.replace(b"2026-11-11,\n", b"2026-11-11,.\n"), series, preserve_missing=True)
+        pd.testing.assert_frame_equal(observed, dot)
         aligned = inputs.align_releases(calendar, observed, inputs.fred_available_from(
             observed["observation_date"], "NEXT_BUSINESS_DAY_END_UTC"), preserve_missing=True)
         prior = aligned.loc[pd.Timestamp("2026-11-13")]
@@ -680,7 +682,9 @@ def test_treasury_holiday_non_observation_keeps_original_clocks_and_business_day
         expanded = inputs.align_releases(calendar, future, inputs.fred_available_from(
             future["observation_date"], "NEXT_BUSINESS_DAY_END_UTC"), preserve_missing=True)
         pd.testing.assert_frame_equal(aligned.loc[:"2026-11-13"], expanded.loc[:"2026-11-13"])
-        for day, token in (("2026-11-04", "."), ("2026-11-11", "bad"), ("2026-11-11", "4.3")):
+        for day, token in (("2026-11-04", "."), ("2026-11-04", ""),
+                           ("2026-11-11", "bad"), ("2026-11-11", "NaN"),
+                           ("2026-11-11", "NA"), ("2026-11-11", "4.3")):
             check = inputs.normalize_fred(("observation_date," + series + "\n" + day + "," + token + "\n").encode(), series, preserve_missing=True)
             if len(check) != 1 or check.attrs["scheduled_non_observation_dates"]:
                 raise AssertionError("Unscheduled holiday rule hid a value or actual missing input")
