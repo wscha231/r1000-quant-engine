@@ -1,5 +1,20 @@
 # Agent Shared Lessons Ledger
 
+### 2026-11-14 KST — Exercise the decoded hosted checkpoint shell
+
+- Real A4 run43405611285/job131819121654 captured and rechecked19 originals
+  and published its data-center index, then failed before checkpoint restore:
+  the nested Python heredoc body/terminator retained two shell-indent spaces.
+  Bash consumed the following fi as heredoc text and refused the entire script.
+  A valid YAML document and positive workflow-string tests did not detect this.
+- Dedent the heredoc body and delimiter in the YAML literal, then parse the
+  actual decoded run scripts with bash-n. Execute the restore/genesis/refusal
+  branches against local fake transport commands; retain checksum verification,
+  the parent-absence proof and refusal after restore/check/auth failures.
+- The failed run never reached the research consumer or checkpoint publisher.
+  Reset the one-time genesis enable flag; source capture/index success does not
+  certify research-state persistence, native readiness, fitting or forecasts.
+
 ### 2026-11-13 KST — Dated macro archives require explicit availability precision
 
 - RTDSM employment/CPI monthly vintage labels do not establish announcement
