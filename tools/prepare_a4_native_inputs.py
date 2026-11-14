@@ -15,6 +15,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tools import build_run287_chameleon_macro_inputs as producer
 from tools import market_analysis_engine as market
+from tools import collect_a4_primary_data as collector, a4_liquidity_analysis as liquidity
 from tools.macro_history_sources import digest, encoded, exclusive
 
 FILES = {
@@ -36,10 +37,19 @@ def read_local(root, name, limit):
     return market.bounded(path, limit)
 
 
-def prepare(source_root, expected_manifest_sha256, *, cutoff, output_dir):
-    """Revalidate native readiness; never fetch, normalize or renew old operands."""
+def implementation_identity():
     identity = market.implementation_identity()
     identity[Path(__file__).name] = digest(Path(__file__).read_bytes())
+    identity[Path(collector.__file__).name] = digest(Path(collector.__file__).read_bytes().replace(b'\r\n',b'\n'))
+    return identity
+
+
+def prepare(source_root, expected_manifest_sha256, *, cutoff, output_dir,
+            current_credit_input_root=None, current_credit_request_sha256=None):
+    """Revalidate native readiness and optional pinned current credit originals."""
+    identity = implementation_identity()
+    market.need((current_credit_input_root is None) == (current_credit_request_sha256 is None),
+        'NATIVE_HANDOFF_CREDIT_ARGUMENT_PAIR')
     root, dest = Path(source_root).resolve(), Path(output_dir).resolve()
     market.need(not (dest.is_relative_to(root) or root.is_relative_to(dest)), "NATIVE_HANDOFF_PATH_OVERLAP")
     market.need(not any(p.is_symlink() for p in (Path(source_root), *Path(source_root).parents,
@@ -91,6 +101,29 @@ def prepare(source_root, expected_manifest_sha256, *, cutoff, output_dir):
         table = market.clock.table(blobs[kind])
         market.need(table.empty or (table["source_sha256"].eq(pins["source_lineage"]).all() and
             table["truth_class"].eq("FREE_PROXY").all()), "NATIVE_HANDOFF_ROW_LINEAGE_OR_TRUTH")
+    credit_request = None
+    credit_root = None
+    credit = []
+    if current_credit_input_root is not None:
+        market.need(type(current_credit_request_sha256) is str and
+            re.fullmatch('[a-f0-9]{64}', current_credit_request_sha256), 'NATIVE_HANDOFF_CREDIT_REQUEST_PIN')
+        credit_root = Path(current_credit_input_root)
+        market.need(not (credit_root.resolve().is_relative_to(dest) or dest.is_relative_to(credit_root.resolve())),
+            'NATIVE_HANDOFF_PATH_OVERLAP')
+        credit_request = read_local(credit_root, 'request.json', 256*1024)
+        supplied = market.verify_request(credit_request, current_credit_request_sha256, cutoff, session)
+        for spec in supplied['inputs']:
+            if not collector.credit_source_input(spec):
+                continue
+            body = read_local(credit_root, market.safe_path(spec['path']), market.input_limit(spec))
+            market.need(digest(body) == spec['sha256'], 'NATIVE_HANDOFF_CREDIT_ORIGINAL_HASH')
+            rows = liquidity.parse_original(body, spec)
+            market.need(liquidity.summarize(rows, cutoff)['status'] == 'OBSERVED',
+                'NATIVE_HANDOFF_CREDIT_NOT_CURRENT')
+            credit.append((spec, body))
+            market.need(sum(map(len, bodies.values())) + sum(len(b) for _,b in credit) <= market.MAX_TOTAL_BYTES,
+                'NATIVE_HANDOFF_TOTAL_BYTES')
+        market.need(credit, 'NATIVE_HANDOFF_CREDIT_ORIGINAL_REQUIRED')
     assessment = market.native_risk(blobs, session, cutoff)
     market.need(assessment["status"] == "READY_RESEARCH_ONLY", "NATIVE_HANDOFF_TEN_AXIS_NOT_READY")
     entries, objects = [], {}
@@ -103,6 +136,10 @@ def prepare(source_root, expected_manifest_sha256, *, cutoff, output_dir):
         entries.append(dict(kind=kind, path=path, sha256=digest(body), status="COLLECTED", collected_at=cutoff,
             native_source_manifest_sha256=expected_manifest_sha256,
             native_source_lineage_sha256=pins["source_lineage"]))
+    for spec, body in credit:
+        path = 'native/'+spec['sha256']
+        objects[path] = body
+        entries.append(dict(spec, path=path))
     request = dict(schema=market.REQUEST_SCHEMA_V2, market="US", session=session,
         available_at=cutoff, expires_at=(market.clock.stamp(cutoff)+timedelta(days=1)).isoformat(), inputs=entries)
     request_raw = encoded(request)
@@ -113,12 +150,19 @@ def prepare(source_root, expected_manifest_sha256, *, cutoff, output_dir):
         source_output_sha256s=pins, implementation=identity,
         native_ready_axes=assessment["ready_axis_count"], native_required_axes_ready=assessment["required_axes_ready"],
         source_originals_independently_replayed=False, upstream_rights_review_required=True,
+        current_credit_request_sha256=current_credit_request_sha256,
+        current_credit_original_sha256s=[spec['sha256'] for spec,_ in credit],
         request_collection_clock="DERIVED_PACKET_PREPARATION_ONLY_ORIGINAL_ROW_CLOCKS_UNCHANGED", **SAFETY)
     # Check every consumed file again after native replay, before any write.
     for name, body in bodies.items():
         market.need(read_local(root, name, len(body)+1) == body, "NATIVE_HANDOFF_SOURCE_CHANGED")
-    current = market.implementation_identity()
-    current[Path(__file__).name] = digest(Path(__file__).read_bytes())
+    if credit_request is not None:
+        market.need(read_local(credit_root, 'request.json', len(credit_request)+1) == credit_request,
+            'NATIVE_HANDOFF_CREDIT_CHANGED')
+        for spec, body in credit:
+            market.need(read_local(credit_root, market.safe_path(spec['path']), len(body)+1) == body,
+                'NATIVE_HANDOFF_CREDIT_CHANGED')
+    current = implementation_identity()
     market.need(current == identity, "NATIVE_HANDOFF_CODE_CHANGED")
     # The hash file is the existing consumer's commit marker. Write it only
     # after the objects, request and preparation receipt are complete.
@@ -141,10 +185,14 @@ def main():
     parser.add_argument("--source-root", required=True)
     parser.add_argument("--manifest-sha256", required=True, help="Exact original Source manifest pin, supplied independently")
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument('--current-credit-input-root', help='Optional current Source request with separately qualified HY/IG originals')
+    parser.add_argument('--current-credit-request-sha256', help='Independent original request hash, required with the credit root')
     args = parser.parse_args()
     try:
         result = prepare(args.source_root, args.manifest_sha256,
-            cutoff=market.clock.trusted_now().isoformat(), output_dir=args.output_dir)
+            cutoff=market.clock.trusted_now().isoformat(), output_dir=args.output_dir,
+            current_credit_input_root=args.current_credit_input_root,
+            current_credit_request_sha256=args.current_credit_request_sha256)
     except (ValueError, OSError, KeyError, TypeError, OverflowError, RecursionError) as exc:
         message = str(exc)
         blocker = message if re.fullmatch("NATIVE_HANDOFF_[A-Z_]+", message) else "INVALID_OR_UNAVAILABLE_NATIVE_SOURCE"

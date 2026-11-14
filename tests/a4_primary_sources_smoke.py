@@ -1,5 +1,6 @@
 """Primary-original scope, units, PIT clocks, immutable readback and cloud hook."""
 import copy
+from datetime import timedelta
 import gzip
 import io
 import json
@@ -61,6 +62,24 @@ def nyfed(feed):
     return encoded(dict(refRates=[dict(type=feed.upper(), effectiveDate='2026-11-06', percentRate=3.88,
         volumeInBillions=100, percentPercentile1=3.8, percentPercentile25=3.85,
         percentPercentile75=3.9, percentPercentile99=4)]))
+
+
+def retained_credit_input(root, *, now=NOW):
+    root.mkdir()
+    entries=[];bodies={}
+    for name,kind,source_id,body in (
+        ('context.json','risk_context',None,b'[]'),
+        ('hy.csv','macro','fred:BAMLH0A0HYM2',b'DATE,BAMLH0A0HYM2\n2026-11-06,3.2\n'),
+        ('ig.csv','macro_v2','fred:BAMLC0A0CM',b'DATE,BAMLC0A0CM\n2026-11-06,1.0\n'),
+        ('rates.csv','macro_v2','fred:DGS10',b'DATE,DGS10\n2026-11-06,4.1\n')):
+        (root/name).write_bytes(body);bodies[name]=body
+        spec=dict(kind=kind,path=name,sha256=digest(body),status='COLLECTED',collected_at=now)
+        if source_id is not None:spec['source_id']=source_id
+        entries.append(spec)
+    request=dict(schema=m.REQUEST_SCHEMA_V2,market='US',session=m.current_session(now),available_at=now,
+        expires_at=(p.clock(now)+timedelta(days=1)).isoformat(),inputs=entries)
+    raw=encoded(request);(root/'request.json').write_bytes(raw);(root/'request.sha256').write_text(digest(raw))
+    return request,bodies
 
 
 class PrimaryTests(unittest.TestCase):
@@ -240,6 +259,56 @@ class PrimaryTests(unittest.TestCase):
             self.assertFalse((transport.root/p.PREFIX/'generations').exists())
             self.assertEqual(len(list((transport.root/p.PREFIX/'executions').iterdir())),1)
             self.assertFalse((Path(d)/'attempt/inputs/request.json').exists())
+
+    def test_collection_preserves_supplied_credit_bytes_specification_and_clocks(self):
+        bodies={feed:nyfed(feed) if feed in {'sofr','tgcr','effr'} else archive(feed) for feed in c.FEED_ORDER}
+        def fetch(url,limit):return next(bodies[k] for k,v in p.FEEDS.items() if v[0]==url)
+        with tempfile.TemporaryDirectory() as tmp,patch.object(p,'now',return_value=NOW):
+            root=Path(tmp);request,originals=retained_credit_input(root/'native')
+            c.collect(root/'capture',code_sha='a'*40,fetcher=fetch,existing_input_root=root/'native')
+            restored=json.loads((root/'capture/inputs/request.json').read_bytes())
+            retained=[s for s in restored['inputs'] if s['kind'] in {'macro','macro_v2','risk_context'}]
+            self.assertEqual(len(retained),3)
+            for spec in request['inputs'][:3]:
+                output=next(s for s in retained if s['sha256']==spec['sha256'])
+                self.assertEqual({k:v for k,v in output.items() if k!='path'},
+                                 {k:v for k,v in spec.items() if k!='path'})
+                self.assertEqual((root/'capture/inputs'/output['path']).read_bytes(),originals[spec['path']])
+            report=json.loads((root/'capture/market_analysis.json').read_bytes())
+            self.assertEqual(report['macro_direction_inputs']['hy_oas']['value'],3.2)
+            self.assertEqual(report['macro_direction_inputs']['ig_oas']['available_at'],NOW)
+            self.assertEqual(report['status'],'DATA_BLOCKED')
+            self.assertFalse(report['source_and_pit_admission'])
+
+    def test_corrupt_or_expired_credit_request_is_not_partially_retained(self):
+        bodies={feed:nyfed(feed) if feed in {'sofr','tgcr','effr'} else archive(feed) for feed in c.FEED_ORDER}
+        def fetch(url,limit):return next(bodies[k] for k,v in p.FEEDS.items() if v[0]==url)
+        for reason in ('hash','expiry'):
+            with self.subTest(reason=reason),tempfile.TemporaryDirectory() as tmp,patch.object(p,'now',return_value=NOW):
+                root=Path(tmp);request,_=retained_credit_input(root/'native')
+                if reason=='hash':(root/'native/hy.csv').write_bytes(b'tampered')
+                else:
+                    request['available_at']='2026-11-07T08:00:00+00:00';request['expires_at']='2026-11-07T09:00:00+00:00'
+                    for spec in request['inputs']:spec['collected_at']='2026-11-07T07:00:00+00:00'
+                    raw=encoded(request);(root/'native/request.json').write_bytes(raw)
+                    (root/'native/request.sha256').write_text(digest(raw))
+                c.collect(root/'capture',code_sha='a'*40,fetcher=fetch,existing_input_root=root/'native')
+                output=json.loads((root/'capture/inputs/request.json').read_bytes())
+                self.assertTrue(all(s['kind']=='macro_primary' for s in output['inputs']))
+
+    def test_fresh_packet_does_not_refresh_an_old_credit_observation(self):
+        bodies={feed:nyfed(feed) if feed in {'sofr','tgcr','effr'} else archive(feed) for feed in c.FEED_ORDER}
+        def fetch(url,limit):return next(bodies[k] for k,v in p.FEEDS.items() if v[0]==url)
+        with tempfile.TemporaryDirectory() as tmp,patch.object(p,'now',return_value=NOW):
+            root=Path(tmp);request,_=retained_credit_input(root/'native')
+            old=b'DATE,BAMLH0A0HYM2\n2026-10-01,3.2\n';(root/'native/hy.csv').write_bytes(old)
+            request['inputs'][1]['sha256']=digest(old);raw=encoded(request)
+            (root/'native/request.json').write_bytes(raw);(root/'native/request.sha256').write_text(digest(raw))
+            c.collect(root/'capture',code_sha='a'*40,fetcher=fetch,existing_input_root=root/'native')
+            report=json.loads((root/'capture/market_analysis.json').read_bytes())
+            self.assertEqual(report['macro_direction_inputs']['hy_oas']['status'],'STALE')
+            self.assertEqual(report['macro_direction_inputs']['hy_oas']['observation_date'],'2026-10-01')
+            self.assertEqual(report['status'],'DATA_BLOCKED')
 
     def test_primary_learning_requires_forward_capture_and_reviewed_price_scope(self):
         from tests.a4_macro_learning_smoke import fixture
