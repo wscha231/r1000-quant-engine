@@ -1,5 +1,19 @@
 # Agent Shared Lessons Ledger
 
+### 2026-11-14 KST — Separate H.10 observation age from weekly publication
+
+- Daily H.10 broad-dollar values are released for the previous business week
+  on Monday16:15 New York or the next federal business day. An eight-day-old
+  Friday can still be current before the next release; retain its date and
+  clocks rather than increasing a fixed age allowance or inventing publication.
+- Require the complete expected business week, retain nulls and gaps, and
+  reject early/future-period anomalies. A fresh fetch cannot renew an old week
+  after the next deadline. Recheck the schedule when explaining stored context;
+  DST/holidays alter scheduled clocks, never actual first availability or PIT.
+- Keep the rule confined to the registered Board series and reviewed calendar
+  window. Consumer freshness does not migrate archived normalizer hashes,
+  change native readiness, qualify supplier rights or authorize a model fit.
+
 ### 2026-11-14 KST — Preserve supplied credit originals through the A4 index
 
 - The official primary feed set has no HY/IG series. Copying only native risk

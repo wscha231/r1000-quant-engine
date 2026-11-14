@@ -6,8 +6,12 @@ All observations retain their actual collection/availability and null values.
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import timedelta
+from datetime import date, datetime, time, timedelta, timezone
+from functools import lru_cache
 import math
+from zoneinfo import ZoneInfo
+
+from pandas.tseries.holiday import USFederalHolidayCalendar
 
 from tools import free_market_context as f
 from tools import a4_macro_bridge as bridge
@@ -131,12 +135,92 @@ def visible_histories(rows, cutoff):
     return {key: [dated[d] for d in sorted(dated)] for key, dated in grouped.items()}
 
 
+@lru_cache(maxsize=32)
+def _h10_holidays(year):
+    return frozenset(stamp.date() for stamp in USFederalHolidayCalendar().holidays(
+        start=date(year-1, 12, 1), end=date(year+1, 1, 31)))
+
+
+def h10_schedule(cutoff):
+    """Expected publication periods only; these are not actual source clocks."""
+    decision = f.utc(cutoff)
+    local = decision.astimezone(ZoneInfo("America/New_York"))
+    # Current-capture review window, excluding the 2006-2009 weekly hiatus.
+    if not 2010 <= local.year <= 2035:
+        return None
+    holidays = _h10_holidays(local.year)
+    monday = local.date()-timedelta(days=local.weekday())
+    releases = []
+    for offset in (-2, -1, 0, 1, 2):
+        anchor = monday+timedelta(weeks=offset)
+        due = anchor
+        while due.weekday() >= 5 or due in holidays:
+            due += timedelta(days=1)
+        clock = datetime.combine(due, time(16, 15), ZoneInfo("America/New_York")).astimezone(timezone.utc)
+        releases.append((clock, anchor))
+    latest, anchor = max(pair for pair in releases if pair[0] <= decision)
+    next_due = min(clock for clock, _ in releases if clock > decision)
+    start = anchor-timedelta(weeks=1)
+    end = start+timedelta(days=4)
+    required = [(start+timedelta(days=n)).isoformat() for n in range(5)
+                if start+timedelta(days=n) not in holidays]
+    return dict(method="H10_WEEKLY_PUBLICATION_V1", observation_frequency="daily",
+        publication_frequency="weekly", timezone="America/New_York",
+        latest_scheduled_release_at=latest.isoformat(), next_scheduled_release_at=next_due.isoformat(),
+        expected_period_start=start.isoformat(), expected_period_end=end.isoformat(),
+        required_observation_dates=required, scheduled_times_are_actual_availability=False,
+        calendar_reference="https://www.federalreserve.gov/releases/h10/")
+
+
+def _h10_freshness(history, cutoff):
+    calendar = h10_schedule(cutoff)
+    if calendar is None:
+        return dict(status="UNREVIEWED_PUBLICATION_CALENDAR")
+    decision = f.utc(cutoff)
+    visible = {r["observation_date"]: r for r in history if f.utc(r["available_at"]) <= decision}
+    missing = [d for d in calendar["required_observation_dates"]
+               if d not in visible or visible[d]["value"] is None]
+    unexpected = [d for d in visible if d > calendar["expected_period_end"]]
+    # An unexpectedly early capture is an anomaly, not proof of publication.
+    early = [d for d, r in visible.items() if d >= calendar["expected_period_start"] and (
+        h10_schedule(r["available_at"]) is None or
+        d > h10_schedule(r["available_at"])["expected_period_end"])]
+    status = ("UNEXPECTED_PUBLICATION_PERIOD" if unexpected or early else
+              "STALE" if history[-1]["observation_date"] < calendar["expected_period_start"] else
+              "MISSING" if missing else "OBSERVED")
+    return dict(**calendar, status=status, missing_observation_dates=missing,
+                unexpected_observation_dates=sorted(set(unexpected+early)))
+
+
+def current_observation(row, cutoff):
+    """Recheck clocks/freshness when a summarized row is explained later."""
+    if row.get("status") != "OBSERVED" or row.get("value") is None:
+        return False
+    if f.utc(row["available_at"]) > f.utc(cutoff) or f.iso_date(row["observation_date"]) > f.utc(cutoff).date():
+        return False
+    if row["source_id"] == "frb:H10_BROAD":
+        calendar = h10_schedule(cutoff)
+        proof = row.get("publication_freshness", {})
+        captured = h10_schedule(row["available_at"])
+        return (calendar is not None and captured is not None and
+            all(proof.get(k) == v for k, v in calendar.items()) and proof.get("status") == "OBSERVED" and
+            proof.get("missing_observation_dates") == [] and proof.get("unexpected_observation_dates") == [] and
+            row["observation_date"] == calendar["required_observation_dates"][-1] and
+            row["observation_date"] <= captured["expected_period_end"])
+    return (f.utc(cutoff).date()-f.iso_date(row["observation_date"])).days <= row["max_age_days"]
+
+
 def summarize(history, cutoff):
     last = history[-1]
     status = "MISSING" if last["value"] is None else "STALE" if (
         f.utc(cutoff).date()-f.iso_date(last["observation_date"])).days > last["max_age_days"] else "OBSERVED"
+    freshness = _h10_freshness(history, cutoff) if last["source_id"] == "frb:H10_BROAD" else None
+    if freshness is not None:
+        status = "MISSING" if last["value"] is None else freshness["status"]
     result = {**last, "status": status, "value": last["value"] if status == "OBSERVED" else None,
               "changes": {}, "interpretation": "BALANCE_CHANGE_NOT_IDENTIFIED_FLOW" if last["family"] == "BANK_CREDIT" else "OBSERVATION_CHANGE"}
+    if freshness is not None:
+        result["publication_freshness"] = freshness
     periods = (1, 4, 13) if last["frequency"] == "weekly" else (1, 5, 21) if last["frequency"] == "daily" else (1, 3, 12)
     dated = {r["observation_date"]: r for r in history}
     for n in periods:

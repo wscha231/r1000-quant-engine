@@ -15,6 +15,10 @@ dates, original/normalization hashes, missing members and contrary directions.
 Families are neither averaged nor counted as independent equity signals.
 Missing, stale, future or incomplete-window evidence never becomes neutral or
 an older successful observation. Macro readiness is not completion of A4.
+H.10 broad-dollar evidence separately retains daily observation and weekly
+publication frequencies. Its expected complete business week and next release
+deadline are rechecked when explaining a summary at a later cutoff. Scheduled
+release times are context, not actual publication or availability evidence.
 
 - Funding spread increases describe tightening pressure; shared rates overlap.
 - Reserves rising and TGA falling describe easing balance conditions separately.

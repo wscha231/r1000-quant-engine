@@ -148,6 +148,19 @@ contains third-party corporate-bond observations outside this source scope.
 H.10 uses only native `JRXWTFB_N.B` / `BRD`, starting2006 in the actual current
 archive. Its native1997 base label is retained verbatim with a definition
 caveat; no silent rebasing or splice with `V0` goods-only history is performed.
+The current A4 consumer evaluates this daily series against its weekly
+[publication schedule](https://www.federalreserve.gov/releases/h10/): Monday
+16:15 America/New_York, shifted to the next federal business day on a Monday
+holiday, covering the previous business week. `publication_freshness` records
+the expected week, required dates, missing values and latest/next scheduled
+release. All required business-day values must exist; early/future weeks remain
+anomalies and an old week stays stale after the next deadline even if recollected.
+Nulls and actual collection/availability are unchanged, `published_at` stays
+unknown and scheduled clocks never prove first availability or historical PIT.
+The separate reviewed calendar window is2010–2035; the2006–2009 publication
+hiatus and unreviewed dates do not inherit a weekly freshness exemption. Other
+publishers, request expiry and the ten-axis readiness gate are unchanged. This
+consumer-only rule does not rewrite archived normalization or capture hashes.
 Learning requires one explicit source ID for each logical series, including
 in direct feature replay. A later alternate publisher cannot change a fixed
 earlier feature prefix.

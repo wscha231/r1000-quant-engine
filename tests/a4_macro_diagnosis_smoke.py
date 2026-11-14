@@ -7,7 +7,7 @@ import unittest
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from tools import a4_macro_diagnosis as d,market_analysis_engine as m
 from tools import a4_liquidity_analysis as a
-from tests.a4_liquidity_analysis_smoke import rows,NOW,analyze,raw
+from tests.a4_liquidity_analysis_smoke import rows,NOW,analyze,raw,h10_rows
 
 
 def report():
@@ -24,6 +24,24 @@ def report():
 
 
 class DiagnosisTests(unittest.TestCase):
+    def test_h10_diagnosis_rechecks_the_scheduled_period_without_inventing_availability(self):
+        now = "2026-11-14T06:36:37Z"
+        point = a.summarize(h10_rows(), now)
+        measure = d.measurement({"broad_usd": point}, "broad_usd", 1, 1, now)
+        self.assertEqual(measure["status"], "OBSERVED")
+        self.assertEqual(measure["change"], 1)
+        evidence = measure["evidence"][0]
+        self.assertIsNone(evidence["published_at"])
+        self.assertEqual(evidence["available_at"], "2026-11-14T03:35:42Z")
+        self.assertEqual(evidence["publication_freshness"], point["publication_freshness"])
+        self.assertEqual(d.measurement({"broad_usd": point}, "broad_usd", 1, 1,
+                                     "2026-11-16T21:15:00Z")["status"], "INSUFFICIENT_EVIDENCE")
+        for key in ("publication_freshness",):
+            invalid = copy.deepcopy(point); invalid.pop(key)
+            self.assertFalse(d.observed(invalid, now))
+        invalid = copy.deepcopy(point); invalid["publication_freshness"]["missing_observation_dates"] = ["2026-11-04"]
+        self.assertFalse(d.observed(invalid, now))
+
     def test_balance_growth_and_reserve_increase_do_not_label_qe_or_equity_up(self):
         source=report();panel={}
         for sid in ('WALCL','WRESBAL','WTREGEN'):
