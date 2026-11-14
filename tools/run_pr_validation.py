@@ -297,6 +297,10 @@ def run_one(rel_path: str, extra_args: list[str], quiet: bool) -> tuple[bool, fl
     proc = subprocess.run(cmd, capture_output=True, text=True, env=CHILD_ENV, encoding="utf-8", errors="replace")
     elapsed = time.monotonic() - start
     if proc.returncode != 0:
+        if rel_path == "tests/agent_board_smoke.py":
+            # A later tier timeout must not erase an earlier suite's traceback.
+            print(f"--- {rel_path}: returncode={proc.returncode} (stderr) ---", flush=True)
+            print(proc.stderr or "<no stderr>", flush=True)
         combined = (proc.stdout + proc.stderr).strip()
         tail = "\n".join(combined.splitlines()[-15:]) if combined else "<no output>"
         return False, elapsed, tail

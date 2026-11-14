@@ -37,7 +37,66 @@ def require_clauses(name: str, text: str, clauses: tuple[str, ...]) -> None:
     assert not missing, f"{name} is missing required safety clauses: {missing}"
 
 
+def require_immediate_board_failure_details() -> None:
+    """Keep an early suite traceback visible before the entire tier finishes."""
+    from contextlib import redirect_stdout
+    from io import StringIO
+    from types import SimpleNamespace
+    from unittest import TestCase
+    from unittest.mock import patch
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("validation_failure_fixture", ROOT / "tools/run_pr_validation.py")
+    if spec is None or spec.loader is None:
+        raise RuntimeError("cannot load the existing validation runner")
+    validation = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(validation)
+
+    class FlushedOutput(StringIO):
+        def __init__(self):
+            super().__init__()
+            self.flush_offsets = []
+
+        def flush(self):
+            self.flush_offsets.append(len(self.getvalue()))
+            super().flush()
+
+    check = TestCase()
+    early = "EARLY_SYNTHETIC_PLANNING_FAILURE"
+    stderr = early + "\n" + "later suite passed\n" * 25
+    failed = SimpleNamespace(returncode=7, stdout="", stderr=stderr)
+    output = FlushedOutput()
+    with patch.object(validation.subprocess, "run", return_value=failed), redirect_stdout(output):
+        passed, _, tail = validation.run_one("tests/agent_board_smoke.py", [], quiet=True)
+    check.assertFalse(passed)
+    check.assertNotIn(early, tail)  # Preserve the existing short final summary.
+    check.assertIn("returncode=7", output.getvalue())
+    check.assertIn(stderr, output.getvalue())
+    check.assertIn(len(output.getvalue()), output.flush_offsets)
+
+    # Other failures and successful board runs retain their prior output policy.
+    for path, proc, expected in (
+        ("tests/run287_agent_github_operating_standard_smoke.py", failed, False),
+        ("tests/agent_board_smoke.py", SimpleNamespace(returncode=0, stdout="ok\n", stderr=stderr), True),
+    ):
+        output = FlushedOutput()
+        with patch.object(validation.subprocess, "run", return_value=proc), redirect_stdout(output):
+            passed, _, _ = validation.run_one(path, [], quiet=True)
+        check.assertEqual(passed, expected)
+        check.assertEqual(output.getvalue(), "")
+
+    output = FlushedOutput()
+    empty = SimpleNamespace(returncode=2, stdout="", stderr="")
+    with patch.object(validation.subprocess, "run", return_value=empty), redirect_stdout(output):
+        passed, _, tail = validation.run_one("tests/agent_board_smoke.py", [], quiet=True)
+    check.assertFalse(passed)
+    check.assertEqual(tail, "<no output>")
+    check.assertIn("returncode=2", output.getvalue())
+    check.assertIn("<no stderr>", output.getvalue())
+
+
 def main() -> int:
+    require_immediate_board_failure_details()
     agents = read_required("AGENTS.md")
     standard = read_required("docs/RUN287_GITHUB_AGENT_OPERATING_STANDARD.md")
     template = read_required(".github/PULL_REQUEST_TEMPLATE.md")
