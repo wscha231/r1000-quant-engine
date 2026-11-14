@@ -168,7 +168,10 @@ def h10_schedule(cutoff):
         publication_frequency="weekly", timezone="America/New_York",
         latest_scheduled_release_at=latest.isoformat(), next_scheduled_release_at=next_due.isoformat(),
         expected_period_start=start.isoformat(), expected_period_end=end.isoformat(),
-        required_observation_dates=required, scheduled_times_are_actual_availability=False,
+        required_observation_dates=required,
+        scheduled_non_observation_dates=[(start+timedelta(days=n)).isoformat() for n in range(5)
+                                         if start+timedelta(days=n) in holidays],
+        scheduled_times_are_actual_availability=False,
         calendar_reference="https://www.federalreserve.gov/releases/h10/")
 
 
@@ -180,7 +183,9 @@ def _h10_freshness(history, cutoff):
     visible = {r["observation_date"]: r for r in history if f.utc(r["available_at"]) <= decision}
     missing = [d for d in calendar["required_observation_dates"]
                if d not in visible or visible[d]["value"] is None]
-    unexpected = [d for d in visible if d > calendar["expected_period_end"]]
+    unexpected = [d for d, r in visible.items() if d > calendar["expected_period_end"] or (
+        calendar["expected_period_start"] <= d and d not in calendar["required_observation_dates"]
+        and r["value"] is not None)]
     # An unexpectedly early capture is an anomaly, not proof of publication.
     early = [d for d, r in visible.items() if d >= calendar["expected_period_start"] and (
         h10_schedule(r["available_at"]) is None or
@@ -216,6 +221,14 @@ def summarize(history, cutoff):
         f.utc(cutoff).date()-f.iso_date(last["observation_date"])).days > last["max_age_days"] else "OBSERVED"
     freshness = _h10_freshness(history, cutoff) if last["source_id"] == "frb:H10_BROAD" else None
     if freshness is not None:
+        freshness["source_terminal_observation_date"] = last["observation_date"]
+        if (freshness["status"] == "OBSERVED" and last["value"] is None and
+                last["observation_date"] in freshness["scheduled_non_observation_dates"]):
+            # Only an explicit scheduled holiday can be a non-observation.
+            # Business-day nulls/gaps were already rejected above.
+            wanted = freshness["required_observation_dates"][-1]
+            history = [r for r in history if r["observation_date"] <= wanted]
+            last = history[-1]
         status = "MISSING" if last["value"] is None else freshness["status"]
     result = {**last, "status": status, "value": last["value"] if status == "OBSERVED" else None,
               "changes": {}, "interpretation": "BALANCE_CHANGE_NOT_IDENTIFIED_FLOW" if last["family"] == "BANK_CREDIT" else "OBSERVATION_CHANGE"}

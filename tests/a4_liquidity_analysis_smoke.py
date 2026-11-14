@@ -112,6 +112,21 @@ class LiquidityTests(unittest.TestCase):
         self.assertEqual(out["status"], "STALE")
         self.assertNotIn("publication_freshness", out)
 
+    def test_h10_terminal_federal_holiday_null_is_retained_as_a_scheduled_non_observation(self):
+        history = h10_rows("2026-12-21", collected="2026-12-28T21:16:00Z")
+        history[-1]["value"] = None
+        out = a.summarize(history, "2026-12-29T10:00:00Z")
+        self.assertEqual(out["status"], "OBSERVED")
+        self.assertEqual(out["observation_date"], "2026-12-24")
+        self.assertEqual(out["changes"]["1"]["value"], 1)
+        proof = out["publication_freshness"]
+        self.assertEqual(proof["source_terminal_observation_date"], "2026-12-25")
+        self.assertEqual(proof["scheduled_non_observation_dates"], ["2026-12-25"])
+        self.assertIsNone(history[-1]["value"])
+        self.assertTrue(a.current_observation(out, "2026-12-29T10:00:00Z"))
+        history[-1]["value"] = 125
+        self.assertEqual(a.summarize(history, "2026-12-29T10:00:00Z")["status"], "UNEXPECTED_PUBLICATION_PERIOD")
+
     def test_spreads_use_basis_points_and_share_one_evidence_family(self):
         data = []
         for sid, v in (("SOFR", 4.2), ("TGCR", 4.1), ("IORB", 4.0), ("DFF", 3.98)):

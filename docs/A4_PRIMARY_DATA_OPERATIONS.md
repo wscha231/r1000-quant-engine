@@ -155,6 +155,9 @@ holiday, covering the previous business week. `publication_freshness` records
 the expected week, required dates, missing values and latest/next scheduled
 release. All required business-day values must exist; early/future weeks remain
 anomalies and an old week stays stale after the next deadline even if recollected.
+An explicit terminal federal-holiday null is retained in the freshness audit as
+a scheduled non-observation; the summary uses the last required business day.
+Business-day nulls or absent dates never receive this treatment.
 Nulls and actual collection/availability are unchanged, `published_at` stays
 unknown and scheduled clocks never prove first availability or historical PIT.
 The separate reviewed calendar window is2010–2035; the2006–2009 publication
