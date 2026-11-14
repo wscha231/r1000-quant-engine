@@ -14,6 +14,25 @@ the existing configured base stores `outputs/a4_research/state` and immutable
 `outputs/a4_research/attempts/<run-id>-<attempt>`. No additional paid server,
 desktop scheduler, trading process or second accepted-state authority is used.
 
+## Public metadata and private analysis
+
+This repository is public. The existing five artifact names now contain only
+`a4-public-metadata-v1` receipts from `tools/a4_public_receipts.py`: fixed file
+names, byte counts and SHA256 hashes, code/run identity and closed GitHub step
+outcomes. Private report bytes are hashed without parsing or copying their
+contents. These receipts do not certify analysis, source rights, a completed
+cycle or accepted state. Full analysis, numerical results and their existing
+private Drive copy/check remain authoritative; use that exact hash-bound
+private record instead of treating the public metadata as a market report.
+
+The workflow uploads only the five exact generated receipt paths. A failed
+metadata writer prevents those uploads and fails the job. A skipped source
+step cannot advertise a checked-in or restored old report. Unknown outcomes,
+path/byte limits, symlinks and conflicting metadata destinations refuse the
+write. The legacy monitor's stdout/stderr stay in its existing private sync
+directory, with its original process exit status preserved. The collection,
+learning, late-session and durable-readback gates are unchanged.
+
 ## Activation prerequisites
 
 The hosted research step defaults to `A4_RESEARCH_SCOPE=A4_ONLY`. It performs

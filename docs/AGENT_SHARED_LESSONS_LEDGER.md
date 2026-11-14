@@ -1,5 +1,20 @@
 # Agent Shared Lessons Ledger
 
+### 2026-11-14 KST — Keep real A4 analysis out of public workflow artifacts
+
+- The repository is public; broad artifact paths included full daily reports,
+  research attempts and primary/data-center analysis JSON/Markdown. Activating
+  real native/credit inputs would publish financial values and derived scores.
+  Stop hosted dispatch until the public output scope is repaired; private
+  Source input publication and private report readback are separate operations.
+- Publish fixed status/count/hash metadata only. Hash private bytes without
+  parsing payload fields, retain failure/skipped outcomes, and never fall back
+  to an old report for a skipped step. Preserve the full private Drive copy/check
+  and process exit codes, including the legacy monitor's captured console log.
+- Keep the privacy fix separate from H.10, Source normalizer, data policy,
+  scheduler and learning changes. Metadata is not a completed model or evidence
+  of Source/PIT, portfolio or trading approval.
+
 ### 2026-11-14 KST — Separate H.10 observation age from weekly publication
 
 - Daily H.10 broad-dollar values are released for the previous business week

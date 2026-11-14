@@ -17,6 +17,7 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from tools import run_a4_research_cycle as cycle
 from tools import a4_macro_learning as learning
+from tools import a4_public_receipts as public
 from tools.macro_history_sources import encoded,digest
 from tests.a4_macro_learning_smoke import fixture
 
@@ -24,6 +25,93 @@ NOW="2026-11-07T10:00:00Z"
 
 
 class CloudTests(unittest.TestCase):
+    def test_public_receipts_hash_current_files_without_copying_private_financial_content(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);originals={}
+            sentinel=b'PRIVATE_FINANCIAL_SENTINEL_9876.54321'
+            for group,(directory,names) in public.FILES.items():
+                for name in names:
+                    path=root/directory.format(attempt='123-1')/name
+                    path.parent.mkdir(parents=True,exist_ok=True)
+                    raw=sentinel+b' '+group.encode()+b' '+name.encode()
+                    path.write_bytes(raw);originals[path]=raw
+                (path.parent/'prices.csv').write_bytes(sentinel)
+            kwargs=dict(attempt='123-1',code_sha='a'*40,outcomes={key:'failure' for key in public.FILES},
+                        restore='success',persist='failure')
+            first=public.write(root,**kwargs);second=public.write(root,**kwargs)
+            self.assertEqual(first,second)
+            for group,value in first.items():
+                body=(root/'a4_public_receipts/123-1'/(group+'.json')).read_bytes()
+                self.assertNotIn(sentinel,body);self.assertNotIn(b'9876.54321',body)
+                self.assertEqual(set(value),{'schema','category','attempt','code_sha','source_step_outcome',
+                    'restore_step_outcome','persist_step_outcome','private_file_count','private_files',
+                    'financial_payload_included','semantic_validation'})
+                self.assertFalse(value['financial_payload_included'])
+                for item in value['private_files']:
+                    self.assertEqual(set(item),{'name','sha256','bytes'})
+                    path=root/public.FILES[group][0].format(attempt='123-1')/item['name']
+                    self.assertEqual(item['sha256'],digest(originals[path]))
+                    self.assertEqual(item['bytes'],len(originals[path]))
+            self.assertTrue(all(path.read_bytes()==raw for path,raw in originals.items()))
+
+    def test_public_receipts_skip_old_outputs_and_reject_untrusted_status_or_paths(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);old=root/'daily_crisis_monitor/summary.json'
+            old.parent.mkdir();old.write_bytes(b'OLD_PRIVATE_PRICE')
+            kwargs=dict(attempt='123-1',code_sha='a'*40,outcomes={key:'skipped' for key in public.FILES})
+            with patch.object(public,'regular_hash',side_effect=AssertionError('old output read')):
+                result=public.build(root,**kwargs)
+            self.assertTrue(all(row['private_file_count']==0 for row in result.values()))
+            for field,value in [('attempt','../../outside'),('code_sha','private-price'),('restore','PRIVATE_PRICE')]:
+                with self.subTest(field=field),self.assertRaisesRegex(ValueError,'PUBLIC_METADATA_INVALID'):
+                    public.build(root,**{**kwargs,field:value})
+            with self.assertRaisesRegex(ValueError,'PUBLIC_METADATA_INVALID'):
+                public.build(root,**{**kwargs,'outcomes':{**kwargs['outcomes'],'daily':'PRIVATE_PRICE'}})
+
+    def test_public_receipts_refuse_oversize_links_and_conflicting_destination_before_write(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);source=root/'daily_crisis_monitor/summary.json'
+            source.parent.mkdir();source.write_bytes(b'PRIVATE_CONTENT')
+            kwargs=dict(attempt='123-1',code_sha='a'*40,outcomes={key:'success' for key in public.FILES})
+            with patch.object(public,'MAX_FILE_BYTES',5),self.assertRaisesRegex(ValueError,'PUBLIC_METADATA_INVALID'):
+                public.write(root,**kwargs)
+            self.assertFalse((root/'a4_public_receipts').exists())
+            with patch.object(Path,'is_symlink',return_value=True),self.assertRaisesRegex(ValueError,'PUBLIC_METADATA_INVALID'):
+                public.write(root,**kwargs)
+            dest=root/'a4_public_receipts/123-1';dest.mkdir(parents=True)
+            (dest/'daily.json').write_bytes(b'UNRELATED_EXISTING_BYTES')
+            with self.assertRaisesRegex(ValueError,'PUBLIC_METADATA_INVALID'):
+                public.write(root,**kwargs)
+            self.assertEqual(list(dest.iterdir()),[dest/'daily.json'])
+            self.assertEqual((dest/'daily.json').read_bytes(),b'UNRELATED_EXISTING_BYTES')
+            self.assertEqual(source.read_bytes(),b'PRIVATE_CONTENT')
+
+    def test_hosted_public_uploads_are_metadata_only_and_legacy_stdout_stays_private(self):
+        steps=self.hosted_steps()
+        uploads=[step for step in steps if str(step.get('uses','')).startswith('actions/upload-artifact@')]
+        self.assertEqual(len(uploads),5)
+        for step in uploads:
+            self.assertTrue(step['with']['path'].startswith('outputs/a4_public_receipts/'))
+            self.assertTrue(step['with']['path'].endswith('.json'))
+            self.assertNotIn('*',step['with']['path'])
+            self.assertIn("steps.a4_public_receipts.outcome == 'success'",step['if'])
+        generate=next(s for s in steps if s.get('id')=='a4_public_receipts')
+        self.assertEqual(generate['if'],'always()')
+        self.assertFalse(generate.get('continue-on-error',False))
+        legacy=next(s for s in steps if s.get('id')=='daily_crisis')
+        script=re.sub(r'\$\{\{\s*github.run_id\s*\}\}','123',legacy['run'])
+        script=re.sub(r'\$\{\{\s*github.run_attempt\s*\}\}','1',script)
+        prefix='python() { echo PRIVATE_STDOUT_9876; echo PRIVATE_STDERR_5432 >&2; return "$FIXTURE_EXIT"; }\n'
+        for code in (0,2):
+            with self.subTest(code=code),tempfile.TemporaryDirectory() as folder:
+                path=Path(folder)/'legacy.sh';path.write_text(prefix+script,encoding='utf-8',newline='\n')
+                result=subprocess.run([self.shell_binary(),'-e',path.as_posix()],cwd=folder,
+                    env={**os.environ,'FIXTURE_EXIT':str(code)},capture_output=True,text=True,timeout=20)
+                self.assertEqual(result.returncode,code)
+                self.assertNotIn('PRIVATE_STDOUT',result.stdout);self.assertNotIn('PRIVATE_STDERR',result.stderr)
+                private=(Path(folder)/'outputs/daily_crisis_monitor/console-123-1.log').read_text()
+                self.assertIn('PRIVATE_STDOUT_9876',private);self.assertIn('PRIVATE_STDERR_5432',private)
+
     def shell_binary(self):
         git_bash=Path(os.environ.get('ProgramFiles','C:/Program Files'))/'Git/bin/bash.exe'
         binary=str(git_bash) if os.name=='nt' and git_bash.is_file() else shutil.which('bash')
