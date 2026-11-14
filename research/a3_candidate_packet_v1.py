@@ -609,8 +609,18 @@ def _validate_validated_er(value: dict[str, Any], benchmark_id: str) -> dict[str
     _require(value.get("benchmark_id") == benchmark_id, "er_benchmark_mismatch")
     _require(value.get("net_of_costs") is True, "er_not_net_of_costs")
     _require(value.get("unit") == "RETURN_FRACTION", "er_unit")
+    if __package__:
+        from .er_horizon_v1 import SESSION_ER_SCHEMA, validate_session63_er
+    else:
+        from er_horizon_v1 import SESSION_ER_SCHEMA, validate_session63_er
+    session_er = value.get("schema") == SESSION_ER_SCHEMA
+    if session_er:
+        try:
+            validate_session63_er(value)
+        except ValueError as exc:
+            raise A3CandidatePacketError(str(exc)) from None
     horizons = {}
-    for h in ER_HORIZONS:
+    for h in (("63s",) if session_er else ER_HORIZONS):
         er = _number(value.get(f"expected_return_{h}"), f"er:{h}", -1.0)
         bench = _number(value.get(f"benchmark_expected_return_{h}"), f"benchmark_er:{h}", -1.0)
         horizons[h] = {
@@ -710,6 +720,9 @@ def evaluate_packet(packet: Any, cutoff: str, artifact_resolver: ArtifactResolve
             artifact_cache=_artifact_cache,
         )
         validated_er = _validate_validated_er(er_value, benchmark_id)
+        if er_value.get("schema") == "validated-er-nyse-sessions-v1":
+            _require(er_value["forecast_clock"]["decision_session"] == market["session_date"],
+                     "er63_market_session_mismatch")
 
     status = "VALIDATED_ER_LINKED" if validated_er is not None else "SCENARIO_RESEARCH_COMPLETE"
     return {

@@ -112,6 +112,12 @@ def _explain_result(result, risk, report, *, previous=None, policy=None):
             expected_return_12m=row.get("expected_return_12m"),expected_alpha_12m=row.get("expected_alpha_12m"),
             cost_assumptions=original.get("cost_assumptions"),net_of_costs=original.get("net_of_costs"),
             model_id=original.get("model_id"),validation_sha256=original.get("validation_sha256")))
+        if stock and policy["stock_cash_research"]["horizon"]=="63_NYSE_SESSIONS":
+            changes[-1].pop("expected_return_12m")
+            changes[-1].pop("expected_alpha_12m")
+            changes[-1].update(expected_return_63s=row.get("expected_return_63s"),
+                expected_alpha_63s=row.get("expected_alpha_63s"),
+                forecast_clock=original.get("forecast_clock"),allocation_horizon="63_NYSE_SESSIONS")
     explained=dict(schema=SCHEMA,status="RESEARCH_PROPOSAL",as_of=result["computed_at"],
         session=result["as_of"],proposed_weights=weights,cash=cash,changes=changes,comparison_basis=comparison,
         cash_change=cash-old_cash if stock or previous is not None else None,
@@ -136,6 +142,8 @@ def _explain_result(result, risk, report, *, previous=None, policy=None):
             cash_carry_mode="risk_free_rate",cash_rate_source="DGS3MO",cash_rate_lag_days=1,
             cash_carry_haircut_bps=0,cash_carry_day_count=365)
         explained["optimizer_certificate"]=proposal.get("optimizer_certificate")
+        if policy["stock_cash_research"]["horizon"]=="63_NYSE_SESSIONS":
+            explained["allocation_horizon"]="63_NYSE_SESSIONS"
     return seal(explained)
 
 

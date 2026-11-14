@@ -159,14 +159,15 @@ def verified_source_hashes(code_sha):
            ROOT/"tools/macro_history_sources.py",ROOT/"research/theme_etf_runtime_v1/strict.py",
            ROOT/"research/theme_etf_runtime_v1/runtime.py",ROOT/"r1000_legacy_input_guard.py",
            ROOT/"tools/run_a2_research_intake.py",ROOT/"research/a2_research_intake_v1.py",
-           ROOT/"research/a3_candidate_packet_v1.py",ROOT/"research/candidate_registry_v1.py"}
+           ROOT/"research/a3_candidate_packet_v1.py",ROOT/"research/candidate_registry_v1.py",
+           ROOT/"research/er_horizon_v1.py"}
     paths.update(ROOT/name for name in ("tools/run_agent_board.py", "mission_contract.py",
         "r1000_config.py", "research/control_plane/agent_contracts_v2.yaml",
         "research/control_plane/task_packet_schema.json", "research/control_plane/system_state_schema.json",
         "tools/market_analysis_engine.py", "tools/free_market_context.py",
         "tools/a4_liquidity_analysis.py", "tools/a4_macro_bridge.py",
         "tools/a5_model_portfolio.py",
-        "tools/a4_macro_learning.py", "tools/macro_technical_study.py",
+        "tools/a4_macro_learning.py", "tools/a4_rtdsm_sources.py", "tools/macro_technical_study.py",
         "tools/run_a4_research_cycle.py",
         "docs/market_analysis_contract_v2.json",
         "tools/chameleon_market_context_v2.py", "tools/build_run287_chameleon_macro_risk.py",
