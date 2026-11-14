@@ -129,13 +129,15 @@ class Tests(unittest.TestCase):
     self.assertEqual(evaluate_packet(value,"2026-09-19T02:00:00Z",resolver,_artifact_cache=cache),expected)
 
   def test_current_public_observation_graph_refuses_past_unbound_or_fake_publication(self):
-    for mode in ("before_capture","missing_ref","fake_publication","future_day","scope","tampered_raw"):
+    for mode in ("before_capture","missing_ref","fake_publication","future_day","scope","tampered_raw","malformed_url","bad_port"):
       value=packet(); obj=graph(); obj["historical_pit_certified"]=False
       row=current_observation(obj["sources"][1], RAW)
       if mode=="before_capture": obj["as_of"]="2026-09-18T18:59:59Z"
       if mode=="missing_ref": row.pop("public_observation_receipt")
       if mode=="fake_publication": row["published_at"]=row["available_at"]
       if mode=="future_day": row["publisher_reported_date"]="2026-09-25"
+      if mode=="malformed_url": row["source_url"]="https://[invalid"
+      if mode=="bad_port": row["source_url"]="https://example.test:bad/primary"
       if mode=="scope": obj["historical_pit_certified"]=True
       if mode=="tampered_raw": RAW[(row["raw_artifact_id"],row["raw_sha256"])]=b"changed"
       value["artifacts"]["source_graph"]={"kind":"SOURCE_GRAPH",**add("CURRENT-GRAPH",obj)}

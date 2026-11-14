@@ -288,12 +288,14 @@ class MoatQualityV2Smoke(unittest.TestCase):
 
     def test_current_observation_refuses_unbound_or_fabricated_metadata(self):
         for mode in ("publication", "scope", "missing_ref", "wrong_url", "wrong_hash",
-                     "wrong_time", "future_day", "bad_precision", "missing_null_key"):
+                     "wrong_time", "future_day", "bad_precision", "missing_null_key", "malformed_url", "bad_port"):
             value = packet(); row = current_observation(value["dimensions"][DIMENSIONS[0]]["evidence"][0])
             if mode == "publication": row["published_at"] = "2026-09-10T08:00:00Z"
             if mode == "scope": row["historical_pit_certified"] = True
             if mode == "missing_ref": row.pop("public_observation_receipt")
             if mode == "wrong_url": row["source_url"] += "-changed"
+            if mode == "malformed_url": row["source_url"] = "https://[invalid"
+            if mode == "bad_port": row["source_url"] = "https://example.test:bad/primary"
             if mode == "wrong_hash": row["public_observation_receipt"]["sha256"] = "a"*64
             if mode == "wrong_time": row["available_at"] = "2026-09-10T10:00:00Z"
             if mode == "future_day": row["publisher_reported_date"] = "2026-09-25"

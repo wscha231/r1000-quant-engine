@@ -203,8 +203,12 @@ def _validated_current_observation(row, available_at, as_of, raw_resolver):
     source_sha = _hash(row.get("raw_sha256"), "current_observation_source_hash")
     url = _text(row.get("source_url"), "current_observation_source_url", limit=2048)
     from urllib.parse import urlsplit
-    parsed = urlsplit(url)
-    _require(parsed.scheme == "https" and bool(parsed.hostname) and
+    try:
+        parsed = urlsplit(url)
+        hostname, port = parsed.hostname, parsed.port
+    except ValueError as exc:
+        raise MoatQualityContractError("current_observation_source_url") from exc
+    _require(parsed.scheme == "https" and bool(hostname) and
         parsed.username is None and parsed.password is None and not parsed.fragment,
         "current_observation_source_url")
     matches = [e for e in entries if e.get("url") == url and e.get("sha256") == source_sha]
