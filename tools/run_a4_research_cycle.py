@@ -61,10 +61,11 @@ def restored_trials(state_root, cutoff):
     return results
 
 
-def load_learning(root, expected_policy_sha256):
+def load_learning(root, expected_policy_sha256, *, request_name='learning_request.json'):
+    market.need(request_name in {'learning_request.json','forward_request.json'},'A4_LEARNING_REQUEST_NAME')
     market.need(type(expected_policy_sha256) is str and re.fullmatch(r"[a-f0-9]{64}",expected_policy_sha256),
                 "A4_LEARNING_EXTERNAL_POLICY_REQUIRED")
-    raw=market.bounded(Path(root)/"learning_request.json",256*1024)
+    raw=market.bounded(Path(root)/request_name,256*1024)
     request=market.clock.decode(raw)
     market.need(request.get("schema")=="a4-learning-request-v1" and
                 request["policy"]["sha256"]==expected_policy_sha256,"A4_LEARNING_REQUEST_POLICY")
@@ -84,6 +85,16 @@ def load_learning(root, expected_policy_sha256):
         market.need(digest(raw)==sha,"A4_ORIGINAL_HASH")
         return raw
     return payload,policy,resolve
+
+
+def load_forward_context(root,release_policy):
+    """An existing external release pin binds this separate macro-only request."""
+    raw=market.bounded(Path(root)/'forward_request.json',256*1024)
+    market.need(digest(raw)==release_policy.get('forward_request_sha256'),'A4_FORWARD_REQUEST_NOT_REVIEWED')
+    request=market.clock.decode(raw)
+    payload,policy,resolve=load_learning(root,request.get('policy',{}).get('sha256'),request_name='forward_request.json')
+    return dict(forward_inputs=payload,forward_policy=policy,
+        forward_policy_sha256=digest(encoded(policy)),artifact_resolver=resolve)
 
 
 def run_cycle(*, input_root, state_root, output_dir, cutoff,
@@ -157,7 +168,8 @@ def run_cycle(*, input_root, state_root, output_dir, cutoff,
             # A3/A6 graph. An independently pinned auxiliary view is separate
             # until its release is explicitly included in an A4 request.
             learning_context=copy.deepcopy(report)
-            predictions=learning.forecast_release(learning_context,matching[0],policy,digest(encoded(policy)),created_at=cutoff)
+            forward=load_forward_context(learn_root,policy) if matching[0].get('dated_vintage_sources') else {}
+            predictions=learning.forecast_release(learning_context,matching[0],policy,digest(encoded(policy)),created_at=cutoff,**forward)
         forecast_root=state/"predictions"
         if plan["weekly_score_due"]:
             old=[]

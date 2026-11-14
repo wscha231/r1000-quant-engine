@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import timedelta
+import hashlib
 import math
 import re
 from pathlib import Path
@@ -55,6 +56,10 @@ def calendar_sessions(sessions, cutoff):
 
 
 def validate_inputs(payload, policy, expected_policy_sha256, artifact_resolver):
+    return _validated_inputs(payload, policy, expected_policy_sha256, artifact_resolver)[0]
+
+
+def _validated_inputs(payload, policy, expected_policy_sha256, artifact_resolver):
     check(digest(encoded(policy)) == expected_policy_sha256, "A4_LEARNING_EXTERNAL_POLICY_PIN")
     check(policy.get("schema") == "a4-learning-input-policy-v1" and policy.get("purpose") == "MACRO_RELATIONSHIP_RESEARCH",
           "A4_LEARNING_POLICY")
@@ -115,7 +120,7 @@ def validate_inputs(payload, policy, expected_policy_sha256, artifact_resolver):
                 check(reserved<=64*1024**2 and len(original_cache)<128,'A4_LEARNING_SOURCE_BYTE_BUDGET')
                 original_cache[sha]=raw
             return original_cache[sha]
-    vintage_members={}
+    vintage_members={};vintage_rows={};vintage_count=0
     for sha in sorted(originals):
         binding=bindings[sha];source_ids=binding['source_ids']
         if not any(s.startswith('rtdsm:') for s in source_ids):continue
@@ -124,10 +129,13 @@ def validate_inputs(payload, policy, expected_policy_sha256, artifact_resolver):
         generation=binding.get('vintage_manifest_sha256')
         check(generation==binding['source_receipt_sha256'],'A4_LEARNING_VINTAGE_RECEIPT')
         replay,manifest=vintage.read_generation(VintageResolver(),generation,cutoff=cutoff)
+        vintage_count+=len(replay)
+        check(vintage_count<=150000,'A4_LEARNING_VINTAGE_ROW_BUDGET')
         check(manifest['original_sha256']==sha and source_ids==['rtdsm:'+vintage.FEEDS[manifest['feed']][0]]
             and manifest['rights_notice_sha256'] in policy.get('reviewed_rights_pins',[]),
             'A4_LEARNING_VINTAGE_BINDING')
         vintage_members[sha]={digest(encoded(r)) for r in replay}
+        vintage_rows[sha]=replay
     chosen_sources={}
     for row in observations:
         provider, _, sid=row["source_id"].partition(":")
@@ -156,7 +164,7 @@ def validate_inputs(payload, policy, expected_policy_sha256, artifact_resolver):
         for row in rows:
             check("price:"+target in bindings[row["original_sha256"]].get("source_ids",[]),
                   "A4_LEARNING_PRICE_SOURCE_BINDING")
-    return sessions
+    return sessions,vintage_rows
 
 
 def prospective_horizon_capacity(session_count, horizon=504):
@@ -215,6 +223,59 @@ def replay_features(observations, sessions):
                 features[feature].loc[session["session"]] = (a["value"]-b["value"])*100
             latest_period[feature] = a["observation_date"]
     return features
+
+
+def feature_history(features, sessions):
+    """Bind the actual training prefix, including missing and sparse releases."""
+    state=hashlib.sha256()
+    matrix=pd.DataFrame(features).reindex(columns=sorted(FEATURES)).to_numpy(dtype=float)
+    check(len(matrix)==len(sessions),'A4_FEATURE_HISTORY_GRID')
+    check(not np.isinf(matrix).any(),'A4_FEATURE_HISTORY_NONFINITE')
+    for session,values in zip(sessions,matrix):
+        state.update(encoded(dict(session=session['session'],close_utc=free.utc(session['close_utc']).isoformat(),
+            values=[float(x) if math.isfinite(x) else None for x in values])))
+    return dict(first_session=sessions[0]['session'],last_session=sessions[-1]['session'],
+        sessions=len(sessions),sha256=state.hexdigest())
+
+
+def dated_forward_points(report,trial,release_policy,created_at,payload,policy,expected_policy_sha256,resolver):
+    """Replay dated originals on the same completed-close grid as the fit."""
+    check(type(payload) is dict and type(policy) is dict and callable(resolver),
+          'A4_DATED_VINTAGE_FORECAST_CLOCK_ALIGNMENT_REQUIRED')
+    check(expected_policy_sha256 in release_policy.get('forward_input_policy_pins',[]) and
+          digest(encoded(payload)) in release_policy.get('forward_input_pins',[]),
+          'A4_FORWARD_CONTEXT_NOT_REVIEWED')
+    check(free.utc(payload['cutoff'])<=free.utc(report['cutoff']) and
+          free.utc(policy['available_at'])<=free.utc(report['cutoff'])<=free.utc(created_at)<free.utc(policy['expires_at']),
+          'A4_FORWARD_CONTEXT_CLOCK')
+    check(payload.get('prices')=={},'A4_FORWARD_CONTEXT_IS_MACRO_ONLY')
+    sessions,replayed=_validated_inputs(payload,policy,expected_policy_sha256,resolver)
+    expected_sources=trial.get('logical_sources')
+    check(type(expected_sources) is dict and expected_sources and
+          all(type(k) is str and type(s) is str and s.startswith('rtdsm:') for k,s in expected_sources.items()) and
+          sorted(set(expected_sources.values()))==trial['dated_vintage_sources'],
+          'A4_DATED_FORWARD_SOURCE_MAP_REQUIRED')
+    rows=payload['observations'];sources={r['logical_id']:r['source_id'] for r in rows}
+    check(sources==expected_sources,'A4_FORWARD_SOURCE_CHANGED')
+    # A caller cannot select an older column or omit an inconvenient latest
+    # value from a reviewed workbook. Full visible rows also preserve revisions.
+    visible=[r for group in replayed.values() for r in group if free.utc(r['available_at'])<=free.utc(payload['cutoff'])]
+    check(len(rows)==len(visible) and len({digest(encoded(r)) for r in rows})==len(rows) and
+          {digest(encoded(r)) for r in rows}=={digest(encoded(r)) for r in visible},
+          'A4_FORWARD_COMPLETE_VINTAGE_ROWS_REQUIRED')
+    check(payload['sessions'][-1]['session']==report['session'],'A4_FORWARD_SESSION_NOT_CURRENT')
+    history=trial.get('feature_history',{});n=history.get('sessions')
+    check(type(n) is int and 2<=n<=len(sessions),'A4_FORWARD_TRAINING_PREFIX_REQUIRED')
+    features=replay_features(rows,payload['sessions'])
+    prefix={k:v.iloc[:n] for k,v in features.items()}
+    check(feature_history(prefix,payload['sessions'][:n])==history,'A4_FORWARD_TRAINING_PREFIX_CHANGED')
+    points={name:float(series.iloc[-1]) if pd.notna(series.iloc[-1]) else None for name,series in features.items()}
+    proof=dict(schema='a4-dated-forward-context-v1',input_sha256=digest(encoded(payload)),
+        input_policy_sha256=expected_policy_sha256,logical_sources=sources,
+        feature_anchor_close_utc=free.utc(payload['sessions'][-1]['close_utc']).isoformat(),
+        sampling='NEW_REFERENCE_PERIOD_AT_COMPLETED_XNYS_CLOSE',training_prefix_verified=True,
+        originals_replayed=True,historical_pit_certified=False,source_admission_allowed=False)
+    return points,proof
 
 
 def price_series(records, sessions, cutoff):
@@ -306,6 +367,8 @@ def fit_trial(payload, policy, expected_policy_sha256, artifact_resolver, *, reg
         feature_recipe_sha256=digest(encoded(FEATURES)),code_sha256=digest(Path(__file__).read_bytes()),
         math_dependencies={Path(module.__file__).name:digest(Path(module.__file__).read_bytes()) for module in (study,analysis,vintage)},
         dated_vintage_sources=sorted({r['source_id'] for r in payload['observations'] if r['source_id'].startswith('rtdsm:')}),
+        logical_sources={r['logical_id']:r['source_id'] for r in payload['observations']},
+        feature_history=feature_history(features,payload['sessions']),
         targets=list(analysis.TARGETS),horizons=list(analysis.HORIZONS),outcomes=list(OUTCOMES),
         tests_declared=len(rows),results=rows,do_not_repeat=preflight,
         status="CHALLENGER_PROPOSAL_ONLY",promotion_state="INDEPENDENT_REVIEW_REQUIRED",**SAFETY)
@@ -375,7 +438,8 @@ def score_predictions(predictions, prices, sessions, cutoff):
     return out
 
 
-def forecast_release(report, trial, policy, expected_policy_sha256, *, created_at=None):
+def forecast_release(report, trial, policy, expected_policy_sha256, *, created_at=None,
+                     forward_inputs=None,forward_policy=None,forward_policy_sha256=None,artifact_resolver=None):
     """An externally reviewed fixed trial may explain a new report, never size it."""
     verify_trial(trial)
     check(digest(encoded(policy))==expected_policy_sha256 and trial["trial_sha256"] in policy.get("reviewed_trial_pins",[]),
@@ -391,10 +455,29 @@ def forecast_release(report, trial, policy, expected_policy_sha256, *, created_a
     check(trial.get("code_sha256")==digest(Path(__file__).read_bytes()) and trial.get("math_dependencies")==
           {Path(module.__file__).name:digest(Path(module.__file__).read_bytes()) for module in (study,analysis,vintage)},
           "A4_LEARNING_MODEL_CODE_CHANGED")
-    # The current report uses current-source points, which may arrive before
-    # the deliberately delayed RTDSM research bounds. A reviewed challenger
-    # alone cannot validate that different prediction clock/source mapping.
-    check(not trial.get('dated_vintage_sources'), 'A4_DATED_VINTAGE_FORECAST_CLOCK_ALIGNMENT_REQUIRED')
+    forward_proof=None
+    if trial.get('dated_vintage_sources'):
+        points,forward_proof=dated_forward_points(report,trial,policy,created_at,
+            forward_inputs,forward_policy,forward_policy_sha256,artifact_resolver)
+    else:
+        check(all(x is None for x in (forward_inputs,forward_policy,forward_policy_sha256,artifact_resolver)),
+              'A4_FORWARD_CONTEXT_REQUIRES_DATED_TRIAL')
+        points=current_report_points(report)
+    predictions=[]
+    for row in trial['results']:
+        model=row.get('frozen_model');value=points.get(row['feature'])
+        if row['status']!='SHADOW_CANDIDATE' or model is None or value is None:continue
+        contribution=model['coefficient']*(value-model['mean'])/model['sd']
+        estimate=model['intercept']+contribution
+        check(math.isfinite(estimate),'A4_NONFINITE_FORECAST')
+        predictions.append(dict(target=row['target'],horizon_sessions=row['horizon_sessions'],outcome=row['outcome'],
+            feature=row['feature'],evidence_family=row['evidence_family'],estimate=estimate,
+            contribution_vs_training_mean=contribution,created_at=created_at,decision_session=report['session'],
+            reviewed_trial_sha256=trial['trial_sha256'],qualified_company_er=False))
+    return _attach_predictions(report,trial,policy,expected_policy_sha256,created_at,predictions,forward_proof)
+
+
+def current_report_points(report):
     points={"funding:"+key:r["value"] if r["status"]=="OBSERVED" else None
             for key,r in report["funding"]["spreads"].items()}
     panel={**report["liquidity"]["series"],**report["bank_credit"]["series"],**report["macro_direction_inputs"]}
@@ -403,17 +486,10 @@ def forecast_release(report, trial, policy, expected_policy_sha256, *, created_a
         n="4" if r["frequency"]=="weekly" else "1" if r["frequency"]=="monthly" else "5"
         name=("change_4_weeks:" if r["frequency"]=="weekly" else "change_1_month:" if r["frequency"]=="monthly" else "change_5_observations:")+logical
         points[name]=r["changes"][n]["value"] if r["status"]=="OBSERVED" else None
-    predictions=[]
-    for row in trial["results"]:
-        model=row.get("frozen_model"); value=points.get(row["feature"])
-        if row["status"]!="SHADOW_CANDIDATE" or model is None or value is None: continue
-        contribution=model["coefficient"]*(value-model["mean"])/model["sd"]
-        estimate=model["intercept"]+contribution
-        check(math.isfinite(estimate),"A4_NONFINITE_FORECAST")
-        predictions.append(dict(target=row["target"],horizon_sessions=row["horizon_sessions"],outcome=row["outcome"],
-            feature=row["feature"],evidence_family=row["evidence_family"],estimate=estimate,
-            contribution_vs_training_mean=contribution,created_at=created_at,decision_session=report["session"],
-            reviewed_trial_sha256=trial["trial_sha256"],qualified_company_er=False))
+    return points
+
+
+def _attach_predictions(report,trial,policy,expected_policy_sha256,created_at,predictions,forward_proof):
     if predictions:
         decision=free.iso_date(report["session"])
         schedule=mcal.get_calendar("NYSE").schedule(start_date=decision,end_date=decision+timedelta(days=14))
@@ -457,6 +533,7 @@ def forecast_release(report, trial, policy, expected_policy_sha256, *, created_a
         predictions=predictions,causal_effect_identified=False)
     report["learning_provenance"]=dict(status="EXTERNALLY_REVIEWED_FIXED_RELEASE",policy_sha256=expected_policy_sha256,
         trial_sha256=trial["trial_sha256"],automatic_model_promotion_allowed=False)
+    if forward_proof is not None:report['learning_provenance']['forward_context']=forward_proof
     report.pop("content_sha256",None)
     from tools.chameleon_market_context_v2 import digest as report_digest
     report["content_sha256"]=report_digest(report)

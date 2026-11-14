@@ -87,10 +87,51 @@ fourteen-target multiple-testing family remain mandatory.
 
 Dated-vintage trials identify their source IDs and remain challenger proposals.
 The current report can contain BLS points available earlier than these delayed
-research bounds. `forecast_release` therefore refuses RTDSM trials with
-`A4_DATED_VINTAGE_FORECAST_CLOCK_ALIGNMENT_REQUIRED`. A source/clock-aligned
-forward consumer needs its own implementation and independent release review
-before these relationships can supply a current direction prediction.
+research bounds. Without a separately reviewed dated forward packet,
+`forecast_release` still refuses RTDSM trials with
+`A4_DATED_VINTAGE_FORECAST_CLOCK_ALIGNMENT_REQUIRED`.
+
+The dated forward consumer accepts a macro-only learning payload (`prices={}`),
+its original-bound input policy and original resolver. The fixed release policy
+must independently include `forward_input_pins` and
+`forward_input_policy_pins` (canonical decoded SHA256 identities). All workbook,
+normalized, method and notice originals replay through the same bounded Reader.
+The supplied observations must contain every visible row from those generations;
+omitting a later column, null latest cell or inconvenient revision is rejected.
+The initial consumer supports RTDSM-only trials, with the same logical/source
+mapping as training; mixed current-source trials remain unsupported.
+
+New trials bind `logical_sources` and `feature_history`: the complete actual
+training calendar and sparse feature prefix's digest, including missing values.
+The forward packet must reproduce that prefix exactly before applying a fixed
+model. Appending a later release is allowed; changing a past feature through a
+reissued archive requires a new independently reviewed trial. Existing trial
+code/recipe checks remain in force; old trials are not relabeled or promoted.
+
+Features are replayed on the same completed NYSE close grid as training. A new
+weekend or post-close vintage cannot enter the preceding close. A monthly or
+quarterly release produces only its original new-reference-period sample;
+ordinary days with no new sample produce no new quantitative forecast. Current
+BLS context never fills a missing dated feature. Provenance records the original
+input/policy hashes, source mapping and actual feature-anchor close separately
+from forecast creation time. Native risk readiness and evidence thresholds are
+unchanged; a correctly replayed context alone does not qualify a model.
+
+For a native A4 v2 request, a `learning_release` body may additionally contain
+`forward_inputs` and `forward_policy`, with an independently pinned canonical
+`forward_policy_sha256` in its input specification. Supply each needed archived
+object as a hash-bound `learning_original` input; these objects never become risk
+operands. Existing64-input/64MiB total and32MiB member bounds remain unchanged.
+The legacy two-field release and v1 request remain compatible.
+
+The cloud's separate `forward_request.json` uses the existing
+`a4-learning-request-v1` structure (`inputs`, `policy`, `originals`). The externally
+pinned main learning/release policy also binds its exact raw
+`forward_request_sha256`. Its separate forward input policy contains no reference
+back to the main policy, avoiding a self-referential hash. The auxiliary forecast
+report remains separate from the original native report until its release is
+explicitly included in that native request. No new collector, enable flag,
+learning permission, accepted model or A3/A5 authority is created.
 
 ## 504-session preparation
 

@@ -1,5 +1,6 @@
 """Synthetic workbook regressions, not supplier originals or trained forecasts."""
 import gzip
+import copy
 import io
 from pathlib import Path
 import sys
@@ -283,6 +284,134 @@ class RtdsmTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'A4_DATED_VINTAGE_FORECAST_CLOCK_ALIGNMENT_REQUIRED'):
             learning.forecast_release(report,trial,policy,digest(encoded(policy)))
         self.assertEqual(before,encoded(report))
+
+    def dated_release_fixture(self,tmp,*,changed_prefix=False,session='2018-04-02',cutoff='2018-04-02T22:00:00Z'):
+        from tests.a4_macro_learning_smoke import synthetic_direction_release
+        old=self.store(tmp);old_rows,_=v.read_generation(v.PreparedReader(tmp),old['generation_sha256'],cutoff='2018-03-02T22:00:00Z')
+        days=learning.mcal.get_calendar('NYSE').schedule('2018-01-02','2018-03-02')
+        old_sessions=[dict(session=d.date().isoformat(),close_utc=t.isoformat()) for d,t in days.market_close.items()]
+        report,trial,release=synthetic_direction_release()
+        trial.update(cutoff='2018-03-02T22:00:00Z',dated_vintage_sources=['rtdsm:PCPI'],logical_sources={'cpi':'rtdsm:PCPI'},
+            feature_history=learning.feature_history(learning.replay_features(old_rows,old_sessions),old_sessions))
+        for row in trial['results']:
+            row.update(status='INSUFFICIENT_EVIDENCE',frozen_model=None)
+            if row['target'] in ('SPY','QQQ') and row['horizon_sessions']==1 and row['outcome']=='return' and row['feature']=='change_1_month:cpi':
+                row.update(status='SHADOW_CANDIDATE',frozen_model=dict(mean=0.,sd=1.,intercept=0.,
+                    coefficient=.01 if row['target']=='SPY' else -.01))
+        trial['trial_sha256']=digest(encoded({k:x for k,x in trial.items() if k!='trial_sha256'}))
+        raw=workbook(labels=('PCPI18M1','PCPI18M2','PCPI18M3'),values=[
+            ('2017:11',[99 if changed_prefix else 100,110,115]),('2017:12',[101,112,116]),
+            ('2018:01',[None,113,118]),('2018:02',[None,None,120])])
+        new=self.store(tmp,raw=raw,collected='2018-04-02T00:00:00Z');rows,meta=v.read_generation(v.PreparedReader(tmp),new['generation_sha256'],cutoff=cutoff)
+        days=learning.mcal.get_calendar('NYSE').schedule('2018-01-02',session)
+        payload=dict(schema='a4-macro-learning-inputs-v1',cutoff=cutoff,prices={},observations=rows,
+            sessions=[dict(session=d.date().isoformat(),close_utc=t.isoformat()) for d,t in days.market_close.items()])
+        sha=meta['original_sha256']
+        policy=dict(schema='a4-learning-input-policy-v1',purpose='MACRO_RELATIONSHIP_RESEARCH',
+            available_at='2018-04-02T01:00:00Z',expires_at='2018-04-05T00:00:00Z',input_pins=[digest(encoded(payload))],
+            reviewed_rights_pins=['a'*64,digest(self.rights)],reviewed_source_receipt_pins=[new['generation_sha256']],
+            source_bindings={sha:dict(size_bytes=meta['original_bytes'],source_ids=['rtdsm:PCPI'],
+                purpose='MACRO_RELATIONSHIP_RESEARCH',historical_use='DATE_ARCHIVE_RESEARCH_ONLY',
+                rights_evidence_sha256='a'*64,source_receipt_sha256=new['generation_sha256'],
+                vintage_manifest_sha256=new['generation_sha256'])})
+        release.update(available_at='2018-03-03T00:00:00Z',expires_at='2018-04-05T00:00:00Z',
+            reviewed_trial_pins=[trial['trial_sha256']],forward_input_pins=[digest(encoded(payload))],
+            forward_input_policy_pins=[digest(encoded(policy))])
+        report.update(session=session,cutoff=cutoff)
+        # Poison a current-source change: dated models must never consume it.
+        report['macro_direction_inputs']={'cpi':dict(frequency='monthly',status='OBSERVED',changes={'1':{'value':999}})}
+        def resolve(sha):
+            return next(f for f in (Path(tmp)/'objects'/sha,Path(tmp)/'generations'/(sha+'.json')) if f.is_file()).read_bytes()
+        options=dict(forward_inputs=payload,forward_policy=policy,forward_policy_sha256=digest(encoded(policy)),artifact_resolver=resolve)
+        return report,trial,release,options
+
+    def test_dated_forward_uses_replayed_event_and_not_current_bls_point(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            report,trial,policy,options=self.dated_release_fixture(tmp)
+            forecasts=learning.forecast_release(report,trial,policy,digest(encoded(policy)),**options)
+            self.assertEqual({r['target']:r['estimate'] for r in forecasts},{'SPY':.02,'QQQ':-.02})
+            proof=report['learning_provenance']['forward_context']
+            self.assertEqual(proof['feature_anchor_close_utc'],'2018-04-02T20:00:00+00:00')
+            self.assertTrue(proof['training_prefix_verified']);self.assertTrue(proof['originals_replayed'])
+            self.assertFalse(report['portfolio_overlay_allowed'])
+
+    def test_dated_forward_does_not_repeat_a_monthly_release_on_next_day(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            report,trial,policy,options=self.dated_release_fixture(tmp,session='2018-04-03',cutoff='2018-04-03T22:00:00Z')
+            self.assertEqual(learning.forecast_release(report,trial,policy,digest(encoded(policy)),**options),[])
+            self.assertTrue(all(r['direction']=='INSUFFICIENT_EVIDENCE' for r in report['benchmark_outlook']))
+
+    def test_postclose_weekend_vintage_cannot_enter_previous_close_signal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            report,trial,policy,options=self.dated_release_fixture(tmp,session='2018-03-29',cutoff='2018-04-02T12:00:00Z')
+            self.assertEqual(learning.forecast_release(report,trial,policy,digest(encoded(policy)),**options),[])
+
+    def test_reissued_archive_cannot_change_the_training_feature_prefix(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            report,trial,policy,options=self.dated_release_fixture(tmp,changed_prefix=True);before=encoded(report)
+            with self.assertRaisesRegex(ValueError,'A4_FORWARD_TRAINING_PREFIX_CHANGED'):
+                learning.forecast_release(report,trial,policy,digest(encoded(policy)),**options)
+            self.assertEqual(before,encoded(report))
+
+    def test_forward_row_omission_or_duplication_is_rejected_even_with_new_pins(self):
+        for duplicate in (True,False):
+            with self.subTest(duplicate=duplicate),tempfile.TemporaryDirectory() as tmp:
+                report,trial,policy,options=self.dated_release_fixture(tmp);payload=options['forward_inputs']
+                if duplicate:payload['observations'].append(copy.deepcopy(payload['observations'][0]))
+                else:payload['observations'].pop()
+                options['forward_policy']['input_pins']=[digest(encoded(payload))]
+                options['forward_policy_sha256']=digest(encoded(options['forward_policy']))
+                policy.update(forward_input_pins=[digest(encoded(payload))],forward_input_policy_pins=[options['forward_policy_sha256']])
+                with self.assertRaisesRegex(ValueError,'A4_FORWARD_COMPLETE_VINTAGE_ROWS_REQUIRED'):
+                    learning.forecast_release(report,trial,policy,digest(encoded(policy)),**options)
+
+    def test_dated_forward_policy_expiry_review_and_original_tamper_fail_closed(self):
+        for case in ('review','expiry','original','future','source'):
+            with self.subTest(case=case),tempfile.TemporaryDirectory() as tmp:
+                report,trial,policy,options=self.dated_release_fixture(tmp);before=encoded(report)
+                if case=='review':policy['forward_input_policy_pins']=[]
+                elif case=='expiry':options['forward_policy']['expires_at']=report['cutoff']
+                elif case=='original':options['artifact_resolver']=lambda _:b'tampered'
+                elif case=='future':options['forward_inputs']['cutoff']='2018-04-03T22:00:00Z'
+                else:options['forward_inputs']['observations'][0]['source_id']='bls:CUUR0000SA0'
+                with self.assertRaises(ValueError):learning.forecast_release(report,trial,policy,digest(encoded(policy)),**options)
+                self.assertEqual(before,encoded(report))
+
+    def test_native_request_replays_the_same_dated_forecast_with_originals(self):
+        from tools import market_analysis_engine as market
+        with tempfile.TemporaryDirectory() as tmp:
+            report,trial,policy,options=self.dated_release_fixture(tmp)
+            payload=options['forward_inputs'];input_policy=options['forward_policy'];bodies={};entries=[]
+            for path in sorted(Path(tmp).glob('*/*')):
+                body=path.read_bytes();name='originals/'+digest(body);bodies[name]=body
+                if any(s['sha256']==digest(body) for s in entries):continue
+                entries.append(dict(kind='learning_original',path=name,sha256=digest(body),status='COLLECTED',collected_at='2018-04-02T01:00:00Z'))
+            bodies['release.json']=encoded(dict(trial=trial,policy=policy,forward_inputs=payload,forward_policy=input_policy))
+            entries.append(dict(kind='learning_release',path='release.json',sha256=digest(bodies['release.json']),
+                policy_sha256=digest(encoded(policy)),forward_policy_sha256=options['forward_policy_sha256'],status='COLLECTED',collected_at=report['cutoff']))
+            request=dict(schema=market.REQUEST_SCHEMA_V2,market='US',session=report['session'],available_at=report['cutoff'],
+                expires_at='2018-04-03T12:00:00Z',inputs=entries);raw=encoded(request)
+            actual=market.analyze(raw,bodies,expected_sha=digest(raw),cutoff=report['cutoff'],session=report['session'])
+            direct=learning.forecast_release(report,trial,policy,digest(encoded(policy)),**options)
+            self.assertEqual(actual['historical_evidence']['predictions'],direct)
+            self.assertEqual(actual['status'],'DATA_BLOCKED');self.assertEqual(actual['market_assessment']['ready_axis_count'],0)
+            self.assertFalse(actual['source_and_pit_admission'])
+
+    def test_cloud_forward_request_requires_the_exact_external_request_pin(self):
+        from tools import run_a4_research_cycle as cycle
+        with tempfile.TemporaryDirectory() as tmp:
+            report,trial,policy,options=self.dated_release_fixture(tmp);root=Path(tmp)/'bundle';root.mkdir()
+            payload=encoded(options['forward_inputs']);input_policy=encoded(options['forward_policy'])
+            (root/'inputs.json').write_bytes(payload);(root/'policy.json').write_bytes(input_policy)
+            request=encoded(dict(schema='a4-learning-request-v1',inputs=dict(path='inputs.json',sha256=digest(payload)),
+                policy=dict(path='policy.json',sha256=digest(input_policy)),originals={}))
+            (root/'forward_request.json').write_bytes(request)
+            with self.assertRaisesRegex(ValueError,'FORWARD_REQUEST_NOT_REVIEWED'):cycle.load_forward_context(root,policy)
+            policy['forward_request_sha256']=digest(request)
+            loaded=cycle.load_forward_context(root,policy)
+            self.assertEqual(loaded['forward_inputs'],options['forward_inputs'])
+            (root/'forward_request.json').write_bytes(request+b' ')
+            with self.assertRaisesRegex(ValueError,'FORWARD_REQUEST_NOT_REVIEWED'):cycle.load_forward_context(root,policy)
 
 
 if __name__=='__main__':unittest.main()

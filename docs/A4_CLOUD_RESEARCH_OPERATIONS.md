@@ -125,6 +125,15 @@ external policy must explicitly bind active_trial_sha256 and reviewed_trial_pins
 Code/math/feature-recipe changes refuse the old release until independently
 reviewed. There is no best-trial auto-selection or champion replacement.
 
+Dated RTDSM releases additionally use the original-bound
+[`forward_request.json` contract](A4_RTDSM_VINTAGES_V1.md). Its exact request hash
+and the forward payload/policy identities are bound by the existing externally
+reviewed main policy. The forward packet contains no prices and replays the same
+sparse feature grid and complete training prefix as the fixed trial. Current
+report points cannot substitute for dated inputs. Missing, expired, changed or
+unreviewed forward evidence keeps learning blocked; normal days without a new
+release remain insufficient rather than inventing a daily sample.
+
 For the fixed release to be part of the report reviewed by A3/A6, include one
 `learning_release` input in the native A4 v2 request. Its original JSON contains
 exactly `trial` and `policy`; `sha256` binds those file bytes and `policy_sha256`
