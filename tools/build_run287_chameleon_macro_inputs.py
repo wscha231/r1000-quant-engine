@@ -49,6 +49,7 @@ READY_STATUS = "READY_CHAMELEON_MACRO_INPUTS_REPORT_ONLY"
 DEFAULT_PRICE_CACHE = "G:/내 드라이브/r1000_top30_institutional/cache_prices"
 NON_EQUITY_PLACEHOLDERS = frozenset({"CASH", "__CASH__"})
 US_FEDERAL_BUSINESS_DAY = CustomBusinessDay(calendar=USFederalHolidayCalendar())
+TREASURY_DAILY_YIELD_SERIES = frozenset({"DGS2", "DGS10", "DGS3MO", "DFII10"})
 
 SAFETY = {
     "report_only": True,
@@ -266,9 +267,23 @@ def normalize_fred(
             "value": values,
         }
     ).dropna(subset=["observation_date"])
+    non_observation_dates: list[str] = []
+    if preserve_missing and expected_series_id in TREASURY_DAILY_YIELD_SERIES and not output.empty:
+        # H.15 does not publish on federal holidays. A literal provider '.' on
+        # such a date is not a missing scheduled release. Do not create a value
+        # for it: retain the last real observation's date and availability in
+        # the existing as-of join. Ordinary-business-day gaps still block.
+        holidays = USFederalHolidayCalendar().holidays(
+            start=output["observation_date"].min(), end=output["observation_date"].max()
+        )
+        no_release = output["observation_date"].isin(holidays) & frame[value_column].astype(str).str.strip().eq(".")
+        non_observation_dates = output.loc[no_release, "observation_date"].dt.strftime("%Y-%m-%d").tolist()
+        output = output.loc[~no_release]
     if not preserve_missing:
         output = output.dropna(subset=["value"])
-    return output.sort_values("observation_date").reset_index(drop=True)
+    result = output.sort_values("observation_date").reset_index(drop=True)
+    result.attrs["scheduled_non_observation_dates"] = non_observation_dates
+    return result
 
 
 def normalize_cboe(raw: bytes, expected_symbol: str) -> pd.DataFrame:
@@ -945,7 +960,9 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                         row_count=len(observations),
                         first_date=observations["observation_date"].min(),
                         last_date=observations["observation_date"].max(),
-                        note="current vintage; historical use is FREE_PROXY only",
+                        note=("current vintage; historical use is FREE_PROXY only; "
+                              "Treasury federal-holiday literal-dot non-observations="
+                              + str(len(observations.attrs["scheduled_non_observation_dates"]))),
                         source_sha256_override=raw_sha,
                     )
                 )

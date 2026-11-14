@@ -657,11 +657,44 @@ def test_explicit_missing_release_blocks_prior_value_until_next_release() -> Non
             raise AssertionError("New valid HY release did not resume context")
 
 
+def test_treasury_holiday_non_observation_keeps_original_clocks_and_business_day_blocks() -> None:
+    calendar = inputs.build_calendar(
+        pd.Timestamp("2026-11-16"), inputs.load_contract(inputs.DEFAULT_CONTRACT)
+    )
+    for series in sorted(inputs.TREASURY_DAILY_YIELD_SERIES):
+        raw = ("observation_date," + series + "\n2026-11-10,4.1\n"
+               "2026-11-11,.\n2026-11-12,4.2\n").encode()
+        observed = inputs.normalize_fred(raw, series, preserve_missing=True)
+        if observed["observation_date"].dt.strftime("%Y-%m-%d").tolist() != ["2026-11-10", "2026-11-12"]:
+            raise AssertionError("Treasury holiday created an observation")
+        if observed.attrs["scheduled_non_observation_dates"] != ["2026-11-11"]:
+            raise AssertionError("Holiday classification lost its audit dates")
+        aligned = inputs.align_releases(calendar, observed, inputs.fred_available_from(
+            observed["observation_date"], "NEXT_BUSINESS_DAY_END_UTC"), preserve_missing=True)
+        prior = aligned.loc[pd.Timestamp("2026-11-13")]
+        if prior["value"] != 4.1 or prior["source_observation_date"] != pd.Timestamp("2026-11-10") or prior["available_from"] != pd.Timestamp("2026-11-12T23:59:59Z"):
+            raise AssertionError("Holiday handling changed an original value or clock")
+        if not pd.isna(aligned.loc[pd.Timestamp("2026-11-12"), "value"]) or aligned.loc[pd.Timestamp("2026-11-16"), "value"] != 4.2:
+            raise AssertionError("An unavailable next observation leaked into a decision")
+        future = inputs.normalize_fred(raw + b"2026-11-13,99\n", series, preserve_missing=True)
+        expanded = inputs.align_releases(calendar, future, inputs.fred_available_from(
+            future["observation_date"], "NEXT_BUSINESS_DAY_END_UTC"), preserve_missing=True)
+        pd.testing.assert_frame_equal(aligned.loc[:"2026-11-13"], expanded.loc[:"2026-11-13"])
+        for day, token in (("2026-11-04", "."), ("2026-11-11", "bad"), ("2026-11-11", "4.3")):
+            check = inputs.normalize_fred(("observation_date," + series + "\n" + day + "," + token + "\n").encode(), series, preserve_missing=True)
+            if len(check) != 1 or check.attrs["scheduled_non_observation_dates"]:
+                raise AssertionError("Unscheduled holiday rule hid a value or actual missing input")
+    other = inputs.normalize_fred(b"observation_date,BAMLH0A0HYM2\n2026-11-11,.\n", "BAMLH0A0HYM2", preserve_missing=True)
+    if len(other) != 1 or not pd.isna(other.iloc[0]["value"]):
+        raise AssertionError("Treasury holiday handling affected a different provider series")
+
+
 def main() -> int:
     test_normalizer_is_free_proxy_report_only_and_fail_closed()
     test_source_identity_date_and_cross_section_guards()
     test_empty_context_header_engine_propagation_and_input_limits()
     test_explicit_missing_release_blocks_prior_value_until_next_release()
+    test_treasury_holiday_non_observation_keeps_original_clocks_and_business_day_blocks()
     print("run287_chameleon_macro_inputs_smoke: PASS")
     return 0
 
