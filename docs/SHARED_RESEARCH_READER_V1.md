@@ -394,7 +394,7 @@ volume equality at the shared anchor in both bases. A mismatch does not gain a
 tolerance, a missing value, or an automatic correction. `read_components` still
 validates the whole required OHLCV record; it is not a close-only bypass.
 
-One opt-in profile, `MU_20261026_VOLUME_ONLY`, permits a separately reviewed
+The legacy opt-in profile, `MU_20261026_VOLUME_ONLY`, permits a separately reviewed
 choice between two stored observations. It is limited to MU's 2026-10-26
 anchor, unchanged OHLC, and a volume difference of -3170 in each basis. The
 later capture is run41014284082. This identifies an observed version difference,
@@ -410,11 +410,48 @@ MIC/basis context, both original capture trios and managed checkpoints, their
 ancestor derivations, exact anchor-row hashes, two volume differences, selected
 windows and the independent comparison-report hash. The Source reuses the
 existing archive verifier and normalizer; it compares the actual MU anchors.
-The wider comparison report remains independently reviewed context, and SPY's
-separate composition retains the ordinary strict anchor check.
+The wider comparison report remains independently reviewed context. Without an
+exact externally reviewed sidecar, every instrument retains the ordinary
+strict anchor check.
+
+`CURRENT_PRIVATE_RESEARCH_VOLUME_ONLY_V2` reuses the same sidecar schema and
+external trust boundary for current private archival research. It does not
+hardcode a symbol, date, run or market value. The selected ticker and provider
+UUID must match the already verified parent identities; asset class is EQUITY
+or ETF, market/currency are US/USD, and the supported venue pairs are
+XNAS/NASDAQ, XNYS/NYSE and ARCX/ARCA. Provider `class=us_equity` does not establish
+the separate reviewed ETF/EQUITY identity.
+
+There is still exactly one shared anchor and one volume change in each of the
+two bases. Both old/new volumes and their nonzero difference must be integers
+within the existing bounds and must equal the actual original rows. Either
+direction of change is allowed; no magnitude tolerance or missing-value fill
+is introduced. All OHLC fields must remain exactly equal. Values/deltas stay
+in the private reviewed sidecar and original archives, not public code.
+
+The existing archive verifier replays the complete bounded capture group.
+V2 uniquely selects the requested ticker/asset and capture receipt from that
+group and its managed checkpoint, validates its venue, original run/control,
+ancestor derivations and collection clocks, and emits only the selected
+instrument. Other group members gain no admission. Both captures must have
+different runs and chronological collection clocks. Raw archives, normalized
+objects, receipts, derivations, sidecars and decoded archives retain their
+64KiB limits. V2 alone permits a checkpoint up to the existing managed-state
+ceiling of 1MiB so a selected capture in a full-cohort terminal can be proven;
+the shared total proof/reference/row limits remain. Larger checkpoints and
+larger original archives are refused. This is a newly observed version, not a certified historical
+correction, first-public timestamp, or backfilled historical availability.
+
+The legacy MU profile keeps its original symbol/date/run/delta rules. V2
+creates no trust from its profile name or a `REVIEWED=true` assertion. The
+fresh external review, exact sidecar pin, full originals and qualification
+references remain mandatory. The outer contract continues to allow only
+RESEARCH_BYTES_ONLY/PIT_PROXY research for the named technical consumer;
+discovery, training, backtest, selector/economic admission and portfolio or
+order authority are not added.
 
 Each original ZIP, normalized object, receipt, checkpoint, derivation and
-sidecar reference is bounded to64KiB for this profile; decoded ZIP members and
+sidecar reference is bounded to64KiB for the legacy MU profile; decoded ZIP members and
 normalized rows are bounded too. The later capture must follow the earlier
 capture. Receipt membership, original source SHA, run, lineage and collection
 clocks must agree. The provider asset's UUID/exchange are checked separately

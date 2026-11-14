@@ -226,14 +226,16 @@ class ReaderTest(unittest.TestCase):
             with self.assertRaisesRegex(ContractError,'FINANCIAL_RESOURCE_LIMIT'):read()
             copy.assert_not_called()
 
-    def observed_revision_reader_fixture(self):
+    def observed_revision_reader_fixture(self,**kwargs):
         from a1_reader_generation_binding_smoke import observed_volume_fixture
         from tools import prepare_a1_reader_generation as binding
-        parents,e,trust,objects=observed_volume_fixture()
-        prepared=binding.compose_prepared(parents,encoded(e),decision_time='2026-10-30T07:20:00Z',
+        parents,e,trust,objects=observed_volume_fixture(**kwargs)
+        cutoff='2026-11-04T07:20:00Z' if kwargs else '2026-10-30T07:20:00Z'
+        prepared=binding.compose_prepared(parents,encoded(e),decision_time=cutoff,
             trusted_source=trust,proof_objects=tuple(sorted(objects.items())))
         self.assertEqual(prepared.status,'REAL_SOURCE_COMPOSED_UNADMITTED',prepared.blockers)
         basis=prepared.bases[0]
+        file=json.loads(basis.manifest)['datasets'][0]['files'][0]
         blobs=dict(basis.objects)
         def read(manifest):
             raw=encoded(manifest);h=digest(raw)
@@ -241,11 +243,21 @@ class ReaderTest(unittest.TestCase):
                 def read(self,path):
                     return raw if path==PREFIX_V1+'/generations/'+h else blobs[path.rsplit('/',1)[-1]]
             return ResearchDataReader(Transport()).read_components('ds.us.prices.daily',h,
-                decision_time='2026-10-30T07:20:00Z',purpose='research',
-                components=[dict(component_id='mu',instrument_id='US.TEST.MU',
-                    required_start='2026-10-23',required_end='2026-10-29')],
+                decision_time=cutoff,purpose='research',
+                components=[dict(component_id='mu',instrument_id=file['instrument']['instrument_id'],
+                    required_start=file['start'],required_end=file['end'])],
                 consumer_id='ohlcv-technical-feature-h1')
         return json.loads(basis.manifest),blobs,read
+
+    def test_current_private_volume_profile_remains_research_only(self):
+        from tools.research_data_access import OBSERVED_VOLUME_V2_PROFILE
+        manifest,blobs,read=self.observed_revision_reader_fixture(
+            profile=OBSERVED_VOLUME_V2_PROFILE,ticker='SPY',delta=25,grouped=True)
+        result=read(manifest)
+        self.assertEqual(len(result.results['mu'].rows),5)
+        self.assertEqual(result.results['mu'].rows[1]['available_from'],'2026-11-04T06:40:00Z')
+        self.assertFalse(result.receipt['eligible_for_selector'])
+        self.assertFalse(result.receipt['eligible_for_economics'])
 
     def test_observed_revision_is_global_and_cannot_be_self_declared(self):
         manifest,blobs,read=self.observed_revision_reader_fixture()
