@@ -8,10 +8,13 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'research'))
 
 import a3_candidate_packet_v1 as a3
 from a3_candidate_packet_v1 import A3CandidatePacketError, evaluate_packet
+
+from tests.moat_quality_v2_smoke import current_observation, rebind_observation
 
 RAW = {}
 
@@ -115,6 +118,30 @@ def packet(include_er=False):
 
 class Tests(unittest.TestCase):
   def setUp(self): RAW.clear()
+  def test_current_public_observation_graph_is_current_only_and_cache_safe(self):
+    value=packet(); obj=graph(); obj["historical_pit_certified"]=False
+    current_observation(obj["sources"][1], RAW)
+    value["artifacts"]["source_graph"]={"kind":"SOURCE_GRAPH",**add("CURRENT-GRAPH",obj)}
+    expected=evaluate_packet(value,"2026-09-19T02:00:00Z",resolver)
+    self.assertEqual(expected["status"],"SCENARIO_RESEARCH_COMPLETE")
+    self.assertFalse(expected["historical_pit_certified"])
+    cache=a3._VerifiedArtifactCache(resolver)
+    self.assertEqual(evaluate_packet(value,"2026-09-19T02:00:00Z",resolver,_artifact_cache=cache),expected)
+
+  def test_current_public_observation_graph_refuses_past_unbound_or_fake_publication(self):
+    for mode in ("before_capture","missing_ref","fake_publication","future_day","scope","tampered_raw"):
+      value=packet(); obj=graph(); obj["historical_pit_certified"]=False
+      row=current_observation(obj["sources"][1], RAW)
+      if mode=="before_capture": obj["as_of"]="2026-09-18T18:59:59Z"
+      if mode=="missing_ref": row.pop("public_observation_receipt")
+      if mode=="fake_publication": row["published_at"]=row["available_at"]
+      if mode=="future_day": row["publisher_reported_date"]="2026-09-25"
+      if mode=="scope": obj["historical_pit_certified"]=True
+      if mode=="tampered_raw": RAW[(row["raw_artifact_id"],row["raw_sha256"])]=b"changed"
+      value["artifacts"]["source_graph"]={"kind":"SOURCE_GRAPH",**add("CURRENT-GRAPH",obj)}
+      with self.subTest(mode=mode), self.assertRaises(A3CandidatePacketError):
+        evaluate_packet(value,"2026-09-19T02:00:00Z",resolver)
+
   def test_scenario_not_er(self):
     out=evaluate_packet(packet(), "2026-09-19T02:00:00Z", resolver)
     self.assertEqual(out["status"],"SCENARIO_RESEARCH_COMPLETE")

@@ -159,5 +159,17 @@
     "raw_source_bytes_must_resolve_and_match_sha256": true,
     "source_available_at_must_not_exceed_graph_as_of": true,
     "graph_as_of_must_not_exceed_packet_as_of": true
+  },
+  "current_research_public_observation": {
+    "basis": "CURRENT_RESEARCH_OBSERVATION",
+    "scope": "CURRENT_RESEARCH_ONLY_NO_HISTORICAL_BACKFILL",
+    "published_at": null,
+    "publisher_reported_date": "DAY_ANNOTATION_OR_NULL_UNKNOWN_NOT_A_PUBLICATION_INSTANT",
+    "required_receipt_schema": "r1000-public-primary-document-capture-v1",
+    "receipt_max_bytes": 65536,
+    "receipt_result_limit": 16,
+    "receipt_binding": "Exact receipt bytes/hash; one matching HTTPS URL and original raw SHA; explicit first_public_at=null; actual capture_started<=collected_at=available_at<=as_of",
+    "date_annotation_bound": "No later than UTC capture plus14hours; equivalent aware timestamps have identical meaning",
+    "authority": "No Source/PIT/training/ER/selector/A5/portfolio authority; legacy exact publication clock remains default"
   }
 }

@@ -71,3 +71,26 @@ Outputs always declare:
 - production_authority=false
 
 A scenario-only packet is never described as validated expected return.
+
+## Explicit current public-observation clock
+
+The default path still requires an aware published_at no later than available_at.
+When first publication is genuinely unknown, an evidence row may explicitly select
+publication_clock_basis=CURRENT_RESEARCH_OBSERVATION. It must retain
+published_at=null, research_only=true and historical_pit_certified=false. Keep the
+publisher calendar date as publisher_reported_date / publisher_date_precision=DAY,
+or explicit null / UNKNOWN. Never turn that day into midnight or an intraday release.
+
+public_observation_receipt={artifact_id,sha256} resolves through the existing trusted
+raw resolver. The bounded64KiB receipt uses r1000-public-primary-document-capture-v1
+and ORIGINALS_CAPTURED with1..16 actual original entries. Exactly one entry must
+bind the same HTTPS source_url and original raw_sha256, explicitly retain unknown
+first_public_at, and satisfy capture-start <= collection == evidence availability
+<= research as-of. The original document hash is still verified separately.
+A fresh read or editable row cannot backdate the bound actual capture clock.
+
+This supports present issuer/customer research only after actual observation. It
+grants no historical PIT, training, validated ER, A5 or portfolio authority. Legacy
+clocks, independent economic groups, claim scope, freshness, identity, raw integrity
+and scenario-versus-ER checks remain. Sealed A3 immutable artifact references and
+Moat ordinary dict inputs use the same validator.

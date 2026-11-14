@@ -69,6 +69,37 @@ def packet() -> dict:
     }
 
 
+def current_observation(row, store=None):
+    """Explicit synthetic capture fixture, never an actual Source receipt."""
+    if store is None:
+        store = RAW
+    receipt_id = "CAPTURE:" + row["source_id"]
+    url = "https://example.test/primary/" + row["source_id"]
+    body = {"schema": "r1000-public-primary-document-capture-v1",
+            "status": "ORIGINALS_CAPTURED", "results": [{
+                "url": url, "status": "ORIGINAL_CAPTURED", "sha256": row["raw_sha256"],
+                "capture_started_at": row["available_at"], "collected_at": row["available_at"],
+                "first_public_at": None}]}
+    raw = json.dumps(body, sort_keys=True).encode()
+    sha = hashlib.sha256(raw).hexdigest()
+    store[(receipt_id, sha)] = raw
+    row.update(publication_clock_basis="CURRENT_RESEARCH_OBSERVATION", published_at=None,
+        publisher_reported_date="2026-09-10", publisher_date_precision="DAY",
+        public_observation_receipt={"artifact_id": receipt_id, "sha256": sha},
+        source_url=url, research_only=True, historical_pit_certified=False)
+    return row
+
+
+def rebind_observation(row, store, transform=None, raw=None):
+    ref = row["public_observation_receipt"]
+    if raw is None:
+        body = json.loads(store[(ref["artifact_id"], ref["sha256"])])
+        transform(body)
+        raw = json.dumps(body, sort_keys=True).encode()
+    ref["sha256"] = hashlib.sha256(raw).hexdigest()
+    store[(ref["artifact_id"], ref["sha256"])] = raw
+
+
 class MoatQualityV2Smoke(unittest.TestCase):
     def setUp(self):
         RAW.clear()
@@ -237,10 +268,67 @@ class MoatQualityV2Smoke(unittest.TestCase):
             evaluate_packet(value, "2026-09-19T02:00:00Z", resolver)["packet_sha256"],
         )
 
+    def test_current_observation_retains_unknown_publication_and_zero_authority(self):
+        from research.moat_quality_v2 import _normalize_evidence
+        from datetime import datetime
+        value = packet(); row = current_observation(value["dimensions"][DIMENSIONS[0]]["evidence"][0])
+        result = evaluate_packet(value, "2026-09-19T02:00:00Z", resolver)
+        self.assertFalse(result["historical_pit_certified"])
+        self.assertFalse(result["orders_allowed"])
+        normalized = _normalize_evidence(row, asset_id=value["asset_id"], issuer_id=value["issuer_id"],
+            as_of=datetime.fromisoformat(value["as_of"]), cutoff=datetime.fromisoformat("2026-09-19T02:00:00+00:00"),
+            reviewed_at=datetime.fromisoformat(value["reviewed_at"]), raw_resolver=resolver)
+        self.assertIsNone(normalized["published_at"])
+        self.assertEqual(normalized["public_observation_receipt"], row["public_observation_receipt"])
+        row.update(publisher_reported_date=None, publisher_date_precision="UNKNOWN")
+        evaluate_packet(value, "2026-09-19T02:00:00Z", resolver)
+        del row["publication_clock_basis"]
+        with self.assertRaisesRegex(MoatQualityContractError, "evidence_published_at"):
+            evaluate_packet(value, "2026-09-19T02:00:00Z", resolver)
+
+    def test_current_observation_refuses_unbound_or_fabricated_metadata(self):
+        for mode in ("publication", "scope", "missing_ref", "wrong_url", "wrong_hash",
+                     "wrong_time", "future_day", "bad_precision", "missing_null_key"):
+            value = packet(); row = current_observation(value["dimensions"][DIMENSIONS[0]]["evidence"][0])
+            if mode == "publication": row["published_at"] = "2026-09-10T08:00:00Z"
+            if mode == "scope": row["historical_pit_certified"] = True
+            if mode == "missing_ref": row.pop("public_observation_receipt")
+            if mode == "wrong_url": row["source_url"] += "-changed"
+            if mode == "wrong_hash": row["public_observation_receipt"]["sha256"] = "a"*64
+            if mode == "wrong_time": row["available_at"] = "2026-09-10T10:00:00Z"
+            if mode == "future_day": row["publisher_reported_date"] = "2026-09-25"
+            if mode == "bad_precision": row["publisher_date_precision"] = "INTRADAY"
+            if mode == "missing_null_key":
+                rebind_observation(row, RAW, lambda body: body["results"][0].pop("first_public_at"))
+            with self.subTest(mode=mode), self.assertRaises(MoatQualityContractError):
+                evaluate_packet(value, "2026-09-19T02:00:00Z", resolver)
+
+    def test_current_observation_receipt_json_and_size_guards(self):
+        for raw in (b'{"status":"ORIGINALS_CAPTURED","status":"ORIGINALS_CAPTURED"}',
+                    b'{"value":NaN}', b'{"value":1e999}', b'x'*(64*1024+1)):
+            value = packet(); row = current_observation(value["dimensions"][DIMENSIONS[0]]["evidence"][0])
+            rebind_observation(row, RAW, raw=raw)
+            with self.subTest(length=len(raw)), self.assertRaises(MoatQualityContractError):
+                evaluate_packet(value, "2026-09-19T02:00:00Z", resolver)
+
+    def test_current_observation_cannot_enter_a_past_cutoff_or_change_with_offset(self):
+        from datetime import datetime, timedelta, timezone
+        from research.moat_quality_v2 import _validated_current_observation
+        for offset in (0, 14, -12):
+            instant = datetime(2026,9,10,8,15,tzinfo=timezone.utc).astimezone(timezone(timedelta(hours=offset)))
+            row = evidence(300); row["available_at"] = instant.isoformat(); current_observation(row)
+            row["publisher_reported_date"] = "2026-09-10"
+            _validated_current_observation(row, instant, datetime(2026,9,18,tzinfo=timezone.utc), resolver)
+            with self.assertRaisesRegex(MoatQualityContractError, "current_observation_time_order"):
+                _validated_current_observation(row, instant, datetime(2026,9,9,tzinfo=timezone.utc), resolver)
+            row["publisher_reported_date"] = "2026-09-11"
+            with self.assertRaisesRegex(MoatQualityContractError, "current_observation_future_publisher_date"):
+                _validated_current_observation(row, instant, datetime(2026,9,18,tzinfo=timezone.utc), resolver)
+
     def test_contract_document_matches_code_and_safety(self):
         contract = json.loads((ROOT / "docs" / "moat_quality_v2_contract.json").read_text())
         self.assertEqual(contract["dimensions"], list(DIMENSIONS))
-        self.assertEqual(contract["revision"], 3)
+        self.assertEqual(contract["revision"], 4)
         self.assertTrue(contract["evidence_requirements"]["trusted_cutoff_required_from_caller"])
         self.assertTrue(contract["evidence_requirements"]["raw_bytes_must_resolve_and_match_sha256"])
         self.assertFalse(contract["safety"]["selector_weight_change_allowed"])
