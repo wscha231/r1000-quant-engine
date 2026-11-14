@@ -246,66 +246,73 @@ jobs:
           timeout 30s rclone check "outputs/a4_research/attempts/${{ github.run_id }}-${{ github.run_attempt }}" "$DEST/attempts/${{ github.run_id }}-${{ github.run_attempt }}" --one-way --checkers 2
 
       - name: Run daily crisis monitor
+        id: daily_crisis
         if: (vars.A4_NATIVE_SOURCE_MANIFEST_SHA256 == '' && vars.A4_CREDIT_REQUEST_SHA256 == '') || steps.a4_native_prepare.outcome == 'success'
         run: |
+          set -euo pipefail
+          mkdir -p outputs/daily_crisis_monitor
+          # Keep legacy state/financial output in the existing private sync tree.
           python tools/run_daily_crisis_monitor.py \
             --latest-run outputs \
             --output-dir outputs/daily_crisis_monitor \
             --market-analysis-request "${A4_INPUT_ROOT:-outputs/market_analysis_inputs}/request.json" \
             --market-analysis-root "${A4_INPUT_ROOT:-outputs/market_analysis_inputs}" \
             --market-analysis-request-sha-file "${A4_INPUT_ROOT:-outputs/market_analysis_inputs}/request.sha256" \
-            --update-history
+            --update-history > "outputs/daily_crisis_monitor/console-${{ github.run_id }}-${{ github.run_attempt }}.log" 2>&1
+
+      - name: Build public A4 metadata receipts
+        id: a4_public_receipts
+        if: always()
+        env:
+          A4_PUBLIC_DAILY: ${{ steps.daily_crisis.outcome }}
+          A4_PUBLIC_CLOUD: ${{ steps.a4_cycle.outcome }}
+          A4_PUBLIC_PRIMARY: ${{ steps.a4_primary_collect.outcome }}
+          A4_PUBLIC_NATIVE: ${{ steps.a4_native_prepare.outcome }}
+          A4_PUBLIC_DATA_CENTER: ${{ steps.a4_data_center.outcome }}
+          A4_PUBLIC_RESTORE: ${{ steps.a4_restore.outcome }}
+          A4_PUBLIC_PERSIST: ${{ steps.a4_persist.outcome }}
+        run: |
+          python tools/a4_public_receipts.py --outputs-root outputs \
+            --attempt "${{ github.run_id }}-${{ github.run_attempt }}" --code-sha "$GITHUB_SHA"
 
       - name: Upload daily crisis artifact
-        if: always() && ((vars.A4_NATIVE_SOURCE_MANIFEST_SHA256 == '' && vars.A4_CREDIT_REQUEST_SHA256 == '') || steps.a4_native_prepare.outcome == 'success')
+        if: always() && steps.a4_public_receipts.outcome == 'success' && ((vars.A4_NATIVE_SOURCE_MANIFEST_SHA256 == '' && vars.A4_CREDIT_REQUEST_SHA256 == '') || steps.a4_native_prepare.outcome == 'success')
         uses: actions/upload-artifact@v4
         with:
           name: daily-crisis-monitor-${{ github.run_id }}
-          path: outputs/daily_crisis_monitor/
+          path: outputs/a4_public_receipts/${{ github.run_id }}-${{ github.run_attempt }}/daily.json
           retention-days: 30
 
       - name: Upload A4 cloud research attempt
-        if: always() && vars.A4_RESEARCH_ENABLED == 'true'
+        if: always() && steps.a4_public_receipts.outcome == 'success' && vars.A4_RESEARCH_ENABLED == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: a4-cloud-research-${{ github.run_id }}-${{ github.run_attempt }}
-          path: outputs/a4_research/attempts/
+          path: outputs/a4_public_receipts/${{ github.run_id }}-${{ github.run_attempt }}/cloud.json
           retention-days: 30
 
       - name: Upload primary A4 capture receipt
-        if: always() && vars.A4_PRIMARY_COLLECTION_ENABLED == 'true'
+        if: always() && steps.a4_public_receipts.outcome == 'success' && vars.A4_PRIMARY_COLLECTION_ENABLED == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: a4-primary-capture-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            outputs/a4_primary_collection/*/execution.json
-            outputs/a4_primary_collection/*/publication_failed.json
-            outputs/a4_primary_collection/*/market_analysis.json
-            outputs/a4_primary_collection/*/market_analysis.md
+          path: outputs/a4_public_receipts/${{ github.run_id }}-${{ github.run_attempt }}/primary.json
           retention-days: 30
 
       - name: Upload native A4 preparation receipt
-        if: always() && (vars.A4_NATIVE_SOURCE_MANIFEST_SHA256 != '' || vars.A4_CREDIT_REQUEST_SHA256 != '')
+        if: always() && steps.a4_public_receipts.outcome == 'success' && (vars.A4_NATIVE_SOURCE_MANIFEST_SHA256 != '' || vars.A4_CREDIT_REQUEST_SHA256 != '')
         uses: actions/upload-artifact@v4
         with:
           name: a4-native-preparation-${{ github.run_id }}-${{ github.run_attempt }}
-          path: outputs/a4_native_preparation/*/native-preparation.json
+          path: outputs/a4_public_receipts/${{ github.run_id }}-${{ github.run_attempt }}/native.json
           retention-days: 30
 
       - name: Upload unified A4 data center evidence
-        if: always() && vars.A4_PRIMARY_COLLECTION_ENABLED == 'true'
+        if: always() && steps.a4_public_receipts.outcome == 'success' && vars.A4_PRIMARY_COLLECTION_ENABLED == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: a4-data-center-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            outputs/a4_data_center/*/catalog.json
-            outputs/a4_data_center/*/catalog.md
-            outputs/a4_data_center/*/audit.json
-            outputs/a4_data_center/*/execution.json
-            outputs/a4_data_center/*/publication_failed.json
-            outputs/a4_data_center/*/failure.json
-            outputs/a4_data_center/*/market_analysis.json
-            outputs/a4_data_center/*/market_analysis.md
+          path: outputs/a4_public_receipts/${{ github.run_id }}-${{ github.run_attempt }}/data_center.json
           retention-days: 30
 
       - name: Sync daily crisis status to Google Drive
