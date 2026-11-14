@@ -706,7 +706,8 @@ def private_view_fixture(*, names=('AAPL',), sessions=None, omit=None,
                          view_start='2016-01-05', view_end='2016-01-06', selected_only=True,
                          capture_scope=None, capture_start='2016-01-04',
                          price_offset=0, first_factor='2',asset_clock=OBSERVED,
-                         clocks=None, volumes=None, provider_ids=None, run_id=987654321):
+                         clocks=None, volumes=None, provider_ids=None, run_id=987654321,
+                         asset_specs=None):
     """Local fake capture + injected synthetic trust, never actual original4 bytes."""
     sessions = list(sessions or ['2016-01-04', '2016-01-05', '2016-01-06'])
     clocks = clocks or dict(observed=OBSERVED,created='2026-10-24T08:30:00Z',
@@ -730,7 +731,7 @@ def private_view_fixture(*, names=('AAPL',), sessions=None, omit=None,
         for index, name in enumerate(names):
             body = encoded(dict(symbol=name, **{'class':'us_equity'},
                 id='00000000-0000-0000-0000-' + str(index+1).zfill(12),
-                exchange='NASDAQ',status='active'))
+                exchange=(asset_specs or {}).get(name,{}).get('exchange','NASDAQ'),status='active'))
             assets.append(dict(symbol=name,url='https://paper-api.alpaca.markets/v2/assets/'+name,
                 collected_at_utc=asset_clock,http_status=200,response_utf8=body.decode(),sha256=digest(body)))
     refs, _, _, _ = fixture_capture_group(drive, drive.folder, list(names),
@@ -780,7 +781,8 @@ def private_view_fixture(*, names=('AAPL',), sessions=None, omit=None,
         technical_metadata={})
     for index, ticker in enumerate(names):
         ident = dict(instrument_id='US.TEST.' + ticker, ticker=ticker,
-            market='US', mic='XNAS' if ticker in ('AAPL', 'MU') else 'XNYS',
+            market='US', mic=(asset_specs or {}).get(ticker,{}).get(
+                'mic','XNAS' if ticker in ('AAPL', 'MU') else 'XNYS'),
             timezone='America/New_York', calendar='NYSE', currency='USD',
             valid_from=view_start if selected_only else sessions[0],
             valid_through=view_end if selected_only else sessions[-1])
@@ -792,7 +794,8 @@ def private_view_fixture(*, names=('AAPL',), sessions=None, omit=None,
             available_from=observed, collected_at=observed, expires_at=clocks['expires'])
         typed = dict(ident, **common, schema='ohlcv-security-identity-evidence-v1',
             provider_security_id=(provider_ids or {}).get(ticker,'synthetic-test-asset-' + str(index + 1)),
-            asset_class='EQUITY', source_documents=[identity_doc])
+            asset_class=(asset_specs or {}).get(ticker,{}).get('asset_class','EQUITY'),
+            source_documents=[identity_doc])
         status = dict(common, schema='a1-ohlcv-status-volume-evidence-v1',
             instrument_id=ident['instrument_id'], ticker=ticker,
             provider_security_id=typed['provider_security_id'],
@@ -816,7 +819,8 @@ def private_view_fixture(*, names=('AAPL',), sessions=None, omit=None,
 def provider_close_fixture(*, names=('AAPL',), known=None, sessions=None,
                            view_start=None, price_offset=0, first_factor='2',
                            capture_start='2016-01-04',clocks=None,volumes=None,
-                           provider_ids=None,run_id=987654321,capture_scope=None,asset_clock=OBSERVED):
+                           provider_ids=None,run_id=987654321,capture_scope=None,asset_clock=OBSERVED,
+                           asset_specs=None):
     """Small, externally injected SYNTHETIC qualification; no real admission."""
     sessions = sessions or ['2016-01-04', '2016-01-05', '2016-01-06', '2016-01-07',
                            '2016-01-08', '2016-01-11', '2016-01-12']
@@ -824,7 +828,8 @@ def provider_close_fixture(*, names=('AAPL',), known=None, sessions=None,
     state = list(private_view_fixture(names=names, sessions=sessions,
         view_start=view_start, view_end=sessions[-1],price_offset=price_offset,
         first_factor=first_factor,capture_start=capture_start,clocks=clocks,volumes=volumes,
-        provider_ids=provider_ids,run_id=run_id,capture_scope=capture_scope,asset_clock=asset_clock))
+        provider_ids=provider_ids,run_id=run_id,capture_scope=capture_scope,asset_clock=asset_clock,
+        asset_specs=asset_specs))
     raw, norm, rec, e, trust, objects = state
     decision = clocks['decision'] if clocks else DECISION
     observed = e['first_observed_readback']['at']
@@ -1028,8 +1033,10 @@ def rewrite_composition_doc(state,key,transform):
                             proof_sha256=tuple(sorted(objects))),objects
 
 
-@lru_cache(maxsize=2)
-def _observed_volume_fixture(new_price_offset=1):
+@lru_cache(maxsize=16)
+def _observed_volume_fixture(new_price_offset=1, profile='MU_20261026_VOLUME_ONLY',
+                             ticker='MU', delta=-3170, grouped=False,checkpoint_padding=0,
+                             exchange_override=None):
     """Synthetic numbers/identity only; mirrors the bounded actual observation shape."""
     old_clocks=dict(observed='2026-10-27T02:00:00Z',created='2026-10-27T02:10:00Z',
         decision='2026-10-27T02:20:00Z',expires='2026-10-27T14:00:00Z')
@@ -1037,13 +1044,29 @@ def _observed_volume_fixture(new_price_offset=1):
         decision='2026-10-30T06:50:00Z',expires='2026-10-30T14:00:00Z')
     dates=(['2026-10-23','2026-10-26'],
            ['2026-10-26','2026-10-27','2026-10-28','2026-10-29'])
+    current_private = profile == access.OBSERVED_VOLUME_V2_PROFILE
+    if current_private:
+        old_clocks=dict(observed='2026-10-30T02:00:00Z',created='2026-10-30T02:10:00Z',
+            decision='2026-10-30T02:20:00Z',expires='2026-10-30T14:00:00Z')
+        new_clocks=dict(observed='2026-11-04T06:40:00Z',created='2026-11-04T06:45:00Z',
+            decision='2026-11-04T06:50:00Z',expires='2026-11-04T14:00:00Z')
+        dates=(['2026-10-28','2026-10-29'],
+               ['2026-10-29','2026-10-30','2026-11-02','2026-11-03'])
+    anchor = dates[0][-1]
+    names = (ticker,'AAPL','IBM','MSFT') if grouped else (ticker,)
+    specs = {'SPY':dict(mic='ARCX',exchange='ARCA',asset_class='ETF'),
+             'IBM':dict(mic='XNYS',exchange='NYSE',asset_class='EQUITY'),
+             'MSFT':dict(mic='XNAS',exchange='NASDAQ',asset_class='EQUITY')}
+    if exchange_override is not None:
+        specs[ticker]=dict(specs.get(ticker,{}),exchange=exchange_override)
     scope=dict(task_key='R1000-SYNTHETIC-OBSERVED-VOLUME-NOT-ACTUAL-CAPTURE',
         namespace='managed-refresh-v1',input_sha256=digest(b'CONTRACT_FIXTURE_SEED'))
-    states=tuple(provider_close_fixture(names=('MU',),sessions=days,view_start=days[0],
+    states=tuple(provider_close_fixture(names=names,sessions=days,view_start=days[0],
         capture_start=days[0],price_offset=0 if index==0 else new_price_offset,first_factor='1',clocks=clocks,
-        volumes=({'2026-10-23':10000,'2026-10-26':10001} if index==0 else {'2026-10-26':6831}),
-        provider_ids={'MU':'00000000-0000-0000-0000-000000000001'},capture_scope=scope,
-        run_id=987654321 if index==0 else 41014284082)
+        volumes=({dates[0][0]:10000,anchor:10001} if index==0 else {anchor:10001+delta}),
+        provider_ids={name:'00000000-0000-0000-0000-'+str(i+1).zfill(12)
+                      for i,name in enumerate(names)},capture_scope=scope,asset_specs=specs,
+        run_id=987654321 if index==0 else (987654322 if current_private else 41014284082))
         for index,(days,clocks) in enumerate(zip(dates,(old_clocks,new_clocks))))
     def factory(parents,states,decisions):
         extra={};captures=[];updated=[]
@@ -1061,8 +1084,10 @@ def _observed_volume_fixture(new_price_offset=1):
             cp=dict(schema='a1-managed-run-checkpoint-v1',state='COMPLETE',
                 run_id=state[4].original_run_id,source_sha=receipt['source_sha'],
                 control_sha256=digest(b'SYNTHETIC_CONTROL'),session=dates[index][-1],
-                coverage_updates={'MU':dates[index][-1]},held={},receipts=[leg],
+                coverage_updates={name:dates[index][-1] for name in names},held={},receipts=[leg],
                 completed_at=(at-timedelta(seconds=30)).isoformat())
+            if checkpoint_padding:
+                cp['synthetic_unselected_metadata']='x'*checkpoint_padding
             refs['checkpoint']=add(cp)
             lineage=dict(kind='MANAGED_MAINTENANCE',managed_control_sha256=cp['control_sha256'],
                 final_checkpoint_sha256=refs['checkpoint']['sha256'],
@@ -1100,31 +1125,36 @@ def _observed_volume_fixture(new_price_offset=1):
         for basis in ('RAW','SPLIT_ADJUSTED'):
             rows=[]
             for pair in updated:
-                b=next(b for b in pair if b.basis==basis);f=json.loads(b.manifest)['datasets'][0]['files'][0]
+                b=next(b for b in pair if b.basis==basis)
+                f=next(f for f in json.loads(b.manifest)['datasets'][0]['files']
+                       if f['instrument']['ticker']==ticker)
                 records=[json.loads(x) for x in dict(b.objects)[f['sha256']].splitlines()]
-                rows.append(next(r for r in records if r['session_date']=='2026-10-26'))
+                rows.append(next(r for r in records if r['session_date']==anchor))
             anchors[basis]=dict(old_row_sha256=digest(encoded(rows[0])),new_row_sha256=digest(encoded(rows[1])))
             differences.append(dict(basis=basis,field='volume',old=rows[0]['volume'],
-                new=rows[1]['volume'],delta=-3170))
-        identity=manifests[0]['datasets'][0]['files'][0]['instrument']
-        revision=dict(schema=access.OBSERVED_VOLUME_SCHEMA,profile='MU_20261026_VOLUME_ONLY',
+                new=rows[1]['volume'],delta=delta))
+        identity=next(f['instrument'] for f in manifests[0]['datasets'][0]['files']
+                      if f['instrument']['ticker']==ticker)
+        revision=dict(schema=access.OBSERVED_VOLUME_SCHEMA,profile=profile,
             context_id='synthetic-two-parent-context',
             **{k:identity[k] for k in ('instrument_id','ticker','provider_security_id','market','mic','currency')},
-            anchor_session='2026-10-26',parent_generation_pairs=pairs,parent_clocks=parent_clocks,
+            anchor_session=anchor,parent_generation_pairs=pairs,parent_clocks=parent_clocks,
             captures=captures,anchors=anchors,differences=differences,
             comparison_report=add(b'SYNTHETIC_INDEPENDENT_20_FIELD_CONTEXT_NOT_ACTUAL_DATA'),
-            selection=dict(old_start='2026-10-23',old_end='2026-10-23',
-                           new_start='2026-10-26',new_end='2026-10-29'),supplier_correction_at=None)
+            selection=dict(old_start=dates[0][0],old_end=dates[0][-2],
+                           new_start=anchor,new_end=dates[1][-1]),supplier_correction_at=None)
         return tuple(updated),revision,extra
     return composition_fixture(states=states,decisions=(old_clocks['decision'],new_clocks['decision']),
         tail_start=dates[1][0],tail_days=dates[1],revision_factory=factory,
-        observed='2026-10-30T07:00:00Z',created='2026-10-30T07:10:00Z',
-        decision='2026-10-30T07:20:00Z',fresh_until='2026-10-30T14:00:00Z')
+        observed='2026-11-04T07:00:00Z' if current_private else '2026-10-30T07:00:00Z',
+        created='2026-11-04T07:10:00Z' if current_private else '2026-10-30T07:10:00Z',
+        decision='2026-11-04T07:20:00Z' if current_private else '2026-10-30T07:20:00Z',
+        fresh_until=new_clocks['expires'])
 
 
-def observed_volume_fixture(new_price_offset=1):
+def observed_volume_fixture(new_price_offset=1, **kwargs):
     # Cache only synthetic fixture construction, never a Source/Reader operation.
-    return copy.deepcopy(_observed_volume_fixture(new_price_offset))
+    return copy.deepcopy(_observed_volume_fixture(new_price_offset, **kwargs))
 
 
 def rewrite_observed_revision(state, transform, *, repin=True):
@@ -1508,6 +1538,101 @@ class BindingTest(unittest.TestCase):
             self.assertFalse(out.receipt['eligible_for_economics'])
             self.assertFalse(out.receipt['eligible_for_selector'])
         self.assertEqual(original,tuple((b.manifest,b.provenance,b.objects) for pair in parents for b in pair))
+
+    def test_current_private_volume_versions_reuse_grouped_archives_and_single_subject(self):
+        for ticker,delta,grouped in (('SPY',25,True),('SPY',-17,False),('IBM',19,False),('MU',13,False)):
+            with self.subTest(ticker=ticker,delta=delta,grouped=grouped):
+                state=observed_volume_fixture(profile=access.OBSERVED_VOLUME_V2_PROFILE,
+                    ticker=ticker,delta=delta,grouped=grouped)
+                parents,e,trust,objects=state
+                before=tuple((b.manifest,b.provenance,b.objects) for pair in parents for b in pair)
+                result=self.compose_observed(state,decision='2026-11-04T07:20:00Z')
+                self.assertEqual(result.status,'REAL_SOURCE_COMPOSED_UNADMITTED',result.blockers)
+                for b in result.bases:
+                    files=json.loads(b.manifest)['datasets'][0]['files']
+                    self.assertEqual(len(files),1)
+                    self.assertEqual(files[0]['instrument']['ticker'],ticker)
+                    transport,_,_=fixture_transport(b)
+                    read=ResearchDataReader(transport).read_components('ds.us.prices.daily',b.generation_id,
+                        decision_time='2026-11-04T07:20:00Z',purpose='research',
+                        components=[dict(component_id='subject',instrument_id='US.TEST.'+ticker,
+                            required_start='2026-10-28',required_end='2026-11-03',minimum_rows=5)],
+                        consumer_id=access.PROVIDER_CLOSE_CONSUMER)
+                    rows=read.results['subject'].rows
+                    self.assertEqual([r['volume'] for r in rows[:2]],[10000,10001+delta])
+                    self.assertEqual(rows[0]['available_from'],'2026-10-30T02:00:00Z')
+                    self.assertEqual(rows[1]['available_from'],'2026-11-04T06:40:00Z')
+                    self.assertFalse(read.receipt['eligible_for_economics'])
+                    self.assertFalse(read.receipt['eligible_for_selector'])
+                    self.assertEqual(read.receipt['observed_revision_selection_sha256'],trust.observed_revision_sha256)
+                self.assertEqual(before,tuple((b.manifest,b.provenance,b.objects) for pair in parents for b in pair))
+
+    def test_current_private_volume_profile_keeps_exact_pin_default_and_price_guards(self):
+        state=observed_volume_fixture(profile=access.OBSERVED_VOLUME_V2_PROFILE,ticker='SPY',delta=25)
+        parents,e,trust,objects=copy.deepcopy(state)
+        self.assertEqual(self.compose_observed((parents,e,replace(trust,observed_revision_sha256=None),objects),
+            decision='2026-11-04T07:20:00Z').status,'BLOCKED')
+        e.pop('observed_revision_selection')
+        trust=replace(trust,observed_revision_sha256=None,evidence_sha256=digest(encoded(e)))
+        self.assertEqual(self.compose_observed((parents,e,trust,objects),
+            decision='2026-11-04T07:20:00Z').blockers,('COMPOSITION_ANCHOR_CONFLICT',))
+        with self.assertRaisesRegex(binding.BindingError,'REVISION_CHANGE_SET'):
+            observed_volume_fixture(new_price_offset=2,profile=access.OBSERVED_VOLUME_V2_PROFILE,
+                ticker='SPY',delta=25)
+
+    def test_current_private_volume_profile_rejects_rebound_metadata_and_noninteger_changes(self):
+        state=observed_volume_fixture(profile=access.OBSERVED_VOLUME_V2_PROFILE,ticker='SPY',delta=25)
+        cases=[
+            (lambda d:d.update(ticker='AAPL'),'REVISION_IDENTITY'),
+            (lambda d:d.update(mic='XNAS'),'REVISION_IDENTITY'),
+            (lambda d:d.update(provider_security_id='foreign'),'REVISION_IDENTITY'),
+            (lambda d:d.update(supplier_correction_at='2026-11-04T00:00:00Z'),'REVISION_UNKNOWN_PUBLICATION'),
+            (lambda d:d['selection'].update(new_start='2026-10-30'),'REVISION_SELECTION_WINDOW'),
+            (lambda d:d['parent_clocks'][0].update(source_available_from='2026-10-29T00:00:00Z'),
+                'REVISION_ORIGINAL_CLOCKS'),
+            (lambda d:d['captures'][1].update(run_id=d['captures'][0]['run_id']),'REVISION_CAPTURE_SCOPE'),
+            (lambda d:d['captures'][1].update(run_id=987654323),'REVISION_CHECKPOINT'),
+            (lambda d:d['differences'][0].update(field='close'),'REVISION_CHANGE_SET'),
+            (lambda d:d['differences'][0].update(old=True),'REVISION_CHANGE_SET'),
+            (lambda d:d['differences'][0].update(new=-1),'REVISION_CHANGE_SET'),
+            (lambda d:d['differences'][0].update(new=2**53+1),'REVISION_CHANGE_SET'),
+            (lambda d:d['differences'][0].update(delta=25.0),'REVISION_CHANGE_SET'),
+            (lambda d:d['differences'][0].update(new=10001,delta=0),'REVISION_CHANGE_SET'),
+            (lambda d:d['differences'].pop(),'REVISION_CHANGE_SET'),
+            (lambda d:d['differences'][0].update(old=10002,new=10027),'REVISION_CHANGE_SET'),
+            (lambda d:d['anchors']['RAW'].update(new_row_sha256='0'*64),'REVISION_ANCHOR_BINDING'),
+        ]
+        for change,code in cases:
+            with self.subTest(code=code):
+                changed=rewrite_observed_revision(state,change)
+                self.assertEqual(self.compose_observed(changed,decision='2026-11-04T07:20:00Z').blockers,(code,))
+
+    def test_current_private_volume_profile_rejects_duplicate_checkpoint_membership(self):
+        state=observed_volume_fixture(profile=access.OBSERVED_VOLUME_V2_PROFILE,ticker='SPY',delta=25)
+        revision=json.loads(state[3][state[1]['observed_revision_selection']['sha256']])
+        ref=revision['captures'][1]['checkpoint'];checkpoint=json.loads(state[3][ref['sha256']])
+        checkpoint['receipts'].append(copy.deepcopy(checkpoint['receipts'][0]))
+        raw=encoded(checkpoint);state[3][digest(raw)]=raw
+        changed=rewrite_observed_revision(state,lambda d:d['captures'][1].update(
+            checkpoint=dict(sha256=digest(raw),bytes=len(raw))))
+        self.assertEqual(self.compose_observed(changed,decision='2026-11-04T07:20:00Z').blockers,
+                         ('REVISION_CHECKPOINT',))
+
+    def test_current_private_volume_checkpoint_bound_and_legacy_limit(self):
+        state=observed_volume_fixture(profile=access.OBSERVED_VOLUME_V2_PROFILE,
+            ticker='SPY',delta=25,grouped=True,checkpoint_padding=70000)
+        result=self.compose_observed(state,decision='2026-11-04T07:20:00Z')
+        self.assertEqual(result.status,'REAL_SOURCE_COMPOSED_UNADMITTED',result.blockers)
+        for kwargs in (dict(checkpoint_padding=70000),
+                       dict(profile=access.OBSERVED_VOLUME_V2_PROFILE,ticker='SPY',delta=25,
+                            checkpoint_padding=access.OBSERVED_VOLUME_V2_CHECKPOINT_BYTES)):
+            with self.subTest(kwargs=kwargs),self.assertRaisesRegex(access.ContractError,'REVISION_REFERENCE'):
+                observed_volume_fixture(**kwargs)
+
+    def test_current_private_volume_actual_asset_exchange_must_match_parent_mic(self):
+        with self.assertRaisesRegex(binding.BindingError,'REVISION_ASSET'):
+            observed_volume_fixture(profile=access.OBSERVED_VOLUME_V2_PROFILE,
+                ticker='SPY',delta=25,exchange_override='NASDAQ')
 
     def compose_observed(self,state,**kwargs):
         parents,e,trust,objects=state

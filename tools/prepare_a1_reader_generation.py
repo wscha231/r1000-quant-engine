@@ -29,6 +29,8 @@ from tools.research_data_access import (ContractError, PRICE_COLUMNS, _session_c
     PROVIDER_CLOSE_CONSUMER, PROVIDER_COMPOSITION_SCHEMA,
     _provider_close_references, _validate_provider_close_qualification,
     _observed_volume_references, _validate_observed_volume_selection,
+    OBSERVED_VOLUME_V2_PROFILE, OBSERVED_VOLUME_V2_VENUES,
+    OBSERVED_VOLUME_V2_CHECKPOINT_BYTES,
     FINANCIAL_DATASET, FINANCIAL_SCHEMA, FINANCIAL_COLUMNS)
 
 MAX_ROWS = 100_000
@@ -207,13 +209,20 @@ def _reviewed_volume_selection(legs, descriptors, identities, parents, memory,
             and callable(proof), 'REVISION_EXTERNAL_PIN_REQUIRED')
     revision = _decode(revision_bytes,64*1024)
     _validate_observed_volume_selection(revision,descriptors,identities[0],context_id,decision)
+    current_private = revision['profile'] == OBSERVED_VOLUME_V2_PROFILE
+    ticker = identities[0]['ticker'] if current_private else 'MU'
     proof(revision['comparison_report'],64*1024)
     fields = ('open','high','low','close','volume')
     for index, record in enumerate(revision['captures']):
+        checkpoint_limit = OBSERVED_VOLUME_V2_CHECKPOINT_BYTES if current_private else 64*1024
         raw, normalized, receipt_raw, checkpoint_raw = (
-            proof(record[k],64*1024) for k in ('raw','normalized','receipt','checkpoint'))
-        receipt, checkpoint = _decode(receipt_raw,64*1024), _decode(checkpoint_raw,64*1024)
-        require(receipt.get('source') == capture.SOURCE and receipt.get('symbols') == ['MU']
+            proof(record[k],checkpoint_limit if k == 'checkpoint' else 64*1024)
+            for k in ('raw','normalized','receipt','checkpoint'))
+        receipt, checkpoint = _decode(receipt_raw,64*1024), _decode(checkpoint_raw,checkpoint_limit)
+        names = receipt.get('symbols')
+        selected_group = (type(names) is list and 1 <= len(names) <= capture.GROUP_SIZE
+                          and ticker in names) if current_private else names == ['MU']
+        require(receipt.get('source') == capture.SOURCE and selected_group
                 and receipt.get('source_admission') is False and receipt.get('pit_verified') is False
                 and all({k:receipt[name][k] for k in ('sha256','bytes')} == record[role]
                     for role,name in (('raw','raw_object'),('normalized','normalized_object'))),
@@ -234,9 +243,9 @@ def _reviewed_volume_selection(legs, descriptors, identities, parents, memory,
                 and checkpoint.get('state') == 'COMPLETE'
                 and checkpoint.get('run_id') == record['run_id']
                 and checkpoint.get('source_sha') == receipt.get('source_sha')
-                and type(records) is list and 1 <= len(records) <= 2
-                and checkpoint.get('coverage_updates',{}).get('MU') == checkpoint.get('session')
-                and 'MU' not in checkpoint.get('held',{'MU':'UNKNOWN'}), 'REVISION_CHECKPOINT')
+                and type(records) is list and 1 <= len(records) <= (MAX_REFS if current_private else 2)
+                and checkpoint.get('coverage_updates',{}).get(ticker) == checkpoint.get('session')
+                and ticker not in checkpoint.get('held',{ticker:'UNKNOWN'}), 'REVISION_CHECKPOINT')
         matches = [r for r in records if type(r) is dict and type(r.get('objects')) is list
                    and len(r['objects']) == 3
                    and r['objects'][2].get('sha256') == record['receipt']['sha256']
@@ -251,11 +260,31 @@ def _reviewed_volume_selection(legs, descriptors, identities, parents, memory,
                 and receipt.get('end') == (day(checkpoint['session'])+timedelta(days=1)).isoformat(),
                 'REVISION_CHECKPOINT')
         assets = receipt.get('asset_precheck')
-        require(type(assets) is list and len(assets) == 1, 'REVISION_ASSET')
-        asset = capture.asset_record(assets[0]['response_utf8'].encode(),'MU')
+        if current_private:
+            require(type(assets) is list and 1 <= len(assets) <= capture.GROUP_SIZE, 'REVISION_ASSET')
+            checked_assets = {}
+            for item in assets:
+                require(type(item) is dict and type(item.get('response_utf8')) is str,
+                        'REVISION_ASSET')
+                response = _decode(item['response_utf8'].encode(),64*1024)
+                name = response.get('symbol') if type(response) is dict else None
+                require(name in names and name not in checked_assets, 'REVISION_ASSET')
+                try:
+                    parsed = capture.asset_record(item['response_utf8'].encode(),name)
+                except capture.Refused:
+                    raise BindingError('REVISION_ASSET') from None
+                checked_assets[name] = (item, parsed)
+            require(set(checked_assets) == set(names), 'REVISION_ASSET')
+            observed_asset, asset = checked_assets[ticker]
+            venue = dict(OBSERVED_VOLUME_V2_VENUES)[identities[index]['mic']]
+        else:
+            require(type(assets) is list and len(assets) == 1, 'REVISION_ASSET')
+            observed_asset = assets[0]
+            asset = capture.asset_record(assets[0]['response_utf8'].encode(),'MU')
+            venue = 'NASDAQ'
         require(asset['id'] == identities[index]['provider_security_id']
-                and asset['exchange'] == 'NASDAQ'
-                and _clock(assets[0]['collected_at_utc']) <= _clock(record['collection_started_at']),
+                and asset['exchange'] == venue
+                and _clock(observed_asset['collected_at_utc']) <= _clock(record['collection_started_at']),
                 'REVISION_ASSET')
         for basis, adjustment in (('RAW','raw'),('SPLIT_ADJUSTED','split')):
             parent = parents[index][0 if basis == 'RAW' else 1]
@@ -285,7 +314,7 @@ def _reviewed_volume_selection(legs, descriptors, identities, parents, memory,
                     'REVISION_ORIGINAL_LINEAGE')
             row = legs[index][basis][-1 if index == 0 else 0]
             selected = [r for r in normalized_rows if r['date'] == revision['anchor_session']
-                        and r['adjustment'] == adjustment and r['ticker'] == 'MU']
+                        and r['adjustment'] == adjustment and r['ticker'] == ticker]
             require(len(selected) == 1 and selected[0]['currency'] == 'USD'
                     and all(Decimal(str(row[k])) == Decimal(str(selected[0][k])) for k in fields)
                     and digest(encoded(row)) == revision['anchors'][basis][
