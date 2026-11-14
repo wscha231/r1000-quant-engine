@@ -24,14 +24,17 @@ NATIVE_KINDS = frozenset({'risk_metrics', 'risk_calendar', 'risk_context'})
 CREDIT_SOURCES = frozenset({'fred:BAMLH0A0HYM2', 'fred:BAMLC0A0CM'})
 
 
+def credit_source_input(spec):
+    return spec['kind'] in {'macro', 'macro_v2'} and spec.get('source_id') in CREDIT_SOURCES
+
+
 def retained_source_input(spec):
     """Keep native operands and supplied credit originals, never derived proxies.
 
     The primary feeds do not contain these two credit series. Preserve their
     existing source/hash/clock specification; this filter grants no data rights.
     """
-    return spec['kind'] in NATIVE_KINDS or (spec['kind'] in {'macro', 'macro_v2'}
-        and spec.get('source_id') in CREDIT_SOURCES)
+    return spec['kind'] in NATIVE_KINDS or credit_source_input(spec)
 
 
 def publish_analysis(transport, request_raw, report_raw, *, cutoff):

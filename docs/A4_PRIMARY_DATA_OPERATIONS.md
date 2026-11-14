@@ -95,6 +95,10 @@ replace them. The input owner must separately qualify their applicable rights.
 This path makes no new licensed-source request or learning admission. Invalid,
 expired or tampered retained inputs refuse the entire retained group; fresh
 packet preparation does not refresh an old observation.
+When native preparation is enabled, its optional separately pinned
+[`current_credit` request](A4_NATIVE_INPUT_HANDOFF_V1.md) carries these originals
+into the prepared request before collection; the original Source manifest and
+its native readiness gate remain mandatory.
 
 `A4_RESEARCH_ENABLED` and `A4_RESEARCH_ALLOW_STATE_GENESIS` remain separate
 consumer/checkpoint settings. Collection does not enable a learning policy,

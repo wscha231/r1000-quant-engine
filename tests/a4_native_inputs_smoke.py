@@ -18,6 +18,7 @@ sys.path.insert(0,str(ROOT/'tests'))
 from tools import prepare_a4_native_inputs as handoff
 from tools.macro_history_sources import digest,encoded
 import run287_chameleon_macro_risk_smoke as fixture
+from tests.a4_primary_sources_smoke import retained_credit_input
 
 NOW='2026-11-12T10:00:00Z'
 DAY='2026-11-11'
@@ -85,6 +86,54 @@ class NativeHandoffTests(unittest.TestCase):
             handoff.prepare(self.source,pin,cutoff=NOW,output_dir=self.dest)
         self.assertFalse(self.dest.exists())
 
+    def test_separately_pinned_current_credit_originals_keep_original_specs_and_clocks(self):
+        credit_root=self.root/'credit';request,bodies=retained_credit_input(credit_root,now=NOW)
+        pin=digest((credit_root/'request.json').read_bytes())
+        result=self.run_prepare(current_credit_input_root=credit_root,current_credit_request_sha256=pin)
+        prepared=json.loads((self.dest/'request.json').read_bytes())
+        selected=[s for s in prepared['inputs'] if handoff.collector.credit_source_input(s)]
+        self.assertEqual(len(selected),2);self.assertEqual(result['current_credit_request_sha256'],pin)
+        for original in request['inputs'][1:3]:
+            spec=next(s for s in selected if s['sha256']==original['sha256'])
+            self.assertEqual({k:v for k,v in spec.items() if k!='path'},
+                {k:v for k,v in original.items() if k!='path'})
+            self.assertEqual((self.dest/spec['path']).read_bytes(),bodies[original['path']])
+        report=handoff.market.load_report(self.dest/'request.json',self.dest,result['request_sha256'],cutoff=NOW)
+        self.assertEqual(report['status'],'READY_RESEARCH_ONLY')
+        self.assertEqual(report['macro_direction_inputs']['hy_oas']['value'],3.2)
+        self.assertEqual(result['native_ready_axes'],10)
+        self.assertFalse(result['supplier_rights_certified']);self.assertFalse(result['training_allowed'])
+
+    def test_configured_credit_requires_both_arguments_and_independent_request_pin(self):
+        credit_root=self.root/'credit';retained_credit_input(credit_root,now=NOW)
+        with self.assertRaisesRegex(ValueError,'CREDIT_ARGUMENT_PAIR'):
+            self.run_prepare(current_credit_input_root=credit_root)
+        raw=(credit_root/'request.json').read_bytes()
+        with self.assertRaises(ValueError):
+            self.run_prepare(current_credit_input_root=credit_root,current_credit_request_sha256='f'*64)
+        self.assertFalse(self.dest.exists());self.assertEqual((credit_root/'request.json').read_bytes(),raw)
+
+    def test_corrupt_or_stale_current_credit_cannot_emit_a_request(self):
+        credit_root=self.root/'credit';request,bodies=retained_credit_input(credit_root,now=NOW)
+        pin=digest((credit_root/'request.json').read_bytes());(credit_root/'hy.csv').write_bytes(b'changed')
+        with self.assertRaisesRegex(ValueError,'CREDIT_ORIGINAL_HASH'):
+            self.run_prepare(current_credit_input_root=credit_root,current_credit_request_sha256=pin)
+        stale=b'DATE,BAMLH0A0HYM2\n2026-10-01,3.2\n';(credit_root/'hy.csv').write_bytes(stale)
+        request['inputs'][1]['sha256']=digest(stale);(credit_root/'request.json').write_bytes(encoded(request))
+        with self.assertRaisesRegex(ValueError,'CREDIT_NOT_CURRENT'):
+            self.run_prepare(current_credit_input_root=credit_root,
+                current_credit_request_sha256=digest((credit_root/'request.json').read_bytes()))
+        self.assertFalse(self.dest.exists())
+
+    def test_credit_changed_during_native_replay_is_refused_before_publication(self):
+        credit_root=self.root/'credit';retained_credit_input(credit_root,now=NOW)
+        pin=digest((credit_root/'request.json').read_bytes());original=handoff.market.native_risk
+        def changed(*args,**kwargs):
+            result=original(*args,**kwargs);(credit_root/'ig.csv').write_bytes(b'changed');return result
+        with patch.object(handoff.market,'native_risk',side_effect=changed),self.assertRaisesRegex(ValueError,'CREDIT_CHANGED'):
+            self.run_prepare(current_credit_input_root=credit_root,current_credit_request_sha256=pin)
+        self.assertFalse(self.dest.exists())
+
     def test_old_session_and_unready_producer_never_renew(self):
         for change in [dict(requested_as_of='2026-11-10'),dict(status='BLOCKED'),dict(orders_generated=True),
                        dict(truth_class='PIT_VERIFIED'),dict(builder_sha256='b'*64),dict(ledger_mutated=0)]:
@@ -116,6 +165,10 @@ class NativeHandoffTests(unittest.TestCase):
         frame=handoff.market.clock.table(self.bodies['metrics'])
         self.replace('metrics',frame[frame.axis!='credit'].to_csv(index=False).encode())
         with self.assertRaisesRegex(ValueError,'TEN_AXIS_NOT_READY'):self.run_prepare()
+        credit_root=self.root/'credit';retained_credit_input(credit_root,now=NOW)
+        with self.assertRaisesRegex(ValueError,'TEN_AXIS_NOT_READY'):
+            self.run_prepare(current_credit_input_root=credit_root,
+                current_credit_request_sha256=digest((credit_root/'request.json').read_bytes()))
         self.assertFalse(self.dest.exists())
 
     def test_source_lineage_and_truth_cannot_be_relabelled(self):
@@ -175,14 +228,37 @@ class NativeHandoffTests(unittest.TestCase):
         bash=str(Path(os.environ.get('ProgramFiles','C:/Program Files'))/'Git/bin/bash.exe') if os.name=='nt' else shutil.which('bash')
         self.assertTrue(bash and Path(bash).is_file())
         baseline=dict(os.environ,RESEARCH_ENABLED='false',PRIMARY_ENABLED='true',FINANCING_ENABLED='false',
-            PRIMARY_CONFIG='success',PRIMARY='success',DATA_CENTER='success',NATIVE_PIN='',NATIVE='failure')
+            PRIMARY_CONFIG='success',PRIMARY='success',DATA_CENTER='success',NATIVE_PIN='',CREDIT_PIN='',NATIVE='failure')
         cases=[({},True),({'NATIVE_PIN':'a'*64,'NATIVE':'success'},True)]
+        cases += [({'NATIVE_PIN':'a'*64,'CREDIT_PIN':'b'*64,'NATIVE':'success'},True),
+                  ({'CREDIT_PIN':'b'*64,'NATIVE':'success'},False)]
         cases += [({'NATIVE_PIN':'a'*64,'NATIVE':state},False) for state in ('failure','skipped','cancelled')]
         cases += [({'NATIVE_PIN':'a'*64,'NATIVE':'success','PRIMARY_ENABLED':'false'},False)]
         for fields,passed in cases:
             with self.subTest(fields=fields):
                 result=subprocess.run([bash,'-c',steps[-1]['run']],env=dict(baseline,**fields),capture_output=True,timeout=10)
                 self.assertEqual(result.returncode==0,passed)
+
+    def test_hosted_credit_arguments_are_default_off_and_separately_pinned_in_decoded_shell(self):
+        workflow=yaml.safe_load((ROOT/'.github/workflows/daily_crisis_monitor.yml').read_text())
+        step=next(s for s in workflow['jobs']['monitor']['steps'] if s.get('id')=='a4_native_prepare')
+        bash=str(Path(os.environ.get('ProgramFiles','C:/Program Files'))/'Git/bin/bash.exe') if os.name=='nt' else shutil.which('bash')
+        script=step['run'].replace('${{ github.run_id }}','witness').replace('${{ github.run_attempt }}','1')
+        script='python() { printf "%s\\n" "$@" > "$ARG_FILE"; }\n'+script
+        for i,pin in enumerate(('', 'b'*64)):
+            with self.subTest(credit_configured=bool(pin)):
+                work=self.root/str(i);work.mkdir();args=work/'args.txt';envfile=work/'environment.txt'
+                env=dict(os.environ,NATIVE_MANIFEST_SHA256='a'*64,CURRENT_CREDIT_REQUEST_SHA256=pin,
+                    ARG_FILE=args.as_posix(),GITHUB_ENV=envfile.as_posix())
+                result=subprocess.run([bash,'-c',script],cwd=work,env=env,capture_output=True,timeout=10)
+                self.assertEqual(result.returncode,0,result.stderr.decode(errors='replace'))
+                tokens=args.read_text().splitlines()
+                if pin:
+                    self.assertEqual(tokens[tokens.index('--current-credit-input-root')+1],
+                        'outputs/market_analysis_inputs/current_credit')
+                    self.assertEqual(tokens[tokens.index('--current-credit-request-sha256')+1],pin)
+                else:self.assertNotIn('--current-credit-input-root',tokens)
+                self.assertIn('A4_NATIVE_INPUT_ROOT=outputs/a4_native_preparation/witness-1',envfile.read_text())
 
 
 if __name__=='__main__':unittest.main()

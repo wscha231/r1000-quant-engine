@@ -11,6 +11,10 @@
   inputs must not fall back to an older request or refresh old observations.
   Durable paired replay preserves context, not supplier rights, PIT or learning
   approval. Bind the collector helper in the index implementation identity.
+- Native preparation accepts a separately pinned current-credit request so its
+  fresh risk-only packet cannot discard those originals. Configured missing,
+  stale or changed credit fails before writing; preserve the existing native
+  axis gate and extend its hosted failure guards to the optional credit pin.
 
 ### 2026-11-14 KST — Replay the dated feature prefix before releasing forecasts
 

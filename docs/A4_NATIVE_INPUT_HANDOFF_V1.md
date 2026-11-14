@@ -33,12 +33,27 @@ The CLI uses the actual execution time and latest completed NYSE session.
 Its `request.json`/`request.sha256` and three immutable `native/<sha256>` objects
 are consumed by the existing collector's `--existing-input-root` option.
 
+If the Source owner supplies current HY/IG originals separately, pass both
+`--current-credit-input-root <current-credit-root>` and
+`--current-credit-request-sha256 <independent-request-hash>`. The pinned request
+must be current and unexpired. Only its registered FRED HY/IG `macro`/`macro_v2`
+roles are retained; native operands in that separate request cannot replace the
+five-file Source manifest. Original byte hashes, normalization and clocks stay
+unchanged. Invalid, missing, changed, stale or future configured credit refuses
+preparation before the request commit marker. These originals do not make a
+missing native axis ready or grant data rights or historical training approval.
+
 The same hosted workflow has an additive, default-off preparation stage. After
 Source qualification, its owner publishes/rechecks the normalizer's original
 manifest and five files under the existing private
 `outputs/market_analysis_inputs/native_source` restore tree, and independently
 pins that original manifest in `A4_NATIVE_SOURCE_MANIFEST_SHA256`. This pin
 identifies a reviewed input; setting it is not supplier or Source/PIT approval.
+An optional `A4_CREDIT_REQUEST_SHA256` independently pins
+`outputs/market_analysis_inputs/current_credit/request.json` and its originals
+in that same private restore tree. It also requires the native Source manifest
+and primary collection. A configured but invalid credit handoff follows the
+same failed-preparation and legacy-writer guards; it cannot silently fall back.
 Primary collection must also be enabled. Preparation records its attempted
 root before replay; a failure cannot fall back to the restored old request and
 fails the final durable gate. Only its metadata receipt is uploaded as an

@@ -86,18 +86,24 @@ jobs:
 
       - name: Prepare pinned native A4 inputs
         id: a4_native_prepare
-        if: vars.A4_PRIMARY_COLLECTION_ENABLED == 'true' && vars.A4_NATIVE_SOURCE_MANIFEST_SHA256 != ''
+        if: vars.A4_PRIMARY_COLLECTION_ENABLED == 'true' && (vars.A4_NATIVE_SOURCE_MANIFEST_SHA256 != '' || vars.A4_CREDIT_REQUEST_SHA256 != '')
         continue-on-error: true
         env:
           NATIVE_MANIFEST_SHA256: ${{ vars.A4_NATIVE_SOURCE_MANIFEST_SHA256 }}
+          CURRENT_CREDIT_REQUEST_SHA256: ${{ vars.A4_CREDIT_REQUEST_SHA256 }}
         run: |
           set -euo pipefail
           DEST="outputs/a4_native_preparation/${{ github.run_id }}-${{ github.run_attempt }}"
           # A failed current preparation must never reuse the restored request.
           echo "A4_NATIVE_INPUT_ROOT=$DEST" >> "$GITHUB_ENV"
+          credit=()
+          if [ -n "${CURRENT_CREDIT_REQUEST_SHA256:-}" ]; then
+            credit+=(--current-credit-input-root outputs/market_analysis_inputs/current_credit
+              --current-credit-request-sha256 "$CURRENT_CREDIT_REQUEST_SHA256")
+          fi
           python tools/prepare_a4_native_inputs.py \
             --source-root outputs/market_analysis_inputs/native_source \
-            --manifest-sha256 "$NATIVE_MANIFEST_SHA256" --output-dir "$DEST"
+            --manifest-sha256 "$NATIVE_MANIFEST_SHA256" --output-dir "$DEST" "${credit[@]}"
 
       - name: Configure primary A4 research transport
         id: a4_primary_config
@@ -240,7 +246,7 @@ jobs:
           timeout 30s rclone check "outputs/a4_research/attempts/${{ github.run_id }}-${{ github.run_attempt }}" "$DEST/attempts/${{ github.run_id }}-${{ github.run_attempt }}" --one-way --checkers 2
 
       - name: Run daily crisis monitor
-        if: vars.A4_NATIVE_SOURCE_MANIFEST_SHA256 == '' || steps.a4_native_prepare.outcome == 'success'
+        if: (vars.A4_NATIVE_SOURCE_MANIFEST_SHA256 == '' && vars.A4_CREDIT_REQUEST_SHA256 == '') || steps.a4_native_prepare.outcome == 'success'
         run: |
           python tools/run_daily_crisis_monitor.py \
             --latest-run outputs \
@@ -251,7 +257,7 @@ jobs:
             --update-history
 
       - name: Upload daily crisis artifact
-        if: always() && (vars.A4_NATIVE_SOURCE_MANIFEST_SHA256 == '' || steps.a4_native_prepare.outcome == 'success')
+        if: always() && ((vars.A4_NATIVE_SOURCE_MANIFEST_SHA256 == '' && vars.A4_CREDIT_REQUEST_SHA256 == '') || steps.a4_native_prepare.outcome == 'success')
         uses: actions/upload-artifact@v4
         with:
           name: daily-crisis-monitor-${{ github.run_id }}
@@ -279,7 +285,7 @@ jobs:
           retention-days: 30
 
       - name: Upload native A4 preparation receipt
-        if: always() && vars.A4_NATIVE_SOURCE_MANIFEST_SHA256 != ''
+        if: always() && (vars.A4_NATIVE_SOURCE_MANIFEST_SHA256 != '' || vars.A4_CREDIT_REQUEST_SHA256 != '')
         uses: actions/upload-artifact@v4
         with:
           name: a4-native-preparation-${{ github.run_id }}-${{ github.run_attempt }}
@@ -303,7 +309,7 @@ jobs:
           retention-days: 30
 
       - name: Sync daily crisis status to Google Drive
-        if: always() && (vars.A4_NATIVE_SOURCE_MANIFEST_SHA256 == '' || steps.a4_native_prepare.outcome == 'success')
+        if: always() && ((vars.A4_NATIVE_SOURCE_MANIFEST_SHA256 == '' && vars.A4_CREDIT_REQUEST_SHA256 == '') || steps.a4_native_prepare.outcome == 'success')
         env:
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
           GDRIVE_FOLDER_NAME: r1000_top30_institutional
@@ -320,7 +326,7 @@ jobs:
           rclone copy outputs/daily_crisis_monitor "$DEST/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
 
       - name: Require A4 computation and durable readback
-        if: always() && (vars.A4_RESEARCH_ENABLED == 'true' || vars.A4_PRIMARY_COLLECTION_ENABLED == 'true' || vars.A4_FINANCING_COLLECTION_ENABLED == 'true' || vars.A4_NATIVE_SOURCE_MANIFEST_SHA256 != '')
+        if: always() && (vars.A4_RESEARCH_ENABLED == 'true' || vars.A4_PRIMARY_COLLECTION_ENABLED == 'true' || vars.A4_FINANCING_COLLECTION_ENABLED == 'true' || vars.A4_NATIVE_SOURCE_MANIFEST_SHA256 != '' || vars.A4_CREDIT_REQUEST_SHA256 != '')
         env:
           RESTORE: ${{ steps.a4_restore.outcome }}
           CYCLE: ${{ steps.a4_cycle.outcome }}
@@ -332,10 +338,15 @@ jobs:
           PRIMARY: ${{ steps.a4_primary_collect.outcome }}
           DATA_CENTER: ${{ steps.a4_data_center.outcome }}
           NATIVE_PIN: ${{ vars.A4_NATIVE_SOURCE_MANIFEST_SHA256 }}
+          CREDIT_PIN: ${{ vars.A4_CREDIT_REQUEST_SHA256 }}
           NATIVE: ${{ steps.a4_native_prepare.outcome }}
         run: |
           set -euo pipefail
-          if [ -n "${NATIVE_PIN:-}" ]; then
+          if [ -n "${CREDIT_PIN:-}" ] && [ -z "${NATIVE_PIN:-}" ]; then
+            echo "Configured credit handoff requires the current native Source manifest." >&2
+            exit 1
+          fi
+          if [ -n "${NATIVE_PIN:-}" ] || [ -n "${CREDIT_PIN:-}" ]; then
             test "$PRIMARY_ENABLED" = true || exit 2
             test "$NATIVE" = success || exit 2
           fi
