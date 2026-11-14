@@ -184,13 +184,13 @@ jobs:
             # auth or an existing-but-unreadable state can never start afresh.
             timeout 30s rclone lsjson "${BASE}outputs" --dirs-only --max-depth 1 > "$RUNNER_TEMP/a4-parent.json"
             python - <<'PY'
-            import json, os
-            from pathlib import Path
-            entries=json.loads((Path(os.environ['RUNNER_TEMP'])/'a4-parent.json').read_bytes())
-            if not isinstance(entries,list) or any(r.get('Name')=='a4_research' for r in entries):
-                raise SystemExit('A4 namespace exists or parent inventory is invalid; genesis refused')
-            Path('outputs/a4_research/state/namespace.json').write_text('{"schema":"a4-research-state-v1","accepted_model":false}\n')
-            PY
+          import json, os
+          from pathlib import Path
+          entries=json.loads((Path(os.environ['RUNNER_TEMP'])/'a4-parent.json').read_bytes())
+          if not isinstance(entries,list) or any(r.get('Name')=='a4_research' for r in entries):
+              raise SystemExit('A4 namespace exists or parent inventory is invalid; genesis refused')
+          Path('outputs/a4_research/state/namespace.json').write_text('{"schema":"a4-research-state-v1","accepted_model":false}\n')
+          PY
             echo 'Explicit research-state genesis; no prior history certified.'
           else
             echo 'A4 checkpoint unavailable; refuse an implicit fresh start.'

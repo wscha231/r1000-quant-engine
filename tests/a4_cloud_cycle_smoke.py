@@ -1,6 +1,9 @@
 """Cloud recovery boundaries, invalid input attempts and hosted workflow wiring."""
 import json
+import os
 from pathlib import Path
+import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -21,6 +24,101 @@ NOW="2026-11-07T10:00:00Z"
 
 
 class CloudTests(unittest.TestCase):
+    def shell_binary(self):
+        git_bash=Path(os.environ.get('ProgramFiles','C:/Program Files'))/'Git/bin/bash.exe'
+        binary=str(git_bash) if os.name=='nt' and git_bash.is_file() else shutil.which('bash')
+        self.assertIsNotNone(binary,'Bash is required for the hosted shell regressions')
+        return binary
+
+    def hosted_steps(self):
+        workflow=yaml.safe_load((ROOT/'.github/workflows/daily_crisis_monitor.yml').read_text(encoding='utf-8'))
+        return workflow['jobs']['monitor']['steps']
+
+    def test_hosted_run_scripts_parse_as_actual_bash(self):
+        with tempfile.TemporaryDirectory() as folder:
+            script=Path(folder)/'step.sh'
+            for step in self.hosted_steps():
+                if 'run' not in step:continue
+                with self.subTest(step=step['name']):
+                    body=re.sub(r'\$\{\{.*?\}\}','workflow_context',step['run'],flags=re.S)
+                    script.write_text(body,encoding='utf-8',newline='\n')
+                    result=subprocess.run([self.shell_binary(),'-n',script.as_posix()],
+                        capture_output=True,text=True,timeout=15)
+                    self.assertEqual(result.returncode,0,result.stderr)
+
+    def restore_fixture(self,mode,*,genesis='true',parent=None):
+        step=next(s for s in self.hosted_steps() if s.get('id')=='a4_restore')
+        # Execute the actual YAML-decoded run block. Functions intercept every
+        # transport/timeout command; no real provider, credential or Drive is used.
+        prefix=r'''
+rclone() {
+  printf '%s\n' "$*" >> "$FIXTURE_CALLS"
+  case "$1" in
+    lsf)
+      case "$FIXTURE_MODE" in restore|copy_fail|check_fail) return 0;; esac
+      return 3;;
+    lsjson)
+      if [ "$FIXTURE_MODE" = parent_fail ]; then return 9; fi
+      printf '%s\n' "$FIXTURE_PARENT";;
+    copy)
+      if [ "$FIXTURE_MODE" = copy_fail ]; then return 7; fi
+      printf '%s' '{"schema":"fixture-restored-v1","accepted_model":false}' > outputs/a4_research/state/namespace.json;;
+    check)
+      if [ "$FIXTURE_MODE" = check_fail ]; then return 8; fi;;
+    *) return 99;;
+  esac
+}
+timeout() { shift; "$@"; }
+python() { "$FIXTURE_PYTHON" "$@"; }
+'''
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);runner=root/'runner';runner.mkdir()
+            script=root/'restore.sh';script.write_text(prefix+step['run'],encoding='utf-8',newline='\n')
+            calls=root/'calls.txt'
+            env=dict(os.environ,GDRIVE_READY='yes',GDRIVE_ROOT_FOLDER_ID='',GDRIVE_FOLDER_NAME='fixture',
+                ALLOW_GENESIS=genesis,RUNNER_TEMP=runner.as_posix(),FIXTURE_MODE=mode,
+                FIXTURE_PARENT=json.dumps([] if parent is None else parent),
+                FIXTURE_PYTHON=Path(sys.executable).as_posix(),FIXTURE_CALLS=calls.as_posix())
+            result=subprocess.run([self.shell_binary(),script.as_posix()],cwd=root,env=env,
+                capture_output=True,text=True,timeout=20)
+            marker=root/'outputs/a4_research/state/namespace.json'
+            return result,(marker.read_bytes() if marker.exists() else None),calls.read_text().splitlines()
+
+    def test_hosted_checkpoint_restores_existing_state_with_checksum(self):
+        result,marker,calls=self.restore_fixture('restore')
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(json.loads(marker)['schema'],'fixture-restored-v1')
+        self.assertTrue(any(c.startswith('copy ') and '--checksum' in c for c in calls))
+        self.assertTrue(any(c.startswith('check ') and '--one-way' in c for c in calls))
+        self.assertFalse(any(c.startswith('lsjson ') for c in calls))
+
+    def test_hosted_checkpoint_genesis_requires_verified_absent_namespace(self):
+        result,marker,calls=self.restore_fixture('absent',parent=[{'Name':'other_component','IsDir':True}])
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(json.loads(marker),{'schema':'a4-research-state-v1','accepted_model':False})
+        self.assertTrue(any(c.startswith('lsjson ') for c in calls))
+        self.assertFalse(any(c.startswith(('copy ','check ')) for c in calls))
+
+    def test_hosted_checkpoint_refuses_genesis_after_existing_or_failed_parent(self):
+        for mode,parent in (('absent',[{'Name':'a4_research','IsDir':True}]),
+                            ('parent_fail',[]),('absent',{'invalid':'inventory'})):
+            with self.subTest(mode=mode,parent=parent):
+                result,marker,_=self.restore_fixture(mode,parent=parent)
+                self.assertNotEqual(result.returncode,0)
+                self.assertIsNone(marker)
+        result,marker,calls=self.restore_fixture('absent',genesis='false')
+        self.assertNotEqual(result.returncode,0)
+        self.assertIsNone(marker)
+        self.assertFalse(any(c.startswith('lsjson ') for c in calls))
+
+    def test_hosted_checkpoint_transfer_failures_never_fall_back_to_genesis(self):
+        for mode in ('copy_fail','check_fail'):
+            with self.subTest(mode=mode):
+                result,marker,calls=self.restore_fixture(mode)
+                self.assertNotEqual(result.returncode,0)
+                self.assertFalse(any(c.startswith('lsjson ') for c in calls))
+                if marker:self.assertEqual(json.loads(marker)['schema'],'fixture-restored-v1')
+
     def test_benchmark_learning_policy_must_still_be_valid_at_execution(self):
         p,policy,resolve=fixture()
         cutoff=(learning.free.utc(p['cutoff'])+timedelta(minutes=20)).isoformat()
