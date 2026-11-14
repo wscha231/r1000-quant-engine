@@ -26,6 +26,126 @@ def report():
 
 
 class ModelTests(unittest.TestCase):
+
+    def stock63_inputs(self):
+        from tests.multi_asset_leadership_smoke import StockCashResearch,SESSIONS
+        from research.er_horizon_v1 import session63_exposure
+        owner=StockCashResearch("runTest")
+        p,r,policy=owner.inputs()
+        policy["stock_cash_research"].update(schema="stock-cash-research-v2",horizon="63_NYSE_SESSIONS")
+        clock=session63_exposure(list(SESSIONS)[-1])
+        for model in policy["validated_models"].values():model["horizon"]="63_NYSE_SESSIONS"
+        for er in p["evaluations"]:
+            self.as63(er,clock)
+        policy["reviewed_pins"]["evaluation"]=[digest(er) for er in p["evaluations"]]
+        review=p["risk"]["stock_cash_allocation"]
+        review.update(horizon="63_NYSE_SESSIONS",minimum_expected_alpha_horizon="63_NYSE_SESSIONS",
+                      evaluation_sha256_by_asset={er["asset_id"]:digest(er) for er in p["evaluations"]})
+        policy["reviewed_pins"]["risk"].append(digest(p["risk"]))
+        return p,r,policy,owner.memory
+
+    def as63(self,er,clock):
+        # Synthetic separately specified 63-period distribution, not conversion
+        # or annualization of an existing monthly forecast.
+        for h in ("1m","3m","6m","12m"):
+            er.pop("expected_return_"+h,None);er.pop("benchmark_expected_return_"+h,None)
+        er.update(schema="validated-er-nyse-sessions-v1",horizon="63_NYSE_SESSIONS",
+            horizon_unit="NYSE_PRICE_INTERVALS",horizon_count=63,
+            cost_horizon="63_NYSE_SESSIONS",downside_horizon="63_NYSE_SESSIONS",
+            forecast_clock=clock,expected_return_63s=.06,benchmark_expected_return_63s=.02,
+            scenarios={"63s":{"bear":{"return":-.02,"probability":.25},
+                "base":{"return":.06,"probability":.5},"bull":{"return":.14,"probability":.25}}})
+        er["portfolio_cost_basis"].update(schema="reviewed-portfolio-cost-basis-v2",
+            horizon="63_NYSE_SESSIONS",ongoing_cost_period="HORIZON_TOTAL_BPS",gross_expected_return=.065)
+
+    def test_stock63_clock_matches_existing_learner_and_cash_exposure(self):
+        import pandas as pd
+        from tools.run_run287_expected_return_challenger import expected_nyse_label_ends
+        from research.er_horizon_v1 import session63_exposure
+        from research.multi_asset_v1.decisions import stock_decision_clock
+        for day in ("2026-11-25","2026-10-30","2024-02-28"):
+            exposure=session63_exposure(day)
+            end=expected_nyse_label_ends(pd.Series([day]),63).iloc[0].date().isoformat()
+            self.assertEqual(stamp(exposure["mark_at"]).date().isoformat(),end)
+            self.assertEqual(exposure["held_intervals"],63)
+            self.assertEqual(exposure["carry_calendar_days"],
+                (stamp(exposure["mark_at"]).date()-stamp(exposure["entry_at"]).date()).days)
+        self.assertEqual(stamp(session63_exposure("2026-11-25")["entry_at"]).hour,18)
+        self.assertEqual(stamp(session63_exposure("2026-10-30")["entry_at"]).hour,21)
+        legacy=stock_decision_clock(CUTOFF,{"cadence":"MONTHLY"},{},[])
+        self.assertEqual(legacy["horizon"],"12_CALENDAR_MONTHS")
+        self.assertNotIn("forecast_clock",legacy)
+        with self.assertRaises(ValueError):
+            stock_decision_clock(CUTOFF,{"schema":"stock-cash-research-v2","cadence":"MONTHLY"},{},[])
+        p,r,policy,memory=self.stock63_inputs()
+        clock=stock_decision_clock(CUTOFF,policy["stock_cash_research"],{},[])
+        self.assertEqual(clock["covariance_scale_sessions"],63)
+        self.assertGreater(clock["pre_entry_calendar_days"],0)
+        self.assertEqual(clock["horizon_end"],stamp(clock["forecast_clock"]["mark_at"]).date().isoformat())
+        self.assertTrue(clock["holding_horizon_is_not_an_exit_instruction"])
+
+    def test_stock63_actual_runtime_allocates_without_month_alias_and_cost_twice(self):
+        from research.multi_asset_v1.decisions import _stock_cost
+        p,r,policy,memory=self.stock63_inputs()
+        original=copy.deepcopy(p)
+        result=runtime.run(p,r,policy,artifact_resolver=memory)
+        proposal=result["proposal"]
+        self.assertEqual(proposal["status"],"RESEARCH_PROPOSAL",proposal)
+        self.assertEqual(p,original)
+        self.assertEqual(result["allocation_horizon"],"63_NYSE_SESSIONS")
+        self.assertGreater(sum(proposal["proposed_weights"].values()),0)
+        self.assertEqual(proposal["comparison_inputs"]["expected_return_horizon"],"63_NYSE_SESSIONS")
+        self.assertTrue(all(abs(v-.065)<1e-12 for v in proposal["comparison_inputs"]["gross_er"]))
+        self.assertEqual(proposal["comparison_inputs"]["side_cost"],[.0025]*3)
+        for row in result["multi_asset_leadership_latest"]:
+            self.assertIsNone(row["expected_return_12m"])
+            self.assertAlmostEqual(row["expected_alpha_63s"],.04)
+        self.assertIn("ER 63 NYSE intervals",runtime.render(result))
+        basis=p["evaluations"][0]
+        gross,side=_stock_cost(basis,25,policy["stock_cash_research"])
+        self.assertAlmostEqual(gross-2*side,.06)
+        self.assertFalse(proposal["orders_generated"])
+
+    def test_stock63_wrong_period_model_cost_threshold_and_forecast_refuse(self):
+        for name in ("model","horizon","forecast","downside","cost","expense","threshold","schema"):
+            p,r,policy,memory=self.stock63_inputs();er=p["evaluations"][0]
+            if name=="model":policy["validated_models"]["TEST_MODEL"]["horizon"]="12_CALENDAR_MONTHS"
+            elif name=="horizon":er["horizon_count"]=True
+            elif name=="forecast":er["forecast_clock"]={**er["forecast_clock"],"held_intervals":62}
+            elif name=="downside":er["downside_horizon"]="12_CALENDAR_MONTHS"
+            elif name=="cost":er["portfolio_cost_basis"]["horizon"]="12_CALENDAR_MONTHS"
+            elif name=="expense":er["portfolio_cost_basis"]["ongoing_cost_period"]="ANNUAL_BPS"
+            elif name=="threshold":p["risk"]["stock_cash_allocation"].pop("minimum_expected_alpha_horizon")
+            else:policy["stock_cash_research"]["schema"]="stock-cash-research-v1"
+            policy["reviewed_pins"]["evaluation"].append(digest(er))
+            p["risk"]["stock_cash_allocation"]["evaluation_sha256_by_asset"]={e["asset_id"]:digest(e) for e in p["evaluations"]}
+            policy["reviewed_pins"]["risk"].append(digest(p["risk"]))
+            with self.subTest(name=name):
+                try:result=runtime.run(p,r,policy,artifact_resolver=memory)
+                except ValueError:
+                    self.assertEqual(name,"schema")
+                else:self.assertEqual(result["proposal"]["status"],"BLOCKED",result["proposal"])
+
+    def test_stock63_original_A3_registry_handoff_keeps_new_horizon(self):
+        from tests.multi_asset_leadership_smoke import A3OriginalInputs
+        from research.er_horizon_v1 import session63_exposure
+        owner=A3OriginalInputs("runTest");owner.setUp()
+        owner.stock_review_inputs()
+        owner.policy["stock_cash_research"].update(schema="stock-cash-research-v2",horizon="63_NYSE_SESSIONS")
+        owner.policy["validated_models"]["TEST_MODEL"]["horizon"]="63_NYSE_SESSIONS"
+        from research.multi_asset_v1.prices import grid
+        self.as63(owner.original,session63_exposure(list(grid(CUTOFF))[-1]))
+        owner.policy["reviewed_pins"]["evaluation"].append(digest(owner.original))
+        owner.reseal()
+        # Existing Registry performs actual sealed A3 replay; current A3/A6
+        # review remains mandatory before runtime accepts the ER for sizing.
+        result=owner.execute()
+        record=result["a3_reference_coverage"]["records"][0]
+        self.assertTrue(record["original_runtime_contract_verified"],record)
+        self.assertFalse(record["runtime_evaluation_admitted"])
+        self.assertEqual(record["blocker"],"CURRENT_A3_REVIEW_ADMISSION_REQUIRED")
+        self.assertEqual(result["proposal"]["status"],"BLOCKED")
+
     def v2_originals(self):
         values={"SOFR":4.2,"TGCR":4.1,"IORB":4.0,"DFF":3.98,"WALCL":7000000,"WRESBAL":3000000,
             "WDTGAL":600000,"RRPONTSYD":500,"DPSACBW027SBOG":120,"DPSDCBW027SBOG":100,
@@ -114,6 +234,44 @@ class ModelTests(unittest.TestCase):
         with patch.object(runtime,"run") as run:
             self.assertEqual(a5.build_model_proposal(self.p,self.r,self.policy,self.report)["status"],"BLOCKED")
             run.assert_not_called()
+
+    def test_stock63_complete_original_graph_reaches_public_A5(self):
+        from tests.multi_asset_leadership_smoke import A3OriginalInputs
+        from research.er_horizon_v1 import session63_exposure
+        from research.multi_asset_v1.prices import grid
+        old_stock=A3OriginalInputs.stock_review_inputs
+        old_review=A3OriginalInputs.current_review
+        old_build=a5.build_model_proposal
+        observed=[]
+        def stock63(owner):
+            old_stock(owner)
+            owner.policy["stock_cash_research"].update(schema="stock-cash-research-v2",horizon="63_NYSE_SESSIONS")
+            owner.policy["validated_models"]["TEST_MODEL"]["horizon"]="63_NYSE_SESSIONS"
+            self.as63(owner.original,session63_exposure(list(grid(owner.p["as_of"]))[-1]))
+            owner.policy["reviewed_pins"]["evaluation"].append(digest(owner.original))
+            owner.p["risk"]["stock_cash_allocation"].update(horizon="63_NYSE_SESSIONS",
+                minimum_expected_alpha_horizon="63_NYSE_SESSIONS",
+                evaluation_sha256_by_asset={owner.original["asset_id"]:digest(owner.original)})
+            owner.policy["reviewed_pins"]["risk"].append(digest(owner.p["risk"]))
+        def review(owner,*args,**kwargs):
+            with patch.object(A3OriginalInputs,"stock_review_inputs",stock63):
+                return old_review(owner,*args,**{**kwargs,"stock":True})
+        def build(*args,**kwargs):
+            value=old_build(*args,**kwargs);observed.append(value);return value
+        # Only dirty-checkout Git attestation is isolated. Real A3/Registry,
+        # current A0/A6 graph, A4 reader and public A5 all execute unchanged.
+        with patch.object(A3OriginalInputs,"current_review",review), \
+             patch("tools.run_multi_asset_leadership.verified_source_hashes",return_value={"synthetic":"a"*64}), \
+             patch.object(a5,"build_model_proposal",side_effect=build):
+            self.test_complete_original_graph_with_v2_reaches_native_a5()
+        self.assertEqual(len(observed),2)  # direct public call and hosted cycle
+        for value in observed:
+            self.assertEqual(value["allocation_horizon"],"63_NYSE_SESSIONS")
+            self.assertTrue(value["proposed_weights"])
+            self.assertFalse(value["orders_generated"])
+            self.assertFalse(value["accepted_target_written"])
+            self.assertTrue(all("expected_return_63s" in row and "expected_return_12m" not in row
+                                for row in value["changes"]))
 
     def test_complete_original_graph_with_v2_reaches_native_a5(self):
         # Real incumbent A3/Registry, A0/A6 graph, native A4 and A5 code over
