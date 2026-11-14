@@ -512,12 +512,23 @@ def _validate_source_graph(
             row.get("independence_group"),
             "source_graph_independence_group",
         )
-        published_at = _stamp(row.get("published_at"), "source_graph_published_at")
         available_at = _stamp(row.get("available_at"), "source_graph_available_at")
-        _require(
-            published_at <= available_at <= graph_as_of,
-            "source_graph_time_order",
-        )
+        if row.get("publication_clock_basis") is not None:
+            if __package__:
+                from .moat_quality_v2 import _validated_current_observation, MoatQualityContractError
+            else:
+                from moat_quality_v2 import _validated_current_observation, MoatQualityContractError
+            _require(value.get("historical_pit_certified") is False, "source_graph_current_research_scope")
+            def observation_resolver(aid, expected):
+                return (resolver(aid, expected) if artifact_cache is None
+                        else artifact_cache.read(aid, expected))
+            try:
+                _validated_current_observation(row, available_at, graph_as_of, observation_resolver)
+            except MoatQualityContractError as exc:
+                raise A3CandidatePacketError(str(exc)) from exc
+        else:
+            published_at = _stamp(row.get("published_at"), "source_graph_published_at")
+            _require(published_at <= available_at <= graph_as_of, "source_graph_time_order")
         raw_artifact_id = _identifier(
             row.get("raw_artifact_id"),
             "source_graph_raw_artifact_id",

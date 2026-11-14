@@ -159,7 +159,8 @@ def verified_source_hashes(code_sha):
            ROOT/"tools/macro_history_sources.py",ROOT/"research/theme_etf_runtime_v1/strict.py",
            ROOT/"research/theme_etf_runtime_v1/runtime.py",ROOT/"r1000_legacy_input_guard.py",
            ROOT/"tools/run_a2_research_intake.py",ROOT/"research/a2_research_intake_v1.py",
-           ROOT/"research/a3_candidate_packet_v1.py",ROOT/"research/candidate_registry_v1.py",
+           ROOT/"research/a3_candidate_packet_v1.py",ROOT/"research/moat_quality_v2.py",
+           ROOT/"research/candidate_registry_v1.py",
            ROOT/"research/er_horizon_v1.py"}
     paths.update(ROOT/name for name in ("tools/run_agent_board.py", "mission_contract.py",
         "r1000_config.py", "research/control_plane/agent_contracts_v2.yaml",

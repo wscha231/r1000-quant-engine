@@ -5,8 +5,8 @@ selector, portfolio, target-book, ledger, order, or production authority.
 """
 from __future__ import annotations
 
-from collections.abc import Callable
-from datetime import datetime
+from collections.abc import Callable, Mapping
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import math
@@ -150,6 +150,99 @@ def _verify_raw(
     _require(hashlib.sha256(raw).hexdigest() == expected_sha256, "raw_evidence_hash_mismatch")
 
 
+def _validated_current_observation(row, available_at, as_of, raw_resolver):
+    """Bind a current-only public observation without inventing publication.
+
+    The externally reviewed graph/packet still supplies the trusted resolver.
+    This receipt proves observed bytes and a conservative current availability,
+    never historical publication, source admission or expected-return quality.
+    """
+    _require(row.get("publication_clock_basis") == "CURRENT_RESEARCH_OBSERVATION",
+             "current_observation_basis")
+    _require("published_at" in row and row["published_at"] is None,
+             "current_observation_publication_unknown")
+    _require(row.get("research_only") is True and row.get("historical_pit_certified") is False,
+             "current_observation_research_scope")
+    ref = row.get("public_observation_receipt")
+    _require(isinstance(ref, Mapping) and set(ref) == {"artifact_id", "sha256"},
+             "current_observation_receipt_reference")
+    receipt_id = _identifier(ref["artifact_id"], "current_observation_receipt_id")
+    receipt_sha = _hash(ref["sha256"], "current_observation_receipt_hash")
+    try:
+        raw = raw_resolver(receipt_id, receipt_sha)
+    except Exception as exc:
+        raise MoatQualityContractError("current_observation_receipt_unavailable") from exc
+    _require(isinstance(raw, bytes) and 0 < len(raw) <= 64 * 1024,
+             "current_observation_receipt_bytes")
+    _require(hashlib.sha256(raw).hexdigest() == receipt_sha, "current_observation_receipt_hash")
+    def pairs(items):
+        value = {}
+        for key, item in items:
+            _require(key not in value, "current_observation_duplicate_json_key")
+            value[key] = item
+        return value
+    def constant(_):
+        raise MoatQualityContractError("current_observation_nonfinite_json")
+    def floating(text):
+        value = float(text)
+        _require(math.isfinite(value), "current_observation_nonfinite_json")
+        return value
+    try:
+        receipt = json.loads(raw, object_pairs_hook=pairs, parse_constant=constant, parse_float=floating)
+    except (ValueError, UnicodeError, RecursionError) as exc:
+        if isinstance(exc, MoatQualityContractError):
+            raise
+        raise MoatQualityContractError("current_observation_receipt_json") from exc
+    _require(isinstance(receipt, dict) and
+        receipt.get("schema") == "r1000-public-primary-document-capture-v1" and
+        receipt.get("status") == "ORIGINALS_CAPTURED", "current_observation_receipt_schema")
+    entries = receipt.get("results")
+    _require(isinstance(entries, list) and 1 <= len(entries) <= 16 and
+        all(isinstance(e, dict) and e.get("status") == "ORIGINAL_CAPTURED" for e in entries),
+        "current_observation_receipt_entries")
+    source_sha = _hash(row.get("raw_sha256"), "current_observation_source_hash")
+    url = _text(row.get("source_url"), "current_observation_source_url", limit=2048)
+    from urllib.parse import urlsplit
+    try:
+        parsed = urlsplit(url)
+        hostname, port = parsed.hostname, parsed.port
+    except ValueError as exc:
+        raise MoatQualityContractError("current_observation_source_url") from exc
+    _require(parsed.scheme == "https" and bool(hostname) and
+        parsed.username is None and parsed.password is None and not parsed.fragment,
+        "current_observation_source_url")
+    matches = [e for e in entries if e.get("url") == url and e.get("sha256") == source_sha]
+    _require(len(matches) == 1, "current_observation_source_binding")
+    entry = matches[0]
+    _require("first_public_at" in entry and entry["first_public_at"] is None,
+             "current_observation_no_publication_claim")
+    started = _stamp(entry.get("capture_started_at"), "current_observation_capture_started_at")
+    collected = _stamp(entry.get("collected_at"), "current_observation_collected_at")
+    _require(started <= collected == available_at <= as_of, "current_observation_time_order")
+    precision, day = row.get("publisher_date_precision"), row.get("publisher_reported_date")
+    if precision == "DAY":
+        _require(isinstance(day, str) and re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", day) is not None,
+                 "current_observation_publisher_date")
+        try:
+            reported = datetime.strptime(day, "%Y-%m-%d").date()
+        except ValueError as exc:
+            raise MoatQualityContractError("current_observation_publisher_date") from exc
+        # A day annotation is not an instant. Allow the largest civil UTC offset
+        # while refusing dates beyond any possible local capture day.
+        try:
+            latest_civil_day = (collected.astimezone(timezone.utc) + timedelta(hours=14)).date()
+        except (OverflowError, ValueError) as exc:
+            raise MoatQualityContractError("current_observation_publisher_date") from exc
+        _require(reported <= latest_civil_day,
+                 "current_observation_future_publisher_date")
+    else:
+        _require(precision == "UNKNOWN" and day is None, "current_observation_publisher_precision")
+    return {"publication_clock_basis": row["publication_clock_basis"],
+            "publisher_reported_date": day, "publisher_date_precision": precision,
+            "public_observation_receipt": dict(ref), "source_url": url,
+            "research_only": True, "historical_pit_certified": False}
+
+
 def _normalize_evidence(
     row: Any,
     *,
@@ -182,11 +275,15 @@ def _normalize_evidence(
     direction = row.get("direction")
     _require(direction in DIRECTIONS, "evidence_direction")
 
-    published_at = _stamp(row.get("published_at"), "evidence_published_at")
     available_at = _stamp(row.get("available_at"), "evidence_available_at")
+    observation = None
+    if row.get("publication_clock_basis") is not None:
+        observation = _validated_current_observation(row, available_at, as_of, raw_resolver)
+    else:
+        published_at = _stamp(row.get("published_at"), "evidence_published_at")
+        _require(published_at <= available_at, "publication_after_availability")
     verified_at = _stamp(row.get("verified_at"), "evidence_verified_at")
     valid_through = _stamp(row.get("valid_through"), "evidence_valid_through")
-    _require(published_at <= available_at, "publication_after_availability")
     _require(available_at <= verified_at, "availability_after_verification")
     _require(verified_at <= as_of, "future_evidence")
     _require(as_of <= reviewed_at <= cutoff, "review_after_cutoff")
@@ -215,6 +312,7 @@ def _normalize_evidence(
         "valid_through": row["valid_through"],
         "raw_sha256": raw_sha256,
         "claim": claim,
+        **(observation or {}),
     }
 
 
