@@ -1,5 +1,19 @@
 # Agent Shared Lessons Ledger
 
+### 2026-11-14 KST — Replay the dated feature prefix before releasing forecasts
+
+- Current BLS observations cannot replace RTDSM's delayed monthly/quarterly
+  archive clocks. A dated release must replay original-bound macro-only inputs,
+  the same logical sources, complete visible vintage rows and the exact sparse
+  feature prefix used in training. Changed old values require a reviewed refit.
+- Use the completed NYSE close grid for both fit and forecast. Post-close and
+  weekend releases cannot enter the preceding anchor; no new reference period
+  means no new quantitative sample. Keep current context and fixed forecasts
+  distinct, retain native risk gates and never infer training/PIT permission.
+- Bind a separate forward request and its policy from the externally reviewed
+  release policy. Do not embed a policy's own hash in itself, republish prices
+  in macro forward inputs, or auto-promote a challenger after a valid replay.
+
 ### 2026-11-14 KST — Exercise the decoded hosted checkpoint shell
 
 - Real A4 run43405611285/job131819121654 captured and rechecked19 originals

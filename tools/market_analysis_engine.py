@@ -107,7 +107,7 @@ def verify_request(raw, expected_sha, cutoff, session):
         if kind in {"macro", "macro_v2"}:
             need(type(spec.get("source_id")) is str, "MACRO_SOURCE_ID_REQUIRED")
         kinds = {"macro", "cot_tff", "price_context", "sce_export", "risk_metrics", "risk_calendar", "risk_context"}
-        need(kind in kinds or (v2 and kind in {"macro_v2", "macro_primary", "financing_primary", "learning_release"}), "INPUT_KIND")
+        need(kind in kinds or (v2 and kind in {"macro_v2", "macro_primary", "financing_primary", "learning_release", "learning_original"}), "INPUT_KIND")
         if kind == 'financing_primary':
             from tools.a4_financing_sources import FEEDS as FINANCING_FEEDS
             need(spec.get('feed') in FINANCING_FEEDS and type(spec.get('observation_through')) is str,
@@ -120,8 +120,11 @@ def verify_request(raw, expected_sha, cutoff, session):
         if kind == "learning_release":
             need(type(spec.get("policy_sha256")) is str and re.fullmatch(r"[a-f0-9]{64}",spec["policy_sha256"]),
                  "LEARNING_POLICY_PIN_REQUIRED")
+            if 'forward_policy_sha256' in spec:
+                need(type(spec['forward_policy_sha256']) is str and re.fullmatch('[a-f0-9]{64}',spec['forward_policy_sha256']),
+                     'FORWARD_POLICY_PIN_REQUIRED')
         role = ("macro" if kind == "macro_v2" else kind, spec.get("feed") if kind in {"macro_primary",'financing_primary'} else
-                spec.get("source_id") if kind in {"macro", "macro_v2"} else None)
+                spec.get("source_id") if kind in {"macro", "macro_v2"} else spec.get('sha256') if kind=='learning_original' else None)
         need(role not in roles, "DUPLICATE_INPUT_ROLE"); roles.add(role)
         path = spec.get("path"); safe_path(path)
         need(path not in names, "DUPLICATE_INPUT_PATH"); names.add(path)
@@ -207,7 +210,7 @@ def input_limit(spec):
     if spec["kind"] == "macro_primary":
         from tools.a4_primary_sources import MAX_ORIGINAL
         return MAX_ORIGINAL
-    return MAX_NATIVE_METRIC_BYTES if spec["kind"] in {"risk_metrics", "learning_release"} else MAX_FILE_BYTES
+    return MAX_NATIVE_METRIC_BYTES if spec["kind"] in {"risk_metrics", "learning_release", "learning_original"} else MAX_FILE_BYTES
 
 
 def analyze(raw_request, supplied, *, expected_sha, cutoff, session):
@@ -252,6 +255,8 @@ def analyze(raw_request, supplied, *, expected_sha, cutoff, session):
             financing_rows.extend(records)
         elif kind == "learning_release":
             learning_release = (raw, spec)
+        elif kind == 'learning_original':
+            pass  # Hash-bound original only; never a current risk operand.
         elif kind == "cot_tff":
             public.extend(free.cot_observations(raw, report_kind="TFF_FUTURES", collected_at=collected, cutoff=cutoff))
         elif kind == "price_context":
@@ -306,8 +311,15 @@ def analyze(raw_request, supplied, *, expected_sha, cutoff, session):
             from tools import a4_macro_learning as learning
             body, spec = learning_release
             release = clock.decode(body)
-            need(type(release) is dict and set(release) == {"trial", "policy"}, "LEARNING_RELEASE_SCHEMA")
-            learning.forecast_release(result, release["trial"], release["policy"], spec["policy_sha256"])
+            base={'trial','policy'};forward={'forward_inputs','forward_policy'}
+            need(type(release) is dict and set(release) in (base,base|forward), "LEARNING_RELEASE_SCHEMA")
+            options={}
+            if set(release)==base|forward:
+                need('forward_policy_sha256' in spec,'FORWARD_POLICY_PIN_REQUIRED')
+                originals={sha(value):value for value in supplied.values()}
+                options=dict(forward_inputs=release['forward_inputs'],forward_policy=release['forward_policy'],
+                    forward_policy_sha256=spec['forward_policy_sha256'],artifact_resolver=originals.__getitem__)
+            learning.forecast_release(result, release["trial"], release["policy"], spec["policy_sha256"],**options)
             result.pop("content_sha256", None)
         from tools.a4_macro_diagnosis import diagnose
         diagnose(result)
