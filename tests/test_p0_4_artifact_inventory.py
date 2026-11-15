@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import functools
 import hashlib
 import io
 import json
@@ -99,6 +100,112 @@ def baseline_text(path: str) -> str:
     return git("show", f"{baseline_sha()}:{path}")
 
 
+@contextlib.contextmanager
+def historical_inventory_repo():
+    """Replay historical positives without certifying the current runner."""
+    from tools import build_p0_4_artifact_inventory as builder
+
+    runner = "tools/run_pr_validation.py"
+    frozen = git("show", f"{FROZEN_PROTECTED_PUBLICATION_COMMIT}:{runner}", binary=True)
+    if hashlib.sha256(frozen).hexdigest() != "30a674b09b03ec815326a082abee39d3fbb150b70e96c2b11074d732ec4a918e":
+        raise AssertionError("historical runner bytes changed")
+    if git("rev-parse", f"{FROZEN_PROTECTED_PUBLICATION_COMMIT}:{runner}").strip() != "76ae9e3ab774a90874bf7af2fffc01c66d37cbd5":
+        raise AssertionError("historical runner Git blob changed")
+    head = git("rev-parse", "HEAD").strip()
+    objects = Path(git("rev-parse", "--git-path", "objects").strip())
+    shallow = Path(git("rev-parse", "--git-path", "shallow").strip())
+    objects = (ROOT / objects).resolve() if not objects.is_absolute() else objects.resolve()
+    shallow = (ROOT / shallow).resolve() if not shallow.is_absolute() else shallow.resolve()
+    paths = git("ls-tree", "-r", "--name-only", head, "--",
+                *builder.PROTECTED_PUBLICATION_PATHS, builder.GENERATOR_PATH).splitlines()
+    if len(paths) > 32:
+        raise AssertionError("historical fixture path bound")
+    # Only a disposable unit-test Git repository, with existing objects shared
+    # read-only. No product worktree, clone/fetch, pin or published bundle changes.
+    with tempfile.TemporaryDirectory(prefix="p0-4-historical-positive-") as directory:
+        repo = Path(directory)
+
+        def fixture_git(*args):
+            result = subprocess.run(["git", *args], cwd=repo, check=False, capture_output=True)
+            if result.returncode:
+                raise AssertionError(
+                    f"historical fixture git {args[0]} failed: "
+                    + result.stderr.decode("utf-8", errors="replace")
+                )
+            return result
+
+        fixture_git("init", "-q")
+        (repo / ".git/objects/info/alternates").write_bytes(objects.as_posix().encode("utf-8") + b"\n")
+        if shallow.is_file():
+            (repo / ".git/shallow").write_bytes(shallow.read_bytes())
+        fixture_git("config", "core.autocrlf", "false")
+        fixture_git("config", "user.name", "P0-4 Test")
+        fixture_git("config", "user.email", "p0-4@example.invalid")
+        fixture_git("update-ref", "HEAD", head)
+        fixture_git("read-tree", head)
+        total = 0
+        for relative in paths:
+            target = repo / relative
+            if not target.resolve().is_relative_to(repo.resolve()):
+                raise AssertionError("historical fixture escaped temporary repository")
+            data = git("show", f"{head}:{relative}", binary=True)
+            total += len(data)
+            if total > 1024 * 1024:
+                raise AssertionError("historical fixture byte bound")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+        if (repo / runner).read_bytes() != frozen:
+            (repo / runner).write_bytes(frozen)
+            fixture_git("add", "--", runner)
+            tree = fixture_git("write-tree").stdout.decode("ascii").strip()
+            commit = fixture_git("commit-tree", tree, "-p", head, "-m",
+                                 "fixture: restore exact historical runner").stdout.decode("ascii").strip()
+            fixture_git("update-ref", "HEAD", commit)
+        inventory = repo / "docs/run287_p0_4_artifact_inventory"
+        with mock.patch.multiple(sys.modules[__name__], ROOT=repo, INVENTORY=inventory,
+                                 SOURCE=inventory / "source_inventory_snapshot.json"), \
+             mock.patch.multiple(builder, ROOT=repo, DEFAULT_OUTPUT=inventory,
+                                 DEFAULT_SOURCE=inventory / "source_inventory_snapshot.json"):
+            yield repo
+
+
+def historical_positive(test):
+    @functools.wraps(test)
+    def wrapped(*args, **kwargs):
+        with historical_inventory_repo():
+            return test(*args, **kwargs)
+    return wrapped
+
+
+def test_current_runner_delta_is_not_historical_evidence() -> None:
+    from tools import build_p0_4_artifact_inventory as builder
+
+    runner = "tools/run_pr_validation.py"
+    frozen = git("show", f"{FROZEN_PROTECTED_PUBLICATION_COMMIT}:{runner}", binary=True)
+    if git("show", f"HEAD:{runner}", binary=True) != frozen:
+        try:
+            builder.verify_protected_publication_lineage(FROZEN_PROTECTED_PUBLICATION_COMMIT)
+        except builder.InventoryError as exc:
+            if not str(exc).startswith("post_publication_protected_delta:") or runner not in str(exc):
+                raise
+        else:
+            raise AssertionError("current changed runner acquired historical approval")
+    with historical_inventory_repo() as repo:
+        builder.verify_protected_publication_lineage(FROZEN_PROTECTED_PUBLICATION_COMMIT)
+        (repo / runner).write_bytes(frozen + b"\n# synthetic unreviewed runner delta\n")
+        subprocess.run(["git", "add", "--", runner], cwd=repo, check=True, capture_output=True)
+        tree = git("write-tree").strip()
+        commit = git("commit-tree", tree, "-p", "HEAD", "-m", "fixture: change historical runner").strip()
+        subprocess.run(["git", "update-ref", "HEAD", commit], cwd=repo, check=True, capture_output=True)
+        try:
+            builder.verify_protected_publication_lineage(FROZEN_PROTECTED_PUBLICATION_COMMIT)
+        except builder.InventoryError as exc:
+            if str(exc) != "post_publication_protected_delta:tools/run_pr_validation.py":
+                raise
+        else:
+            raise AssertionError("changed historical runner was accepted")
+
+
 def tree_rows(prefix: str, *, ref: str | None = None) -> list[tuple[str, str, int]]:
     rows: list[tuple[str, str, int]] = []
     for line in git(
@@ -131,6 +238,7 @@ def test_tracked_bundle_exists_and_has_expected_counts() -> None:
     assert summary["safety"]["target_order_ledger_mutation"] is False
 
 
+@historical_positive
 def test_generator_is_byte_stable(tmp_path: Path) -> None:
     result = subprocess.run(
         [
@@ -943,9 +1051,9 @@ def test_source_snapshot_is_bound_to_publication_commit(tmp_path: Path) -> None:
     custom_output = tmp_path / "custom-output-unbound"
     build(custom, custom_output)
     assert (custom_output / "source_inventory_snapshot.json").read_bytes() == publication
-    assert (custom_output / "requirements.txt").read_bytes() == (
-        INVENTORY / "requirements.txt"
-    ).read_bytes()
+    assert (custom_output / "requirements.txt").read_bytes() == git(
+        "show", f"HEAD:{builder.REQUIREMENTS_PATH}", binary=True
+    )
     custom_frame = pd.read_parquet(custom_output / "artifact_registry.parquet")
     assert custom_frame["source_publication_commit"].eq(
         "UNBOUND_CUSTOM_SOURCE"
@@ -974,7 +1082,7 @@ def test_build_parses_only_the_authenticated_source_bytes(tmp_path: Path) -> Non
     from tools.build_p0_4_artifact_inventory import build
 
     custom = tmp_path / "captured-source.json"
-    publication = SOURCE.read_bytes()
+    publication = git("show", "HEAD:docs/run287_p0_4_artifact_inventory/source_inventory_snapshot.json", binary=True)
     custom.write_bytes(publication)
     original_read_bytes = Path.read_bytes
     original_read_text = Path.read_text
@@ -1052,10 +1160,11 @@ def test_pr_validation_checkout_supports_pinned_lineage_checks() -> None:
     )
 
     assert verifier_publication == FROZEN_PROTECTED_PUBLICATION_COMMIT
-    verify_live_publication_lineage(
-        source()["baseline_code_sha"],
-        protected_commit=FROZEN_PROTECTED_PUBLICATION_COMMIT,
-    )
+    with historical_inventory_repo():
+        verify_live_publication_lineage(
+            source()["baseline_code_sha"],
+            protected_commit=FROZEN_PROTECTED_PUBLICATION_COMMIT,
+        )
 
 
 def test_dirty_generator_is_rejected(tmp_path: Path) -> None:
@@ -1258,6 +1367,7 @@ def test_protected_generator_allows_only_pin_delta(tmp_path: Path) -> None:
             raise AssertionError("post-publication renderer change was accepted")
 
 
+@historical_positive
 def test_failed_render_keeps_the_existing_bundle_intact(tmp_path: Path) -> None:
     from tools import build_p0_4_artifact_inventory as builder
 
@@ -1282,6 +1392,7 @@ def test_failed_render_keeps_the_existing_bundle_intact(tmp_path: Path) -> None:
     assert not list(tmp_path.glob(".bundle.backup-*"))
 
 
+@historical_positive
 def test_successful_rebuild_replaces_an_authenticated_bundle(tmp_path: Path) -> None:
     from tools import build_p0_4_artifact_inventory as builder
 
@@ -1294,6 +1405,7 @@ def test_successful_rebuild_replaces_an_authenticated_bundle(tmp_path: Path) -> 
     assert {path.name for path in output.iterdir()} == builder.BUNDLE_FILENAMES
 
 
+@historical_positive
 def test_post_commit_backup_cleanup_failure_is_reported(tmp_path: Path) -> None:
     from tools import build_p0_4_artifact_inventory as builder
 
@@ -1320,6 +1432,7 @@ def test_post_commit_backup_cleanup_failure_is_reported(tmp_path: Path) -> None:
     real_rmtree(backups[0])
 
 
+@historical_positive
 def test_generated_destination_symlink_is_rejected(tmp_path: Path) -> None:
     from tools.build_p0_4_artifact_inventory import InventoryError, build
 
@@ -1426,6 +1539,7 @@ def test_canonical_output_preserves_untracked_entries(tmp_path: Path) -> None:
     )
 
 
+@historical_positive
 def test_existing_external_output_must_be_a_dedicated_bundle(tmp_path: Path) -> None:
     from tools import build_p0_4_artifact_inventory as builder
 
@@ -2189,6 +2303,7 @@ def test_invalid_or_incomplete_sources_fail_closed(tmp_path: Path) -> None:
 
 def main() -> int:
     test_tracked_bundle_exists_and_has_expected_counts()
+    test_current_runner_delta_is_not_historical_evidence()
     with tempfile.TemporaryDirectory() as temp_dir:
         test_generator_is_byte_stable(Path(temp_dir))
     test_registries_and_parquet_cover_every_object_once()
@@ -2229,7 +2344,7 @@ def main() -> int:
         test_compound_aliases_and_wrong_paper_head_namespaces_fail_closed(temp_path)
         test_folder_child_manifests_are_pinned_and_bound(temp_path)
         test_invalid_or_incomplete_sources_fail_closed(temp_path)
-    print("P0-4 artifact inventory smoke: 37 passed")
+    print("P0-4 artifact inventory smoke: 38 passed")
     return 0
 
 

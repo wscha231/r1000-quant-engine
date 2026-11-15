@@ -11671,3 +11671,9 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 
 - A failed board child can contain an early planning traceback followed by successful state/manual output. A short tail printed only after the whole tier completes loses that evidence on cancellation. Emit its exact return code and full stderr immediately with flush; retain the existing program selection, execution order, result, final summary and time limits. This repairs observability, not the unknown original failing case.
 - A script-mode regression must load the existing runner from its explicit ROOT path; importing tools assumes a repository-root sys.path that the direct runner does not supply. Preserve the initial import failure separately, then require the corrected regression to fail for missing diagnostics and pass normally and under optimized Python.
+
+### 2026-11-15 — Keep frozen inventory positives historical after CI diagnostics change
+
+- The archived inventory correctly rejects a changed validation runner under its protected-publication lineage. Reuse the exact historical Git blob only in bounded disposable test repositories with actual ancestry and canonical source identity. Keep current/rechanged-runner refusal and production verifier, pins, protected paths and published bundle unchanged.
+- Git alternates control files require exact LF bytes on Windows. Generated canonical source and requirements must be compared with authenticated Git LF bytes, rather than CRLF worktree representations. Use write-tree/commit-tree for the fixture to preserve its entire index and real parent without refreshing unrelated absent files.
+- Preserve all failed local probes and the complete240-second reservation. The two focused normal boundaries and optimized refusal passed; full local inventory and later LF probe timed out, so neither is a full-suite pass. Fresh exact-head cloud CI remains required.
