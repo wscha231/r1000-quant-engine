@@ -52,7 +52,7 @@ def now():
 
 def implementation():
     paths = [Path(__file__), *(Path(module.__file__) for module in
-        (learning, learning.study, learning.analysis, learning.vintage, market, market.context))]
+        (learning, learning.study, learning.analysis, learning.vintage, learning.free, market, market.context))]
     return {path.name: digest(path.read_bytes()) for path in paths}
 
 
@@ -113,6 +113,8 @@ def validate_forecasts(payload, protocol, recorded_at):
         created = learning.free.utc(prediction['created_at'])
         need(learning.free.utc(start) <= created <= recorded
              and learning.free.utc(protocol['available_at']) <= created, 'PREDICTION_CLOCK')
+        need(type(prediction['estimate']) in (int, float)
+             and type(prediction['contribution_vs_training_mean']) in (int, float), 'PREDICTION_NUMERIC_TYPE')
         estimate = learning.free.number(prediction['estimate'])
         contribution = learning.free.number(prediction['contribution_vs_training_mean'])
         need(estimate is not None and contribution is not None, 'PREDICTION_VALUE')
@@ -208,7 +210,8 @@ def score_record(record, expected_record_pin, expected_protocol_pin,
         status='FIXED_FORECAST_ERRORS_RESEARCH_ONLY' if predictions else 'NO_FIXED_FORECASTS',
         cutoff=cutoff, record_sha256=expected_record_pin, protocol_sha256=expected_protocol_pin,
         learning_input_sha256=digest(encoded(payload)), learning_policy_sha256=expected_policy_pin,
-        results=rows, horizon_coverage=coverage, forecasts_scored=len(scores),
+        results=rows, horizon_coverage=coverage, forecasts_checked=len(scores),
+        forecasts_scored=sum(r['status'] == 'MATURED_RESEARCH_OBSERVATION' for r in rows),
         matured_count=sum(r['status'] == 'MATURED_RESEARCH_OBSERVATION' for r in rows),
         implementation=implementation(),
         model_fit_performed=False, portfolio_cost_or_return_claim=False,

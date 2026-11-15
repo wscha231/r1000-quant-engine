@@ -28,6 +28,8 @@ There is deliberately no CLI recording-time override. Recording must occur
 after the decision close and strictly before the next NYSE close, including
 holidays and half-days. Duplicate feature/target/horizon/outcome predictions,
 late creations, unknown fields and invalid values are refused.
+Estimates and contributions must be finite JSON numbers; numeric strings and
+booleans are refused before any record/reference is written.
 
 The externally pinned protocol is not generated or approved by this tool. Its
 closed schema is `a4-forward-validation-protocol-v1`, purpose
@@ -105,3 +107,8 @@ prerequisite produces no successful record or score. Existing private Drive
 copy/check and approved original experiment-ledger indexing remain separate
 operator responsibilities. Do not enable a new scheduler or publish numerical
 records as public GitHub artifacts to test this component.
+
+`forecasts_checked` includes pending/missing observations. `forecasts_scored`
+counts only matured actuals with an error; an immature forecast is never
+reported as a completed score. Implementation pins include the direct shared
+number/UTC helper, not only the model and outcome mathematics.

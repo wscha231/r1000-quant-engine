@@ -82,6 +82,17 @@ class ForwardTests(unittest.TestCase):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 forward.record_forecasts(inputs, q, digest(encoded(q)))
 
+    def test_numeric_strings_refuse_before_any_immutable_record_write(self):
+        payload, policy, resolver, p, inputs, record = record_fixture()
+        for field in ('estimate','contribution_vs_training_mean'):
+            for value in (str(inputs['predictions'][0][field]),True):
+                changed=copy.deepcopy(inputs);changed['predictions'][0][field]=value
+                with tempfile.TemporaryDirectory() as folder, \
+                     patch.object(forward,'now',return_value=record['recorded_at']):
+                    with self.subTest(field=field,value=value),self.assertRaisesRegex(ValueError,'PREDICTION_NUMERIC_TYPE'):
+                        forward.record_once(changed,p,digest(encoded(p)),folder)
+                    self.assertEqual(list(Path(folder).iterdir()),[])
+
     def test_matured_error_matches_existing_scorer_and_frozen_baseline(self):
         payload, policy, resolver, p, inputs, record = record_fixture()
         result = self.score(record, p, payload, policy, resolver)
@@ -101,6 +112,8 @@ class ForwardTests(unittest.TestCase):
         payload, policy, resolver, p, inputs, record = record_fixture((1,252))
         result = self.score(record, p, payload, policy, resolver)
         self.assertEqual([r['status'] for r in result['results']], ['MATURED_RESEARCH_OBSERVATION','PENDING_MATURITY'])
+        self.assertEqual(result['forecasts_checked'],2)
+        self.assertEqual(result['forecasts_scored'],1)
         broken = copy.deepcopy(payload); broken['prices']['SPY'].pop(1)
         revised = copy.deepcopy(policy); revised['input_pins'] = [digest(encoded(broken))]
         result = self.score(record, p, broken, revised, resolver)
@@ -149,6 +162,18 @@ class ForwardTests(unittest.TestCase):
         changed['implementation']['macro_technical_study.py'] = '0'*64
         with self.assertRaisesRegex(ValueError, 'IMPLEMENTATION_CHANGED'):
             self.score(changed, p, payload, policy, resolver)
+
+    def test_direct_number_and_clock_helper_is_attested_and_mutation_refuses(self):
+        payload, policy, resolver, p, inputs, record = record_fixture()
+        helper=Path(learning.free.__file__)
+        self.assertEqual(record['implementation'][helper.name],digest(helper.read_bytes()))
+        original_read=Path.read_bytes
+        def mutated_read(path):
+            body=original_read(path)
+            return body+b'\n# synthetic changed helper\n' if path.resolve()==helper.resolve() else body
+        with patch.object(Path,'read_bytes',mutated_read):
+            with self.assertRaisesRegex(ValueError,'IMPLEMENTATION_CHANGED'):
+                self.score(record,p,payload,policy,resolver)
 
     def test_immutable_recovery_and_tampered_output_refusal(self):
         payload, policy, resolver, p, inputs, record = record_fixture()
