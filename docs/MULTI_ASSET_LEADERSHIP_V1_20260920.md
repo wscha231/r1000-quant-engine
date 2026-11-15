@@ -135,6 +135,47 @@ asset, liquidity, same-grid correlations, risk ceilings and complete ETF
 look-through. A commodity or crypto allocation can be zero. No proposal writes
 an accepted target, paper fill or actual broker book.
 
+### Explicit A5 stock/cash baseline without A4
+
+The externally byte-pinned policy may select `a5_context_profile=STOCK_CASH_BASELINE_V1`
+only for enabled stock/cash research with a 63-NYSE-session horizon. Omitting this
+field retains `STRICT_A4_V1`; an absent, invalid or expired A4 report never
+silently switches modes. Baseline is not a market assessment and returns no
+A4 hashes or regime. The independently reviewed risk original must explicitly
+select the same profile and omit all A4/regime fields.
+
+Baseline MODEL context binds `baseline_risk` in the artifact inventory instead
+of `a4_request`/`a4_source_root`. Its A5 inputs are expected_return, risk_limits,
+qa_report and portfolio_context; its completed graph contains A1/A2/A3/A6,
+with A3/A6 dependencies for A5. Original price/security identity, A3 selection,
+63-session net ER/model pins, cash-rate evidence, covariance, liquidity,
+concentration/risk limits, cost basis, independent QA and validity clocks are
+still mandatory. Actual/Paper/ApprovedTarget books are not inferred.
+Only the exact missing optional-source reason `regime:source_missing` is
+ignored for this explicitly selected MODEL task; canonical state remains
+UNKNOWN. G0, freshness, PIT, provided-A4 hash/clock errors and other source
+failures remain blocking. Missing investment evidence does not produce a cash
+allocation or a sell instruction. SPECIAL_RISK gold/treasury exceptions require
+A4 and cannot be admitted by this baseline; existing reviewed OPPORTUNITY
+conditions and the combined exception cap remain unchanged.
+
+The existing module also provides a read-only entry point, with its usual
+bounded original loader and current execution-time validity check:
+
+```text
+python tools/a5_model_portfolio.py --artifact-root <private-root> --request <request.json> --expected-policy-sha256 <externally-reviewed-byte-sha256> --code-sha <exact-reviewed-commit>
+```
+
+It emits JSON to stdout, exits 2 with weights/cash null when blocked, and writes
+no state or output file. Capture research values only inside the approved
+private boundary. Public coordination should carry status/counts/hashes.
+No new scheduler or provider collection is introduced. The same public API,
+original MODEL completion/next-model acceptance path and fixed-target replay
+export preserve the selected profile and original context/risk bindings.
+Strict and baseline records cannot be mixed into one fixed comparison.
+Synthetic regression success establishes code connectivity, not real-input
+admission, economic performance, backtest completion or automated operation.
+
 ## C. Asset scope
 
 | Underlying | Registered research vehicles |

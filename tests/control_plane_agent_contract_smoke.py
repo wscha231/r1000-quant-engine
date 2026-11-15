@@ -152,7 +152,8 @@ class ControlPlaneTests(unittest.TestCase):
             for artifact in request['inputs'].values():
                 artifact.update(observed_at=self.at(-30), available_at=self.at(-20),
                                 collected_at=self.at(-10), expires_at=self.at(50))
-        for agent in ('A2', 'A3', 'A4', 'A6', 'A5'):
+        baseline = getattr(self, '_baseline_risk', None) is not None
+        for agent in (('A2', 'A3', 'A6', 'A5') if baseline else ('A2', 'A3', 'A4', 'A6', 'A5')):
             self.add_request(agent)
         req = next(r for r in self.state['requests'] if r['agent'] == 'A5')
         req['parameters']['portfolio_mode'] = 'MODEL_PORTFOLIO'
@@ -171,50 +172,63 @@ class ControlPlaneTests(unittest.TestCase):
         for n, ((aid, sha), raw) in enumerate(original.raw.items()):
             inventory[aid] = put('original/a3_' + str(n) + '.json', raw)
         session = '2026-09-18'
-        # Cache only the immutable synthetic fixture bytes, not a verifier result.
-        if not hasattr(type(self), '_a5_native_bytes'):
-            dates = market.clock.mcal.get_calendar('NYSE').schedule(start_date='2025-01-01', end_date=session).index[-260:]
-            calendar = native.calendar_fixture(dates).to_csv(index=False).encode()
-            type(self)._a5_native_bytes = dict(risk_calendar=calendar,
-                risk_metrics=native.metric_fixture(dates, calendar_hash=market.sha(calendar)).to_csv(index=False).encode(),
-                risk_context=native.context_fixture(dates, calendar_hash=market.sha(calendar)).to_csv(index=False).encode())
-        specs = []
-        for kind, raw in type(self)._a5_native_bytes.items():
-            inventory['A4:' + kind] = put('a4/' + kind + '.csv', raw)
-            specs.append(dict(kind=kind, path=kind + '.csv', sha256=market.sha(raw), status='COLLECTED',
-                              collected_at='2026-09-19T01:00:00Z'))
-        request = dict(schema=market.REQUEST_SCHEMA, market='US', session=session,
-            available_at='2026-09-19T01:30:00Z', expires_at='2026-09-20T00:00:00Z', inputs=specs)
-        # Optional synthetic v2 originals for the full A5 consumer integration.
-        # The default fixture and all existing oracle behavior remain intact.
-        for sid, raw in getattr(self, 'a4_extra_originals', []):
-            tag='macro_'+sid
-            inventory['A4:'+tag]=put('a4/'+tag+'.csv',raw)
-            specs.append(dict(kind='macro_v2',path=tag+'.csv',source_id='fred:'+sid,
-                sha256=market.sha(raw),status='COLLECTED',collected_at='2026-09-19T01:00:00Z'))
-            request['schema']=market.REQUEST_SCHEMA_V2
-        request_ref = put('a4/request.json', json.dumps(request).encode())
-        risk = market.load_report(self.root / request_ref['path'], self.root / prefix / 'a4', request_ref['sha256'],
-                                  cutoff=decision_cutoff, session=session)
-        self.assertEqual(risk['status'], 'READY_RESEARCH_ONLY', risk)
-        self._model_case_risk = risk
+        if baseline:
+            risk_ref = put('baseline/risk.json', json.dumps(self._baseline_risk).encode())
+            inventory['BASELINE:RISK'] = risk_ref
+            req['inputs'].pop('regime')
+            req['inputs']['risk_limits'] = risk_ref
+        else:
+            # Cache only the immutable synthetic fixture bytes, not a verifier result.
+            if not hasattr(type(self), '_a5_native_bytes'):
+                dates = market.clock.mcal.get_calendar('NYSE').schedule(start_date='2025-01-01', end_date=session).index[-260:]
+                calendar = native.calendar_fixture(dates).to_csv(index=False).encode()
+                type(self)._a5_native_bytes = dict(risk_calendar=calendar,
+                    risk_metrics=native.metric_fixture(dates, calendar_hash=market.sha(calendar)).to_csv(index=False).encode(),
+                    risk_context=native.context_fixture(dates, calendar_hash=market.sha(calendar)).to_csv(index=False).encode())
+            specs = []
+            for kind, raw in type(self)._a5_native_bytes.items():
+                inventory['A4:' + kind] = put('a4/' + kind + '.csv', raw)
+                specs.append(dict(kind=kind, path=kind + '.csv', sha256=market.sha(raw), status='COLLECTED',
+                                  collected_at='2026-09-19T01:00:00Z'))
+            request = dict(schema=market.REQUEST_SCHEMA, market='US', session=session,
+                available_at='2026-09-19T01:30:00Z', expires_at='2026-09-20T00:00:00Z', inputs=specs)
+            # Optional synthetic v2 originals for the full A5 consumer integration.
+            # The default fixture and all existing oracle behavior remain intact.
+            for sid, raw in getattr(self, 'a4_extra_originals', []):
+                tag='macro_'+sid
+                inventory['A4:'+tag]=put('a4/'+tag+'.csv',raw)
+                specs.append(dict(kind='macro_v2',path=tag+'.csv',source_id='fred:'+sid,
+                    sha256=market.sha(raw),status='COLLECTED',collected_at='2026-09-19T01:00:00Z'))
+                request['schema']=market.REQUEST_SCHEMA_V2
+            request_ref = put('a4/request.json', json.dumps(request).encode())
+            risk = market.load_report(self.root / request_ref['path'], self.root / prefix / 'a4', request_ref['sha256'],
+                                      cutoff=decision_cutoff, session=session)
+            self.assertEqual(risk['status'], 'READY_RESEARCH_ONLY', risk)
+            self._model_case_risk = risk
         context = dict(schema_version='a5-portfolio-context-v1', portfolio_mode='MODEL_PORTFOLIO',
             decision_time=decision_cutoff, market_session_date=session, requested_security_ids=[entry['asset_id']],
             a3_reference_entries=[entry], artifact_inventory=inventory,
-            model_state=dict(kind='GENESIS', artifact=None), a4_request=request_ref,
-            a4_source_root=(prefix / 'a4').as_posix())
+            model_state=dict(kind='GENESIS', artifact=None))
+        if baseline:
+            context.update(a5_context_profile='STOCK_CASH_BASELINE_V1', baseline_risk=risk_ref)
+        else:
+            context.update(a4_request=request_ref, a4_source_root=(prefix / 'a4').as_posix())
         self.set_payload(req['inputs']['portfolio_context'], context)
         self.state['source_status'] = {r: dict(status='UNKNOWN', artifact_identity=None, sha256=None,
             as_of=None, availability=None, reason='source_missing') for r in
             ('actual_broker', 'approved_target', 'verified_paper', 'model_portfolio')}
+        if baseline:
+            self.state['source_status']['regime'] = dict(status='UNKNOWN', artifact_identity=None, sha256=None,
+                as_of=None, availability=None, reason='source_missing')
         self.state['context']['blockers'] = [r + ':source_missing' for r in self.state['source_status']]
         if complete:
             self.complete('A1'); self.complete('A2'); self.complete('A3', {'expected_return': index})
-            self.complete('A4', {'regime': risk}); self.bind_qa_scope()
+            if not baseline: self.complete('A4', {'regime': risk})
+            self.bind_qa_scope()
             qa = next(r for r in self.state['requests'] if r['agent'] == 'A6')
             bundle = board.read_json(self.root / qa['inputs']['review_bundle']['path'])
             bundle['artifacts'].update({'a3:' + aid: a for aid, a in inventory.items()})
-            bundle['artifacts']['a4:request'] = request_ref
+            bundle['artifacts']['risk:baseline' if baseline else 'a4:request'] = risk_ref if baseline else request_ref
             self.set_payload(qa['inputs']['review_bundle'], bundle)
             self.complete('A6')
         return req, context
@@ -223,10 +237,11 @@ class ControlPlaneTests(unittest.TestCase):
         """Synthetic original producer receipts; no materializer/PIT approval."""
         from research.candidate_registry_v1 import build_reference_index
         req, context = self.model_case(complete=False, decision_cutoff=candidate.p['as_of'] if candidate else None)
+        baseline = 'baseline_risk' in context
         if candidate is not None:
             context['requested_security_ids'] = candidate.p['requested_security_ids']
             context['a3_reference_entries'] = candidate.p['a3_reference_entries']
-            context['artifact_inventory'] = {k:v for k,v in context['artifact_inventory'].items() if k.startswith('A4:')}
+            context['artifact_inventory'] = {k:v for k,v in context['artifact_inventory'].items() if k.startswith('A4:') or k == 'BASELINE:RISK'}
             for n, ((aid, _), raw) in enumerate(candidate.refs.raw.items()):
                 artifact = self.artifact('review_original_' + str(n))
                 artifact['available_at'] = artifact['collected_at']
@@ -252,13 +267,14 @@ class ControlPlaneTests(unittest.TestCase):
             context['model_state'] = copy.deepcopy(model_context['model_state'])
             self._model_policy = model_policy
             self.set_payload(req['inputs']['portfolio_context'], context)
-        risk = self._model_case_risk
         self.complete('A1'); self.complete('A2'); self.complete('A3', {'expected_return':index})
-        self.complete('A4', {'regime':risk}); self.bind_qa_scope()
+        if not baseline: self.complete('A4', {'regime':self._model_case_risk})
+        self.bind_qa_scope()
         qa = next(r for r in self.state['requests'] if r['agent']=='A6')
         bundle = board.read_json(self.root/qa['inputs']['review_bundle']['path'])
         bundle['artifacts'].update({'a3:'+aid:a for aid,a in context['artifact_inventory'].items()})
-        bundle['artifacts']['a4:request'] = context['a4_request']
+        bundle['artifacts']['risk:baseline' if baseline else 'a4:request'] = (
+            context['baseline_risk'] if baseline else context['a4_request'])
         for request in self.state['requests']:
             if request['agent'] in ('A1','A2','A3','A4'):
                 bundle['artifacts'].update({request['agent']+':input:'+k:a for k,a in request['inputs'].items()})
