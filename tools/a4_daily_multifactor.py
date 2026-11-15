@@ -295,7 +295,7 @@ def adjust_family(rows):
 
 def compare(panels, prices, *, expected_spec_sha256, horizons=HORIZONS):
     require(digest(specification()) == expected_spec_sha256,'SPECIFICATION_PIN')
-    require(set(panels) == set(prices) and set(prices) <= {'SPY','QQQ'} and prices, 'TARGETS')
+    require(set(panels) == set(prices) == {'SPY','QQQ'}, 'TARGETS')
     require(tuple(horizons) == HORIZONS, 'DECLARED_HORIZONS')
     rows = []
     for target in sorted(prices):

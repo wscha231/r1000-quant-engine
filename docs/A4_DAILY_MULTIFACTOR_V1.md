@@ -62,6 +62,8 @@ The research scope is SPY/QQQ and1/5/10/21/63/126/252/504 sessions, each with
 return, maximum drawdown and realized volatility. Two targets produce576
 declared cases.504 is separate exploratory research; it does not modify the
 native request, release protocol or its seven horizons.
+Both targets are mandatory for this specification. A missing target refuses
+before fitting, rather than silently shrinking the declared testing family.
 
 Expanding folds start at756 sessions with252-session test blocks. Training
 requires504 complete rows, fixed ridge penalty10, train-only means/scales and

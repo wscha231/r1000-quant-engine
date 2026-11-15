@@ -166,7 +166,15 @@ class DailyMultifactor(unittest.TestCase):
         close,benchmark=self.prices(10)
         panel=daily.price_features(close,benchmark)
         with self.assertRaisesRegex(ValueError,'DECLARED_HORIZONS'):
-            daily.compare({'SPY':panel},{'SPY':close},expected_spec_sha256=daily.digest(daily.specification()),horizons=(21,))
+            daily.compare({'SPY':panel,'QQQ':panel},{'SPY':close,'QQQ':benchmark},
+                          expected_spec_sha256=daily.digest(daily.specification()),horizons=(21,))
+
+    def test_missing_target_cannot_reduce_predeclared_family(self):
+        close,benchmark=self.prices(10)
+        panel=daily.price_features(close,benchmark)
+        with patch.object(daily,'evaluate',side_effect=AssertionError('unexpected fit')):
+            with self.assertRaisesRegex(ValueError,'TARGETS'):
+                daily.compare({'SPY':panel},{'SPY':close},expected_spec_sha256=daily.digest(daily.specification()))
 
 
 if __name__=='__main__':
