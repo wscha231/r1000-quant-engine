@@ -100,6 +100,36 @@ def baseline_text(path: str) -> str:
     return git("show", f"{baseline_sha()}:{path}")
 
 
+def frozen_generator_bytes(current: bytes) -> bytes:
+    """Authenticate a single historical blob absent from blob-filtered CI."""
+    pin = b'FROZEN_PROTECTED_PUBLICATION_COMMIT = "05a9cff99d1452ddb3d0de4c841ea79297173ed1"'
+    old = b'FROZEN_PROTECTED_PUBLICATION_COMMIT = "4f17f7e99dcef46829798525c80abd5dc4395b8c"'
+    if current.count(pin) != 1:
+        raise AssertionError("historical generator pin count")
+    raw = current.replace(pin, old)
+    if (len(raw) != 105704 or hashlib.sha256(raw).hexdigest()
+            != "88989a05ad14b9baaa69a35cded0d26b76c86245ee02f4f360465a84d7cc810b"):
+        raise AssertionError("historical generator bytes changed")
+    header = b"blob " + str(len(raw)).encode("ascii") + b"\0"
+    if hashlib.sha1(header + raw).hexdigest() != "06d481fa3c9c3899d9115d3ad9cd3d074385793f":
+        raise AssertionError("historical generator Git blob changed")
+    return raw
+
+
+def test_historical_generator_reconstruction_refuses_changed_bytes() -> None:
+    current = git("show", "HEAD:tools/build_p0_4_artifact_inventory.py", binary=True)
+    exact = frozen_generator_bytes(current)
+    assert len(exact) == 105704
+    for bad in (current + b"\n", current.replace(b"import json", b"import  json", 1),
+                current.replace(b"05a9cff99d1452ddb3d0de4c841ea79297173ed1", b"0" * 40)):
+        try:
+            frozen_generator_bytes(bad)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError("changed historical generator reconstruction was accepted")
+
+
 @contextlib.contextmanager
 def historical_inventory_repo():
     """Replay historical positives without certifying the current runner."""
@@ -125,8 +155,8 @@ def historical_inventory_repo():
     with tempfile.TemporaryDirectory(prefix="p0-4-historical-positive-") as directory:
         repo = Path(directory)
 
-        def fixture_git(*args):
-            result = subprocess.run(["git", *args], cwd=repo, check=False, capture_output=True)
+        def fixture_git(*args, input_bytes=None):
+            result = subprocess.run(["git", *args], cwd=repo, check=False, capture_output=True, input=input_bytes)
             if result.returncode:
                 raise AssertionError(
                     f"historical fixture git {args[0]} failed: "
@@ -143,7 +173,13 @@ def historical_inventory_repo():
         fixture_git("config", "user.email", "p0-4@example.invalid")
         fixture_git("update-ref", "HEAD", head)
         fixture_git("read-tree", head)
-        total = 0
+        historical_generator = frozen_generator_bytes(git("show", f"{head}:{builder.GENERATOR_PATH}", binary=True))
+        inserted = fixture_git("hash-object", "-w", "--stdin", input_bytes=historical_generator)
+        if inserted.stdout.decode("ascii").strip() != "06d481fa3c9c3899d9115d3ad9cd3d074385793f":
+            raise AssertionError("historical generator insertion changed")
+        if fixture_git("show", f"{FROZEN_PROTECTED_PUBLICATION_COMMIT}:{builder.GENERATOR_PATH}").stdout != historical_generator:
+            raise AssertionError("historical generator original readback changed")
+        total = len(historical_generator)
         for relative in paths:
             target = repo / relative
             if not target.resolve().is_relative_to(repo.resolve()):
@@ -2303,6 +2339,7 @@ def test_invalid_or_incomplete_sources_fail_closed(tmp_path: Path) -> None:
 
 def main() -> int:
     test_tracked_bundle_exists_and_has_expected_counts()
+    test_historical_generator_reconstruction_refuses_changed_bytes()
     test_current_runner_delta_is_not_historical_evidence()
     with tempfile.TemporaryDirectory() as temp_dir:
         test_generator_is_byte_stable(Path(temp_dir))
@@ -2344,7 +2381,7 @@ def main() -> int:
         test_compound_aliases_and_wrong_paper_head_namespaces_fail_closed(temp_path)
         test_folder_child_manifests_are_pinned_and_bound(temp_path)
         test_invalid_or_incomplete_sources_fail_closed(temp_path)
-    print("P0-4 artifact inventory smoke: 38 passed")
+    print("P0-4 artifact inventory smoke: 39 passed")
     return 0
 
 
