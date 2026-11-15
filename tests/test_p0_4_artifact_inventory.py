@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import contextlib
+import functools
 import hashlib
 import io
 import json
+import os
 import re
 import subprocess
 import sys
@@ -83,11 +85,15 @@ def source() -> dict:
 
 
 def git(*args: str, binary: bool = False):
+    if (args and args[0] == "ls-tree" and "-l" in args
+            or args and args[0] == "show" and any(":cloud_results/" in a for a in args[1:])):
+        raise AssertionError("historical runtime body/size fetch forbidden")
     return subprocess.check_output(
         ["git", *args],
         cwd=ROOT,
         text=not binary,
         encoding=None if binary else "utf-8",
+        env=dict(os.environ, GIT_NO_LAZY_FETCH="1"),
     )
 
 
@@ -99,20 +105,249 @@ def baseline_text(path: str) -> str:
     return git("show", f"{baseline_sha()}:{path}")
 
 
-def tree_rows(prefix: str, *, ref: str | None = None) -> list[tuple[str, str, int]]:
-    rows: list[tuple[str, str, int]] = []
-    for line in git(
-        "ls-tree", "-r", "-l", ref or baseline_sha(), prefix
-    ).splitlines():
+HISTORICAL_CODE_BLOBS = (
+    ("05a9cff99d1452ddb3d0de4c841ea79297173ed1", "tools/build_p0_4_artifact_inventory.py",
+     "06d481fa3c9c3899d9115d3ad9cd3d074385793f", 105704, "88989a05ad14b9baaa69a35cded0d26b76c86245ee02f4f360465a84d7cc810b"),
+    ("f7fadfa4e7814c6453bf96ebf3a1ff4d39eadfae", ".github/workflows/pr_validation.yml",
+     "7c3dfa7e2bc0f1f5201b66c8e450efb87fdff14b", 4166, "cbefba4c7362b3ca7c14e058d1e95831ff06c18fb85341e24245ae61c61bd17f"),
+    ("0f34de9a2747059b7bb808cb070a86261e119f95", ".github/workflows/daily_operating_selection_refresh.yml",
+     "b058cc27b80cd3f7cd162313a68ca320160e2925", 245885, "3b59b5172ccf5ef9dc147e8be70e339a728179751187dc4a6e0b83bce24455df"),
+    ("0f34de9a2747059b7bb808cb070a86261e119f95", ".github/workflows/full_rebuild_manual.yml",
+     "f087adeeb8fd4ecc8c9e515979020560eb72c01b", 107898, "1da9230fef0cc29b282a57277abd9c51b24ada41dd83238573fe19796980bada"),
+    ("05a9cff99d1452ddb3d0de4c841ea79297173ed1", "tools/run_pr_validation.py",
+     "76ae9e3ab774a90874bf7af2fffc01c66d37cbd5", 18556, "30a674b09b03ec815326a082abee39d3fbb150b70e96c2b11074d732ec4a918e"),
+    ("302516e5229760477bc9d5b5ddc618bf0b493185", "docs/run287_p0_4_artifact_inventory/source_inventory_snapshot.json",
+     "c75bde800400b230329f057b0f9b5b2103d5184c", 195777, "3c28008b10e2c3e2d0ce7f603300a544d437474062d86d307369ca31c610e096"),
+    ("0f34de9a2747059b7bb808cb070a86261e119f95", "docs/run287_p0_3_authority_census/workflow_registry.yaml",
+     "de65c016eb5912f4f357dd0ab469609c0463fca1", 174707, "006003bfec081cda1e924e5db22c1f1cd612d40e0e8a136637af763ca658df53"),
+    ("0f34de9a2747059b7bb808cb070a86261e119f95", "tools/build_run287_catchup_price_evidence.py",
+     "0282f0a10126b788fc208329f52858f739d9b344", 34008, "9ee799130aa750c6c3a57de48f38eb3f7519ca7a5c819d8a6cec0ea6366bd318"),
+    ("0f34de9a2747059b7bb808cb070a86261e119f95", "tools/crisis_state_engine.py",
+     "0fb93809acdaad0dc80489e61da3ff06dbf45b1b", 18826, "46f993d63302650fa024da22d0409c1a69827304fe38944806786ffb03c888e7"),
+    ("0f34de9a2747059b7bb808cb070a86261e119f95", "tools/run287_crisis_policy.py",
+     "9277043abe20f0ec2586fe3cd3796f36e35cca67", 21473, "16e17786fb21d2ebebee1132132773ae0ca7415b916a31f3d1fef99779008447"),
+)
+
+
+def validate_frozen_code_blob(spec, raw):
+    _ref, _path, oid, size, sha256 = spec
+    if len(raw) != size or hashlib.sha256(raw).hexdigest() != sha256:
+        raise AssertionError("frozen code size/SHA256 changed")
+    header = b"blob " + str(size).encode("ascii") + b"\0"
+    if hashlib.sha1(header + raw).hexdigest() != oid:
+        raise AssertionError("frozen code Git object changed")
+    return raw
+
+
+@functools.lru_cache(maxsize=10)
+def checked_frozen_code_blob(spec):
+    ref, path, oid, _size, _sha256 = spec
+    # Only these ten fixed code/source bodies may use original checkout's
+    # existing promisor transport. Never ask for runtime artifacts or history.
+    if spec not in HISTORICAL_CODE_BLOBS:
+        raise AssertionError("unlisted historical body")
+    env = dict(os.environ, GIT_NO_LAZY_FETCH="0")
+    actual_oid = subprocess.check_output(["git", "rev-parse", f"{ref}:{path}"], cwd=ROOT, text=True).strip()
+    if actual_oid != oid:
+        raise AssertionError("frozen code tree binding changed")
+    raw = subprocess.check_output(["git", "show", f"{ref}:{path}"], cwd=ROOT, env=env)
+    return validate_frozen_code_blob(spec, raw)
+
+
+def preflight_historical_code():
+    if len(HISTORICAL_CODE_BLOBS) != 10 or sum(s[3] for s in HISTORICAL_CODE_BLOBS) != 927000:
+        raise AssertionError("historical code scope/budget changed")
+    return {spec: checked_frozen_code_blob(spec) for spec in HISTORICAL_CODE_BLOBS}
+
+
+def test_runtime_artifact_bodies_and_size_fetches_are_refused() -> None:
+    for args in (("show", f"{baseline_sha()}:cloud_results/full_rebuild/latest_global_alpha_universe/scored_latest.csv"),
+                 ("ls-tree", "-r", "-l", baseline_sha(), "cloud_results/full_rebuild")):
+        with mock.patch.object(subprocess, "check_output") as child:
+            try:
+                git(*args)
+            except AssertionError:
+                pass
+            else:
+                raise AssertionError("historical runtime body/size lookup was allowed")
+            if child.called:
+                raise AssertionError("forbidden artifact lookup reached Git")
+    spec = HISTORICAL_CODE_BLOBS[1]
+    raw = checked_frozen_code_blob(spec)
+    for changed in (raw + b"\n", b"x" + raw[1:]):
+        try:
+            validate_frozen_code_blob(spec, changed)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError("changed frozen code was accepted")
+
+
+def frozen_generator_bytes(current: bytes) -> bytes:
+    """Authenticate a single historical blob absent from blob-filtered CI."""
+    pin = b'FROZEN_PROTECTED_PUBLICATION_COMMIT = "05a9cff99d1452ddb3d0de4c841ea79297173ed1"'
+    old = b'FROZEN_PROTECTED_PUBLICATION_COMMIT = "4f17f7e99dcef46829798525c80abd5dc4395b8c"'
+    if current.count(pin) != 1:
+        raise AssertionError("historical generator pin count")
+    raw = current.replace(pin, old)
+    if (len(raw) != 105704 or hashlib.sha256(raw).hexdigest()
+            != "88989a05ad14b9baaa69a35cded0d26b76c86245ee02f4f360465a84d7cc810b"):
+        raise AssertionError("historical generator bytes changed")
+    header = b"blob " + str(len(raw)).encode("ascii") + b"\0"
+    if hashlib.sha1(header + raw).hexdigest() != "06d481fa3c9c3899d9115d3ad9cd3d074385793f":
+        raise AssertionError("historical generator Git blob changed")
+    return raw
+
+
+def test_historical_generator_reconstruction_refuses_changed_bytes() -> None:
+    current = git("show", "HEAD:tools/build_p0_4_artifact_inventory.py", binary=True)
+    exact = frozen_generator_bytes(current)
+    assert len(exact) == 105704
+    for bad in (current + b"\n", current.replace(b"import json", b"import  json", 1),
+                current.replace(b"05a9cff99d1452ddb3d0de4c841ea79297173ed1", b"0" * 40)):
+        try:
+            frozen_generator_bytes(bad)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError("changed historical generator reconstruction was accepted")
+
+
+@contextlib.contextmanager
+def historical_inventory_repo():
+    """Replay historical positives without certifying the current runner."""
+    from tools import build_p0_4_artifact_inventory as builder
+
+    historical_code = preflight_historical_code()
+    runner = "tools/run_pr_validation.py"
+    frozen = git("show", f"{FROZEN_PROTECTED_PUBLICATION_COMMIT}:{runner}", binary=True)
+    if hashlib.sha256(frozen).hexdigest() != "30a674b09b03ec815326a082abee39d3fbb150b70e96c2b11074d732ec4a918e":
+        raise AssertionError("historical runner bytes changed")
+    if git("rev-parse", f"{FROZEN_PROTECTED_PUBLICATION_COMMIT}:{runner}").strip() != "76ae9e3ab774a90874bf7af2fffc01c66d37cbd5":
+        raise AssertionError("historical runner Git blob changed")
+    head = git("rev-parse", "HEAD").strip()
+    objects = Path(git("rev-parse", "--git-path", "objects").strip())
+    shallow = Path(git("rev-parse", "--git-path", "shallow").strip())
+    objects = (ROOT / objects).resolve() if not objects.is_absolute() else objects.resolve()
+    shallow = (ROOT / shallow).resolve() if not shallow.is_absolute() else shallow.resolve()
+    paths = git("ls-tree", "-r", "--name-only", head, "--",
+                *builder.PROTECTED_PUBLICATION_PATHS, builder.GENERATOR_PATH).splitlines()
+    if len(paths) > 32:
+        raise AssertionError("historical fixture path bound")
+    # Only a disposable unit-test Git repository, with existing objects shared
+    # read-only. No product worktree, clone/fetch, pin or published bundle changes.
+    with tempfile.TemporaryDirectory(prefix="p0-4-historical-positive-") as directory:
+        repo = Path(directory)
+
+        def fixture_git(*args, input_bytes=None):
+            result = subprocess.run(["git", *args], cwd=repo, check=False, capture_output=True, input=input_bytes)
+            if result.returncode:
+                raise AssertionError(
+                    f"historical fixture git {args[0]} failed: "
+                    + result.stderr.decode("utf-8", errors="replace")
+                )
+            return result
+
+        fixture_git("init", "-q")
+        # An empty object DB must supply all four child bodies before it can
+        # consult parent alternates; no accidental full-cache fallback.
+        for spec in HISTORICAL_CODE_BLOBS[:4]:
+            ref, path, oid, _size, _sha = spec
+            if subprocess.run(["git", "cat-file", "-e", oid], cwd=repo, capture_output=True).returncode == 0:
+                raise AssertionError("new fixture unexpectedly contains historical blob")
+            raw = historical_code[spec]
+            inserted = fixture_git("hash-object", "-w", "--stdin", input_bytes=raw)
+            if inserted.stdout.decode("ascii").strip() != oid or fixture_git("cat-file", "blob", oid).stdout != raw:
+                raise AssertionError("standalone historical object readback changed")
+        (repo / ".git/objects/info/alternates").write_bytes(objects.as_posix().encode("utf-8") + b"\n")
+        if shallow.is_file():
+            (repo / ".git/shallow").write_bytes(shallow.read_bytes())
+        fixture_git("config", "core.autocrlf", "false")
+        fixture_git("config", "user.name", "P0-4 Test")
+        fixture_git("config", "user.email", "p0-4@example.invalid")
+        fixture_git("update-ref", "HEAD", head)
+        fixture_git("read-tree", head)
+        total = sum(spec[3] for spec in HISTORICAL_CODE_BLOBS[:4])
+        for spec in HISTORICAL_CODE_BLOBS[:4]:
+            ref, path, _oid, _size, _sha = spec
+            if fixture_git("show", f"{ref}:{path}").stdout != historical_code[spec]:
+                raise AssertionError("historical code ref/path readback changed")
+        for relative in paths:
+            target = repo / relative
+            if not target.resolve().is_relative_to(repo.resolve()):
+                raise AssertionError("historical fixture escaped temporary repository")
+            data = git("show", f"{head}:{relative}", binary=True)
+            total += len(data)
+            if total > 1024 * 1024:
+                raise AssertionError("historical fixture byte bound")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+        if (repo / runner).read_bytes() != frozen:
+            (repo / runner).write_bytes(frozen)
+            fixture_git("add", "--", runner)
+            tree = fixture_git("write-tree").stdout.decode("ascii").strip()
+            commit = fixture_git("commit-tree", tree, "-p", head, "-m",
+                                 "fixture: restore exact historical runner").stdout.decode("ascii").strip()
+            fixture_git("update-ref", "HEAD", commit)
+        inventory = repo / "docs/run287_p0_4_artifact_inventory"
+        with mock.patch.multiple(sys.modules[__name__], ROOT=repo, INVENTORY=inventory,
+                                 SOURCE=inventory / "source_inventory_snapshot.json"), \
+             mock.patch.multiple(builder, ROOT=repo, DEFAULT_OUTPUT=inventory,
+                                 DEFAULT_SOURCE=inventory / "source_inventory_snapshot.json"):
+            yield repo
+
+
+def historical_positive(test):
+    @functools.wraps(test)
+    def wrapped(*args, **kwargs):
+        with historical_inventory_repo():
+            return test(*args, **kwargs)
+    return wrapped
+
+
+def test_current_runner_delta_is_not_historical_evidence() -> None:
+    from tools import build_p0_4_artifact_inventory as builder
+
+    runner = "tools/run_pr_validation.py"
+    frozen = git("show", f"{FROZEN_PROTECTED_PUBLICATION_COMMIT}:{runner}", binary=True)
+    if git("show", f"HEAD:{runner}", binary=True) != frozen:
+        try:
+            builder.verify_protected_publication_lineage(FROZEN_PROTECTED_PUBLICATION_COMMIT)
+        except builder.InventoryError as exc:
+            if not str(exc).startswith("post_publication_protected_delta:") or runner not in str(exc):
+                raise
+        else:
+            raise AssertionError("current changed runner acquired historical approval")
+    with historical_inventory_repo() as repo:
+        builder.verify_protected_publication_lineage(FROZEN_PROTECTED_PUBLICATION_COMMIT)
+        (repo / runner).write_bytes(frozen + b"\n# synthetic unreviewed runner delta\n")
+        subprocess.run(["git", "add", "--", runner], cwd=repo, check=True, capture_output=True)
+        tree = git("write-tree").strip()
+        commit = git("commit-tree", tree, "-p", "HEAD", "-m", "fixture: change historical runner").strip()
+        subprocess.run(["git", "update-ref", "HEAD", commit], cwd=repo, check=True, capture_output=True)
+        try:
+            builder.verify_protected_publication_lineage(FROZEN_PROTECTED_PUBLICATION_COMMIT)
+        except builder.InventoryError as exc:
+            if str(exc) != "post_publication_protected_delta:tools/run_pr_validation.py":
+                raise
+        else:
+            raise AssertionError("changed historical runner was accepted")
+
+
+def tree_rows(prefix: str, *, ref: str | None = None) -> list[tuple[str, str, str, str]]:
+    # Native tree IDs commit to mode/type/content and imply exact byte length.
+    # Blob-size lookup can hydrate hundreds of MB in a filtered checkout.
+    rows = []
+    for line in git("ls-tree", "-r", ref or baseline_sha(), prefix).splitlines():
         meta, path = line.split("\t", 1)
-        _mode, _kind, sha, size = meta.split()
-        rows.append((path, sha, int(size)))
+        mode, kind, oid = meta.split()
+        rows.append((path, mode, kind, oid))
     return rows
 
 
-def relative_tree(prefix: str) -> dict[str, tuple[str, int]]:
+def relative_tree(prefix: str) -> dict[str, tuple[str, str, str]]:
     base = prefix.rstrip("/") + "/"
-    return {path[len(base) :]: (sha, size) for path, sha, size in tree_rows(prefix)}
+    return {path[len(base):]: (mode, kind, oid) for path, mode, kind, oid in tree_rows(prefix)}
 
 
 def test_tracked_bundle_exists_and_has_expected_counts() -> None:
@@ -131,6 +366,7 @@ def test_tracked_bundle_exists_and_has_expected_counts() -> None:
     assert summary["safety"]["target_order_ledger_mutation"] is False
 
 
+@historical_positive
 def test_generator_is_byte_stable(tmp_path: Path) -> None:
     result = subprocess.run(
         [
@@ -583,43 +819,35 @@ def test_frozen_repository_inventory_matches_baseline_tree() -> None:
 
 
 def test_latest_global_alias_diverges_in_exactly_scored_file() -> None:
-    current = relative_tree("cloud_results/full_rebuild/latest_global_alpha_universe")
-    immutable = relative_tree(
-        "cloud_results/full_rebuild/20260624_28074476465_global_alpha_universe"
-    )
-    differing = sorted(
-        path for path in set(current) | set(immutable) if current.get(path) != immutable.get(path)
-    )
+    left = "cloud_results/full_rebuild/latest_global_alpha_universe"
+    right = "cloud_results/full_rebuild/20260624_28074476465_global_alpha_universe"
+    pins = source()["repository_inventory"]
+    assert git("rev-parse", f"{baseline_sha()}:{left}").strip() == pins["latest_global_tree_sha1"] == "ca1bf64a549ce353463b1a625651c63f3e7f5a75"
+    assert git("rev-parse", f"{baseline_sha()}:{right}").strip() == pins["nearest_immutable_global_tree_sha1"] == "e140ce81a0771ee1d78b4979f4ce87c76a280410"
+    current, immutable = relative_tree(left), relative_tree(right)
+    differing = sorted(path for path in set(current) | set(immutable) if current.get(path) != immutable.get(path))
     assert differing == ["scored_latest.csv"]
-    current_blob = git(
-        "show",
-        f"{baseline_sha()}:cloud_results/full_rebuild/latest_global_alpha_universe/scored_latest.csv",
-        binary=True,
-    )
-    immutable_blob = git(
-        "show",
-        f"{baseline_sha()}:cloud_results/full_rebuild/20260624_28074476465_global_alpha_universe/scored_latest.csv",
-        binary=True,
-    )
-    assert hashlib.sha256(current_blob).hexdigest() == "4fe7860960518240e55e6d61492bf823067928b37984ae88022f3bb3d166e25f"
-    assert hashlib.sha256(immutable_blob).hexdigest() == "04f79def5db1032ccf228910d62b7f689545be700b13837fc4ee73026f56ed06"
+    assert current["scored_latest.csv"] == ("100644", "blob", "324e84859be5dddf091b165f9533259354739077")
+    assert immutable["scored_latest.csv"] == ("100644", "blob", "70de4e746fb6304ca4ec12546ccefb75e0533503")
+    # Prior published byte SHA256s were 4fe7860960518240e55e6d61492bf823067928b37984ae88022f3bb3d166e25f
+    # and 04f79def5db1032ccf228910d62b7f689545be700b13837fc4ee73026f56ed06.
+    # This check authenticates immutable Git content IDs, not a new body rehash.
 
 
 def test_latest_r1000_adr_alias_is_exact_tree_match() -> None:
-    current = relative_tree("cloud_results/full_rebuild/latest_r1000+adr")
-    assert current == relative_tree("cloud_results/full_rebuild/20260428_r1000+adr")
-    canonical = "\n".join(
-        f"{path}\t{sha}\t{size}"
-        for path, (sha, size) in sorted(current.items())
-    )
-    manifest_sha256 = hashlib.sha256(canonical.encode()).hexdigest()
-    assert manifest_sha256 == "a8e75bc778087efdfbb3dd7d84cfbafde2efaf216e3c3503ca2a9bca497db9da"
-    frame = pd.read_parquet(INVENTORY / "artifact_registry.parquet").set_index(
-        "object_id"
-    )
-    assert frame.loc[
-        "artifact.repo.latest-r1000-adr-alias", "manifest_sha256"
-    ] == manifest_sha256
+    left, right = "cloud_results/full_rebuild/latest_r1000+adr", "cloud_results/full_rebuild/20260428_r1000+adr"
+    pins = source()["repository_inventory"]
+    tree = git("rev-parse", f"{baseline_sha()}:{left}").strip()
+    assert tree == git("rev-parse", f"{baseline_sha()}:{right}").strip()
+    assert tree == pins["latest_r1000_adr_tree_sha1"] == pins["immutable_r1000_adr_tree_sha1"] == "932c5a407be56790cea3ff486a9fb7791ce7ef4c"
+    assert relative_tree(left) == relative_tree(right)
+    # Preserve the canonical published metadata digest without claiming to
+    # recompute historical blob-size tuples or re-download their content.
+    manifest = "a8e75bc778087efdfbb3dd7d84cfbafde2efaf216e3c3503ca2a9bca497db9da"
+    original = next(row for row in source()["artifacts"] if row["object_id"] == "artifact.repo.latest-r1000-adr-alias")
+    assert original["manifest_sha256"] == manifest
+    frame = pd.read_parquet(INVENTORY / "artifact_registry.parquet").set_index("object_id")
+    assert frame.loc["artifact.repo.latest-r1000-adr-alias", "manifest_sha256"] == manifest
 
 
 def test_pipeline_blocker_is_bound_to_exact_github_runs() -> None:
@@ -943,9 +1171,9 @@ def test_source_snapshot_is_bound_to_publication_commit(tmp_path: Path) -> None:
     custom_output = tmp_path / "custom-output-unbound"
     build(custom, custom_output)
     assert (custom_output / "source_inventory_snapshot.json").read_bytes() == publication
-    assert (custom_output / "requirements.txt").read_bytes() == (
-        INVENTORY / "requirements.txt"
-    ).read_bytes()
+    assert (custom_output / "requirements.txt").read_bytes() == git(
+        "show", f"HEAD:{builder.REQUIREMENTS_PATH}", binary=True
+    )
     custom_frame = pd.read_parquet(custom_output / "artifact_registry.parquet")
     assert custom_frame["source_publication_commit"].eq(
         "UNBOUND_CUSTOM_SOURCE"
@@ -974,7 +1202,7 @@ def test_build_parses_only_the_authenticated_source_bytes(tmp_path: Path) -> Non
     from tools.build_p0_4_artifact_inventory import build
 
     custom = tmp_path / "captured-source.json"
-    publication = SOURCE.read_bytes()
+    publication = git("show", "HEAD:docs/run287_p0_4_artifact_inventory/source_inventory_snapshot.json", binary=True)
     custom.write_bytes(publication)
     original_read_bytes = Path.read_bytes
     original_read_text = Path.read_text
@@ -1052,10 +1280,11 @@ def test_pr_validation_checkout_supports_pinned_lineage_checks() -> None:
     )
 
     assert verifier_publication == FROZEN_PROTECTED_PUBLICATION_COMMIT
-    verify_live_publication_lineage(
-        source()["baseline_code_sha"],
-        protected_commit=FROZEN_PROTECTED_PUBLICATION_COMMIT,
-    )
+    with historical_inventory_repo():
+        verify_live_publication_lineage(
+            source()["baseline_code_sha"],
+            protected_commit=FROZEN_PROTECTED_PUBLICATION_COMMIT,
+        )
 
 
 def test_dirty_generator_is_rejected(tmp_path: Path) -> None:
@@ -1258,6 +1487,7 @@ def test_protected_generator_allows_only_pin_delta(tmp_path: Path) -> None:
             raise AssertionError("post-publication renderer change was accepted")
 
 
+@historical_positive
 def test_failed_render_keeps_the_existing_bundle_intact(tmp_path: Path) -> None:
     from tools import build_p0_4_artifact_inventory as builder
 
@@ -1282,6 +1512,7 @@ def test_failed_render_keeps_the_existing_bundle_intact(tmp_path: Path) -> None:
     assert not list(tmp_path.glob(".bundle.backup-*"))
 
 
+@historical_positive
 def test_successful_rebuild_replaces_an_authenticated_bundle(tmp_path: Path) -> None:
     from tools import build_p0_4_artifact_inventory as builder
 
@@ -1294,6 +1525,7 @@ def test_successful_rebuild_replaces_an_authenticated_bundle(tmp_path: Path) -> 
     assert {path.name for path in output.iterdir()} == builder.BUNDLE_FILENAMES
 
 
+@historical_positive
 def test_post_commit_backup_cleanup_failure_is_reported(tmp_path: Path) -> None:
     from tools import build_p0_4_artifact_inventory as builder
 
@@ -1320,6 +1552,7 @@ def test_post_commit_backup_cleanup_failure_is_reported(tmp_path: Path) -> None:
     real_rmtree(backups[0])
 
 
+@historical_positive
 def test_generated_destination_symlink_is_rejected(tmp_path: Path) -> None:
     from tools.build_p0_4_artifact_inventory import InventoryError, build
 
@@ -1426,6 +1659,7 @@ def test_canonical_output_preserves_untracked_entries(tmp_path: Path) -> None:
     )
 
 
+@historical_positive
 def test_existing_external_output_must_be_a_dedicated_bundle(tmp_path: Path) -> None:
     from tools import build_p0_4_artifact_inventory as builder
 
@@ -2188,7 +2422,12 @@ def test_invalid_or_incomplete_sources_fail_closed(tmp_path: Path) -> None:
 
 
 def main() -> int:
+    preflight_historical_code()
+    os.environ["GIT_NO_LAZY_FETCH"] = "1"
+    test_runtime_artifact_bodies_and_size_fetches_are_refused()
     test_tracked_bundle_exists_and_has_expected_counts()
+    test_historical_generator_reconstruction_refuses_changed_bytes()
+    test_current_runner_delta_is_not_historical_evidence()
     with tempfile.TemporaryDirectory() as temp_dir:
         test_generator_is_byte_stable(Path(temp_dir))
     test_registries_and_parquet_cover_every_object_once()
@@ -2229,7 +2468,7 @@ def main() -> int:
         test_compound_aliases_and_wrong_paper_head_namespaces_fail_closed(temp_path)
         test_folder_child_manifests_are_pinned_and_bound(temp_path)
         test_invalid_or_incomplete_sources_fail_closed(temp_path)
-    print("P0-4 artifact inventory smoke: 37 passed")
+    print("P0-4 artifact inventory smoke: 40 passed")
     return 0
 
 

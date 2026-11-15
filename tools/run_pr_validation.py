@@ -297,6 +297,10 @@ def run_one(rel_path: str, extra_args: list[str], quiet: bool) -> tuple[bool, fl
     proc = subprocess.run(cmd, capture_output=True, text=True, env=CHILD_ENV, encoding="utf-8", errors="replace")
     elapsed = time.monotonic() - start
     if proc.returncode != 0:
+        if rel_path == "tests/agent_board_smoke.py":
+            # A later tier timeout must not erase an earlier suite's traceback.
+            print(f"--- {rel_path}: returncode={proc.returncode} (stderr) ---", flush=True)
+            print(proc.stderr or "<no stderr>", flush=True)
         combined = (proc.stdout + proc.stderr).strip()
         tail = "\n".join(combined.splitlines()[-15:]) if combined else "<no output>"
         return False, elapsed, tail
@@ -329,6 +333,8 @@ def main() -> int:
         help="If supplied, restrict to these tests (matched by substring against the path).",
     )
     parser.add_argument("--quiet", action="store_true", help="Suppress per-test tail output on success.")
+    parser.add_argument("--fail-fast", action="store_true", default=os.environ.get("GITHUB_ACTIONS") == "true",
+                        help="Stop with failure at the first failed test (default on GitHub Actions).")
     args = parser.parse_args()
 
     tests = list(DEFAULT_TESTS)
@@ -345,6 +351,7 @@ def main() -> int:
     print("=" * 72, flush=True)
     failures: list[tuple[str, str]] = []
     total_start = time.monotonic()
+    executed = 0
     for rel_path, extra_args in tests:
         joined_args = " ".join(extra_args)
         print(
@@ -352,6 +359,7 @@ def main() -> int:
             flush=True,
         )
         passed, elapsed, msg = run_one(rel_path, extra_args, args.quiet)
+        executed += 1
         mark = "PASS" if passed else "FAIL"
         suffix = f"  {msg}" if (passed and msg and not args.quiet) else ""
         print(
@@ -360,13 +368,17 @@ def main() -> int:
         )
         if not passed:
             failures.append((rel_path, msg))
+            if args.fail_fast:
+                break
     total_elapsed = time.monotonic() - total_start
     print("=" * 72, flush=True)
     print(
         f"Total: {total_elapsed:6.2f}s  "
-        f"({len(tests) - len(failures)}/{len(tests)} passed)",
+        f"({executed - len(failures)}/{len(tests)} passed)",
         flush=True,
     )
+    if executed < len(tests):
+        print(f"NOT_RUN: {len(tests) - executed} tests after fail-fast failure.", flush=True)
     if failures:
         print()
         print("Failures (last 15 lines each):")
