@@ -112,3 +112,6 @@ records as public GitHub artifacts to test this component.
 counts only matured actuals with an error; an immature forecast is never
 reported as a completed score. Implementation pins include the direct shared
 number/UTC helper, not only the model and outcome mathematics.
+The directly used JSON/clock and original-input loader implementations are
+also pinned. The scoring CLI verifies its fixed record before opening learning
+inputs, then repeats the record check with the scoring-time policy checks.

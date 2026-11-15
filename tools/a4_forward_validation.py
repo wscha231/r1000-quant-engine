@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import copy
 from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -18,8 +19,9 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tools import a4_macro_learning as learning
 from tools import market_analysis_engine as market
+from tools import macro_history_sources as codec
+from tools import run_a4_research_cycle as cycle
 from tools.macro_history_sources import digest, encoded, exclusive
-from tools.run_a4_research_cycle import load_learning
 
 MAX_BYTES = 8 * 1024**2
 MAX_PREDICTIONS = 4096
@@ -52,8 +54,9 @@ def now():
 
 def implementation():
     paths = [Path(__file__), *(Path(module.__file__) for module in
-        (learning, learning.study, learning.analysis, learning.vintage, learning.free, market, market.context))]
-    return {path.name: digest(path.read_bytes()) for path in paths}
+        (learning, learning.study, learning.analysis, learning.vintage, learning.free,
+         market, market.context, market.clock, codec, cycle))]
+    return {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in paths}
 
 
 def exact(value, keys, code):
@@ -327,7 +330,8 @@ def main():
             result, ref, reused = record_once(inputs, protocol, digest(encoded(protocol)), args.output_dir)
         elif args.command == 'score':
             item = read_json(args.record, args.record_sha256)
-            payload, policy, resolver = load_learning(args.learning_input_root, args.learning_policy_sha256)
+            verify_record(item, digest(encoded(item)), args.protocol_content_sha256, now())
+            payload, policy, resolver = cycle.load_learning(args.learning_input_root, args.learning_policy_sha256)
             result = score_record(item, digest(encoded(item)), args.protocol_content_sha256,
                 payload, policy, digest(encoded(policy)), resolver, cutoff=now())
         else:

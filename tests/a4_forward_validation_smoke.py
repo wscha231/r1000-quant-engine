@@ -1,7 +1,9 @@
 """Independent A4 recording and delayed-scoring contract; synthetic evidence."""
 import copy
+from contextlib import redirect_stdout
 from datetime import timedelta
 import json
+import io
 from pathlib import Path
 import subprocess
 import sys
@@ -165,15 +167,28 @@ class ForwardTests(unittest.TestCase):
 
     def test_direct_number_and_clock_helper_is_attested_and_mutation_refuses(self):
         payload, policy, resolver, p, inputs, record = record_fixture()
-        helper=Path(learning.free.__file__)
-        self.assertEqual(record['implementation'][helper.name],digest(helper.read_bytes()))
         original_read=Path.read_bytes
-        def mutated_read(path):
-            body=original_read(path)
-            return body+b'\n# synthetic changed helper\n' if path.resolve()==helper.resolve() else body
-        with patch.object(Path,'read_bytes',mutated_read):
-            with self.assertRaisesRegex(ValueError,'IMPLEMENTATION_CHANGED'):
-                self.score(record,p,payload,policy,resolver)
+        for module in (learning.free,forward.market.clock,forward.codec,forward.cycle):
+            helper=Path(module.__file__)
+            self.assertEqual(record['implementation'][helper.name],digest(helper.read_bytes()))
+            def mutated_read(path):
+                body=original_read(path)
+                return body+b'\n# synthetic changed helper\n' if path.resolve()==helper.resolve() else body
+            with self.subTest(helper=helper.name),patch.object(Path,'read_bytes',mutated_read):
+                with self.assertRaisesRegex(ValueError,'IMPLEMENTATION_CHANGED'):
+                    self.score(record,p,payload,policy,resolver)
+
+    def test_cli_score_checks_record_before_opening_learning_inputs(self):
+        payload, policy, resolver, p, inputs, record = record_fixture()
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);source=root/'record.json';source.write_bytes(encoded(record))
+            argv=['a4-forward','score','--record',str(source),'--record-sha256',digest(encoded(record)),
+                '--protocol-content-sha256','0'*64,'--learning-input-root',str(root/'unopened'),
+                '--learning-policy-sha256','a'*64,'--output-dir',str(root/'diagnostics')]
+            with patch.object(sys,'argv',argv),redirect_stdout(io.StringIO()), \
+                 patch.object(forward.cycle,'load_learning',side_effect=AssertionError('early input open')) as loader:
+                self.assertEqual(forward.main(),2)
+                loader.assert_not_called()
 
     def test_immutable_recovery_and_tampered_output_refusal(self):
         payload, policy, resolver, p, inputs, record = record_fixture()
