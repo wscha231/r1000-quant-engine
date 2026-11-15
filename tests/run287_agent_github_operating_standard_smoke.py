@@ -95,8 +95,57 @@ def require_immediate_board_failure_details() -> None:
     check.assertIn("<no stderr>", output.getvalue())
 
 
+def require_fail_fast_keeps_failure_and_complete_success() -> None:
+    from contextlib import redirect_stdout
+    from io import StringIO
+    from tempfile import TemporaryDirectory
+    from unittest import TestCase
+    from unittest.mock import patch
+    import importlib.util
+    import os
+    import sys
+
+    spec = importlib.util.spec_from_file_location("validation_fast_fixture", ROOT / "tools/run_pr_validation.py")
+    validation = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(validation)
+    check = TestCase()
+    tests = [("first.py", []), ("second.py", [])]
+    for ci, flags, results, calls, exit_code, summary in (
+        ("true", [], [False, True], 1, 1, "(0/2 passed)"),
+        ("false", [], [False, True], 2, 1, "(1/2 passed)"),
+        ("false", ["--fail-fast"], [False, True], 1, 1, "(0/2 passed)"),
+        ("true", [], [True, True], 2, 0, "(2/2 passed)"),
+    ):
+        output = StringIO()
+        returns = [(ok, .01, "synthetic failure" if not ok else "") for ok in results]
+        with patch.dict(os.environ, {"GITHUB_ACTIONS": ci}), \
+             patch.object(sys, "argv", ["validation", *flags]), \
+             patch.object(validation, "DEFAULT_TESTS", tests), \
+             patch.object(validation, "run_one", side_effect=returns) as run, redirect_stdout(output):
+            code = validation.main()
+        check.assertEqual((code, run.call_count), (exit_code, calls))
+        check.assertIn(summary, output.getvalue())
+        check.assertEqual("NOT_RUN: 1 tests" in output.getvalue(), calls == 1)
+        check.assertEqual("all PR validation tests pass" in output.getvalue(), exit_code == 0)
+    # Real child exit3: the later test must not run or acquire a pass count.
+    with TemporaryDirectory() as directory:
+        root = Path(directory)
+        (root / "first.py").write_text("raise SystemExit(3)\n", encoding="utf-8")
+        (root / "second.py").write_text("from pathlib import Path\nPath(__file__).with_suffix('.ran').write_text('unexpected')\n", encoding="utf-8")
+        output = StringIO()
+        with patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}), \
+             patch.object(sys, "argv", ["validation"]), patch.object(validation, "ROOT", root), \
+             patch.object(validation, "DEFAULT_TESTS", tests), redirect_stdout(output):
+            code = validation.main()
+        check.assertEqual(code, 1)
+        check.assertFalse((root / "second.ran").exists())
+        check.assertIn("(0/2 passed)", output.getvalue())
+        check.assertIn("NOT_RUN: 1 tests", output.getvalue())
+
+
 def main() -> int:
     require_immediate_board_failure_details()
+    require_fail_fast_keeps_failure_and_complete_success()
     agents = read_required("AGENTS.md")
     standard = read_required("docs/RUN287_GITHUB_AGENT_OPERATING_STANDARD.md")
     template = read_required(".github/PULL_REQUEST_TEMPLATE.md")
