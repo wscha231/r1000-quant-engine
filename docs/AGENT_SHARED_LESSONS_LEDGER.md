@@ -1,5 +1,34 @@
 # Agent Shared Lessons Ledger
 
+### 2026-11-14 KST — Keep real A4 analysis out of public workflow artifacts
+
+- The repository is public; broad artifact paths included full daily reports,
+  research attempts and primary/data-center analysis JSON/Markdown. Activating
+  real native/credit inputs would publish financial values and derived scores.
+  Stop hosted dispatch until the public output scope is repaired; private
+  Source input publication and private report readback are separate operations.
+- Publish fixed status/count/hash metadata only. Hash private bytes without
+  parsing payload fields, retain failure/skipped outcomes, and never fall back
+  to an old report for a skipped step. Preserve the full private Drive copy/check
+  and process exit codes, including the legacy monitor's captured console log.
+- Keep the privacy fix separate from H.10, Source normalizer, data policy,
+  scheduler and learning changes. Metadata is not a completed model or evidence
+  of Source/PIT, portfolio or trading approval.
+
+### 2026-11-14 KST — Separate H.10 observation age from weekly publication
+
+- Daily H.10 broad-dollar values are released for the previous business week
+  on Monday16:15 New York or the next federal business day. An eight-day-old
+  Friday can still be current before the next release; retain its date and
+  clocks rather than increasing a fixed age allowance or inventing publication.
+- Require the complete expected business week, retain nulls and gaps, and
+  reject early/future-period anomalies. A fresh fetch cannot renew an old week
+  after the next deadline. Recheck the schedule when explaining stored context;
+  DST/holidays alter scheduled clocks, never actual first availability or PIT.
+- Keep the rule confined to the registered Board series and reviewed calendar
+  window. Consumer freshness does not migrate archived normalizer hashes,
+  change native readiness, qualify supplier rights or authorize a model fit.
+
 ### 2026-11-14 KST — Preserve supplied credit originals through the A4 index
 
 - The official primary feed set has no HY/IG series. Copying only native risk
@@ -11643,6 +11672,35 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - The first exact candidate retained7 axes because actualFRED graph originals used empty CSV fields, rather than dots. Preserve that negative replay and the lexical raw token; recognize only empty/dot on the scoped holidays, while malformed text, literalNA and business-day empty/dot remain blocked.
 - Full CI correctly refused changed current normalizer bytes under the sealed historical reuse catalog. Restore the exact old Git-LF source only in disposable historical test positives with existing bounded fixtures; keep production pins/guards intact and explicitly reject current/tampered bytes. Preserve235/236 failed-head evidence and cancel only the superseded side-effect-free PR check.
 - A frozen66695-byte normalizer exceeds the unrelated Reader fixture64KiB bound. Keep that bound and use the existing bounded historical-feature loader with exact Git blob/raw/gzip hashes. Windows checkout reversal is allowed only when existing historical_catalog_fixture_bytes reproduces the original sealed SHA; semantic changes remain refused. Preserve the failed fixture attempts and their full reservations.
+
+### 2026-11-15 — Preserve aggregated board failures before tier cancellation
+
+- A failed board child can contain an early planning traceback followed by successful state/manual output. A short tail printed only after the whole tier completes loses that evidence on cancellation. Emit its exact return code and full stderr immediately with flush; retain the existing program selection, execution order, result, final summary and time limits. This repairs observability, not the unknown original failing case.
+- A script-mode regression must load the existing runner from its explicit ROOT path; importing tools assumes a repository-root sys.path that the direct runner does not supply. Preserve the initial import failure separately, then require the corrected regression to fail for missing diagnostics and pass normally and under optimized Python.
+
+### 2026-11-15 — Keep frozen inventory positives historical after CI diagnostics change
+
+- The archived inventory correctly rejects a changed validation runner under its protected-publication lineage. Reuse the exact historical Git blob only in bounded disposable test repositories with actual ancestry and canonical source identity. Keep current/rechanged-runner refusal and production verifier, pins, protected paths and published bundle unchanged.
+- Git alternates control files require exact LF bytes on Windows. Generated canonical source and requirements must be compared with authenticated Git LF bytes, rather than CRLF worktree representations. Use write-tree/commit-tree for the fixture to preserve its entire index and real parent without refreshing unrelated absent files.
+- Preserve all failed local probes and the complete240-second reservation. The two focused normal boundaries and optimized refusal passed; full local inventory and later LF probe timed out, so neither is a full-suite pass. Fresh exact-head cloud CI remains required.
+
+- 2026-11-15 CI775 exact09 produced235/236PASS but its historical-positive test could not read the frozen generator blob in the blob-filtered runner. Authenticate the one105704-byte historical generator with full SHA256+Git OID after the exact reviewed-pin reversal, then insert/read it only in the disposable unit-test object DB; count its bytes in the existing cap. Preserve the production verifier, current/rechanged-runner refusals, canonical pins and eight-output parity; do not fetch entire historical artifacts or replay unchanged failed CI.
+
+- 2026-11-15 CI775 exact239 again ended235/236FAIL (5219.52s): the isolated historical child also needed the frozen validation workflow. Audit the complete child code closure before another full CI: four code blobs463653B and full-test ten code/source blobs927000B, all exact size/SHA256/Git OID. Insert four into an empty temporary DB before alternates, verify both standalone object and real ref/path reads, then disable lazy fetching.
+- 2026-11-15 Historical inventory aliases: ls-tree -l and body reads can hydrate hundreds of MB merely to recheck a frozen census. Preserve the published Source/Parquet manifest digest and exact native tree/mode/type/content-OID commitments; report this as metadata authentication, never a new runtime-byte/SHA256 recomputation. Refuse runtime body/size requests in this test path; production verifier, Source/PIT and portfolio authority stay unchanged.
+- 2026-11-15 CI failure latency: stop GitHub Actions validation with exit1 at the first failed child and explicitly label remaining tests NOT_RUN. Count only executed passes; a green run still requires all236 registered programs. Keep local default keep-going and the original registry/order. Verify both mocked failure/success sequences and a real exit3 child that prevents the next test from executing.
+
+### 2026-11-14 — Preserve observed volume versions without inventing correction authority
+
+- A fresh provider daily bar can retain identical OHLC while changing volume. Capture success is not anchor compatibility. Preserve both originals, require the external exact sidecar pin plus original archive/checkpoint/ancestor replay, and retain the newer anchor observation clock; a profile name or REVIEWED flag creates no authority. Keep legacy MU rules and default strict refusal unchanged.
+- Reuse the existing single-subject composition for bounded four-symbol captures. Current private research v2 permits only its checkpoint to use the existing managed1MiB state bound; original archives/decoded data retain64KiB and aggregate limits remain. Missing or conflicting evidence stays blocked, with no training/PIT/ER/portfolio admission.
+- Full ordinary Source/Reader suites consumed about196seconds inside a240-second allocation, leaving insufficient time for another full optimized suite. Preserve that timeout and full reservation; run the affected safety cases and legacy compatibility under both normal and optimized Python instead of repeating already-passed ordinary suites.
+
+### 2026-11-16 KST — Keep composition changes separate from sealed reuse positives
+
+- PR774 exactd5 CI43712355976/job132806481221 failed after64/236 PASS;171 programs were NOT_RUN. Nested manual173 had27 errors because the sealed reuse catalog still binds pre-composition Reader code and guide. Preserve this failure; do not repin production catalog or rerun unchanged code.
+- Restore only the exact authenticated90704-byte Reader code and31792-byte guide in disposable historical test roots. A separate128KiB decoded/64KiB compressed fixture bound leaves the older64KiB Reader helper intact; validate exact length, SHA256 and Git blob OID without shallow-checkout network hydration. Keep real current/tampered-source refusals and live catalog bytes unchanged. Code integration is separate from actual Source/Reader/ER/A5 admission.
+- Focused nine failure-family methods passed normally404.632s; the two new invariant methods passed under optimized Python23.857s. Independent static review found no issues. The complete175-method manual suite and236-program gate remain fresh hosted checks, not inferred local successes.
 
 ### 2026-11-14 — Attest shared current-observation validation and retain typed date refusal
 
