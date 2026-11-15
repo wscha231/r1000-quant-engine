@@ -39,6 +39,9 @@ PROVIDER_COMPOSITION_SCHEMA = 'a1-provider-daily-close-composition-v1'
 PROVIDER_CLOSE_MEANING = 'PROVIDER_SIP_DAILY_CLOSE_ARCHIVAL_RESEARCH'
 PROVIDER_CLOSE_CONSUMER = 'ohlcv-technical-feature-h1'
 OBSERVED_VOLUME_SCHEMA = 'a1-observed-volume-version-selection-v1'
+OBSERVED_VOLUME_V2_PROFILE = 'CURRENT_PRIVATE_RESEARCH_VOLUME_ONLY_V2'
+OBSERVED_VOLUME_V2_VENUES = (('XNAS', 'NASDAQ'), ('XNYS', 'NYSE'), ('ARCX', 'ARCA'))
+OBSERVED_VOLUME_V2_CHECKPOINT_BYTES = 1024 * 1024
 SCHEMA = 'research-data-generation-v1'
 # Per-read ceilings across every file in the pinned generation.
 MAX_GENERATION_DECOMPRESSED_BYTES = 256 * 1024 * 1024
@@ -552,23 +555,38 @@ def _observed_volume_references(value):
 
 
 def _validate_observed_volume_selection(value, parents, identity, context_id, decision):
-    """One reviewed stored MU observation; never supplier-correction authority."""
+    """Pinned private research observations; never supplier-correction authority."""
     fields = {'schema', 'profile', 'context_id', 'instrument_id', 'ticker',
         'provider_security_id', 'market', 'mic', 'currency', 'anchor_session',
         'parent_generation_pairs', 'parent_clocks', 'captures', 'anchors',
         'differences', 'selection', 'comparison_report', 'supplier_correction_at'}
     check(type(value) is dict and set(value) == fields
           and value['schema'] == OBSERVED_VOLUME_SCHEMA
-          and value['profile'] == 'MU_20261026_VOLUME_ONLY', 'REVISION_SCHEMA')
-    check(value['context_id'] == context_id
-          and value['ticker'] == identity['ticker'] == 'MU'
-          and value['anchor_session'] == '2026-10-26'
-          and value['market'] == identity['market'] == 'US'
-          and value['mic'] == identity['mic'] == 'XNAS'
-          and value['currency'] == identity['currency'] == 'USD'
-          and identity.get('asset_class') == 'EQUITY'
-          and all(value[k] == identity[k] for k in ('instrument_id','provider_security_id')),
-          'REVISION_IDENTITY')
+          and value['profile'] in ('MU_20261026_VOLUME_ONLY', OBSERVED_VOLUME_V2_PROFILE),
+          'REVISION_SCHEMA')
+    current_private = value['profile'] == OBSERVED_VOLUME_V2_PROFILE
+    if current_private:
+        check(value['context_id'] == context_id
+              and type(value['ticker']) is str
+              and re.fullmatch(r'[A-Z][A-Z0-9.-]{0,31}', value['ticker']) is not None
+              and value['market'] == identity['market'] == 'US'
+              and value['currency'] == identity['currency'] == 'USD'
+              and identity.get('asset_class') in ('EQUITY', 'ETF')
+              and value['mic'] == identity['mic']
+              and value['mic'] in dict(OBSERVED_VOLUME_V2_VENUES)
+              and all(value[k] == identity[k] for k in
+                      ('instrument_id','provider_security_id','ticker')),
+              'REVISION_IDENTITY')
+    else:
+        check(value['context_id'] == context_id
+              and value['ticker'] == identity['ticker'] == 'MU'
+              and value['anchor_session'] == '2026-10-26'
+              and value['market'] == identity['market'] == 'US'
+              and value['mic'] == identity['mic'] == 'XNAS'
+              and value['currency'] == identity['currency'] == 'USD'
+              and identity.get('asset_class') == 'EQUITY'
+              and all(value[k] == identity[k] for k in ('instrument_id','provider_security_id')),
+              'REVISION_IDENTITY')
     check(value['supplier_correction_at'] is None, 'REVISION_UNKNOWN_PUBLICATION')
     check(value['parent_generation_pairs'] == [[p['raw_manifest']['sha256'],
           p['split_manifest']['sha256']] for p in parents], 'REVISION_PARENT_BINDING')
@@ -583,9 +601,9 @@ def _validate_observed_volume_selection(value, parents, identity, context_id, de
           and selection['new_end'] == parents[1]['window']['end']
           and day(selection['old_start']) <= day(selection['old_end']) < day(anchor)
           < day(selection['new_end']) <= decision.date(), 'REVISION_SELECTION_WINDOW')
-    def reference(ref):
+    def reference(ref, limit=64*1024):
         check(type(ref) is dict and set(ref) == {'sha256','bytes'}
-              and type(ref['bytes']) is int and 0 < ref['bytes'] <= 64*1024,
+              and type(ref['bytes']) is int and 0 < ref['bytes'] <= limit,
               'REVISION_REFERENCE')
         sha(ref['sha256'])
     reference(value['comparison_report'])
@@ -594,7 +612,9 @@ def _validate_observed_volume_selection(value, parents, identity, context_id, de
         check(type(item) is dict and set(item) == {'raw','normalized','receipt','checkpoint',
             'derivations','run_id','collection_started_at','collection_finished_at','public_available_at'},
             'REVISION_CAPTURE')
-        for key in ('raw','normalized','receipt','checkpoint'): reference(item[key])
+        for key in ('raw','normalized','receipt','checkpoint'):
+            limit = OBSERVED_VOLUME_V2_CHECKPOINT_BYTES if current_private and key == 'checkpoint' else 64*1024
+            reference(item[key], limit)
         check(type(item['derivations']) is dict
               and set(item['derivations']) == {'RAW','SPLIT_ADJUSTED'}, 'REVISION_CAPTURE')
         for ref in item['derivations'].values(): reference(ref)
@@ -602,7 +622,7 @@ def _validate_observed_volume_selection(value, parents, identity, context_id, de
               and item['public_available_at'] is None
               and clock(item['collection_started_at']) <= clock(item['collection_finished_at'])
               <= clock(parent['source_collected_at']) <= decision, 'REVISION_CAPTURE_CLOCKS')
-    check(value['captures'][1]['run_id'] == 41014284082
+    check((current_private or value['captures'][1]['run_id'] == 41014284082)
           and value['captures'][0]['run_id'] != value['captures'][1]['run_id'],
           'REVISION_CAPTURE_SCOPE')
     check(clock(value['captures'][0]['collection_finished_at']) <
@@ -619,12 +639,20 @@ def _validate_observed_volume_selection(value, parents, identity, context_id, de
     differences = value['differences']
     check(type(differences) is list and len(differences) == 2, 'REVISION_CHANGE_SET')
     for row, basis in zip(differences, expected):
-        check(type(row) is dict and set(row) == {'basis','field','old','new','delta'}
-              and row['basis'] == basis and row['field'] == 'volume'
-              and row['delta'] == -3170
-              and type(row['old']) is int and type(row['new']) is int
-              and 0 <= row['new'] < row['old'] <= 2**53
-              and row['new'] - row['old'] == -3170, 'REVISION_CHANGE_SET')
+        if current_private:
+            check(type(row) is dict and set(row) == {'basis','field','old','new','delta'}
+                  and row['basis'] == basis and row['field'] == 'volume'
+                  and all(type(row[k]) is int for k in ('old','new','delta'))
+                  and 0 <= row['old'] <= 2**53 and 0 <= row['new'] <= 2**53
+                  and row['delta'] != 0 and row['new'] - row['old'] == row['delta'],
+                  'REVISION_CHANGE_SET')
+        else:
+            check(type(row) is dict and set(row) == {'basis','field','old','new','delta'}
+                  and row['basis'] == basis and row['field'] == 'volume'
+                  and row['delta'] == -3170
+                  and type(row['old']) is int and type(row['new']) is int
+                  and 0 <= row['new'] < row['old'] <= 2**53
+                  and row['new'] - row['old'] == -3170, 'REVISION_CHANGE_SET')
     return value
 
 
