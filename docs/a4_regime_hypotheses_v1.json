@@ -1,0 +1,220 @@
+{
+  "schema": "a4-regime-hypotheses-v1",
+  "mode": "RESEARCH_ONLY",
+  "a3_a5_connected": false,
+  "approved_model_changed": false,
+  "probabilities_calibrated": false,
+  "groups": [
+    {
+      "id": "CURVE",
+      "priority": "P0",
+      "inputs": [
+        "UST_10Y",
+        "UST_2Y",
+        "UST_3M"
+      ],
+      "existing": "Current primary Treasury 2Y/10Y diagnostics; no proven historical original release clock",
+      "new": "Private tested 10Y-2Y/10Y-3M spreads, re-cross and 21/63-session short-fall/long-rise decomposition",
+      "bear_hypothesis": "Re-steepening with credit deterioration and weak growth",
+      "bull_hypothesis": "Rates ease with stable credit and improving breadth",
+      "historical_fit_status": "UNAVAILABLE_SOURCE_CLOCKS",
+      "source": "https://www.newyorkfed.org/research/capital_markets/ycfaq.html"
+    },
+    {
+      "id": "INTERNALS",
+      "priority": "P0",
+      "inputs": [
+        "ADVANCES",
+        "DECLINES",
+        "UNCHANGED",
+        "ELIGIBLE_POPULATION",
+        "NEW_HIGHS",
+        "NEW_LOWS",
+        "ABOVE_MA50",
+        "ABOVE_MA200",
+        "SPY_PRICE"
+      ],
+      "existing": "Price MA and momentum actually included in earlier private daily study; current native breadth distinct",
+      "new": "Private tested cumulative A-D divergence and new-high/low/MA participation transforms with complete supplied-population counts",
+      "bear_hypothesis": "Index high with unconfirmed A-D and falling participation",
+      "bull_hypothesis": "Broad participation, more new highs and durable trend recovery",
+      "historical_fit_status": "PRICE_TRENDS_EXPLORATORY;DATED_MEMBERSHIP_COUNTS_MISSING",
+      "caveat": "Current research cohort is not historic NYSE or S&P500 membership"
+    },
+    {
+      "id": "CREDIT",
+      "priority": "P0",
+      "inputs": [
+        "HY_OAS",
+        "IG_OAS",
+        "CCC_OAS"
+      ],
+      "existing": "HY/IG registered and some current diagnostic originals; distinct historical rights/time verification missing",
+      "new": "Private tested bp level/change, prior-only z-score, CCC-HY separation; HY>4pp only user hypothesis",
+      "bear_hypothesis": "Persistent HY/CCC widening confirms trend damage",
+      "bull_hypothesis": "HY/CCC narrow with improving growth/breadth",
+      "historical_fit_status": "BLOCKED_RIGHTS_AND_DATED_ORIGINALS",
+      "caveat": "No universal 2-4pp normal band or ETF ratio substitution"
+    },
+    {
+      "id": "POLICY",
+      "priority": "P1",
+      "inputs": [
+        "FOMC_TARGET_RANGE",
+        "ANNOUNCED_BALANCE_SHEET_POLICY"
+      ],
+      "existing": "Funding rates and Fed balance sheet diagnostics; not an original FOMC event history",
+      "new": "Private tested announcement/effective-rate separation, first cut of a known cycle, consecutive rate decisions and supplied reviewed QE/QT labels; QE probability withheld",
+      "bear_hypothesis": "Restrictive policy or emergency easing during credit deterioration",
+      "bull_hypothesis": "Disinflationary easing with stable credit and participation",
+      "historical_fit_status": "BLOCKED_ORIGINAL_EVENT_LABELS",
+      "caveat": "First cut and Fed assets growth are not mechanically a bull signal or QE probability",
+      "source": "https://www.federalreserve.gov/monetarypolicy/openmarket.htm"
+    },
+    {
+      "id": "VALUATION_EARNINGS",
+      "priority": "P1",
+      "inputs": [
+        "SHILLER_CAPE",
+        "DATED_EPS_ESTIMATES",
+        "UP_REVISIONS",
+        "DOWN_REVISIONS"
+      ],
+      "existing": "No qualified macro training path for these inputs",
+      "new": "Private tested prior-only CAPE context and complete dated revision-count arithmetic; actual licensed originals/vintages missing",
+      "bear_hypothesis": "High valuation with declining dated earnings and negative revision breadth",
+      "bull_hypothesis": "Improving earnings/revisions with sustainable valuation",
+      "historical_fit_status": "BLOCKED_RIGHTS_VINTAGES;Yale_current_history_has_interpolated_earnings",
+      "source": "https://www.econ.yale.edu/~shiller/data.htm"
+    },
+    {
+      "id": "LEADING_LABOR",
+      "priority": "P0",
+      "inputs": [
+        "CONFERENCE_BOARD_LEI",
+        "LEI_6M_DIFFUSION",
+        "UNEMPLOYMENT",
+        "PAYROLLS",
+        "CPI"
+      ],
+      "existing": "Three RTDSM dated original inputs; delayed quarterly unemployment vintage",
+      "new": "Private tested 15-month Sahm proxy in percentage points and same-vintage growth/inflation transformations; 144-case exploratory comparison actually executed; separate private tested versioned LEI depth/diffusion and six-decline hypothesis arithmetic without supplied proprietary history",
+      "bear_hypothesis": "Broad leading deterioration plus labor weakening",
+      "bull_hypothesis": "Improving leading breadth, stable labor and inflation easing",
+      "historical_fit_status": "RTDSM_3_RAW_INPUTS_EXPLORATORY;LEI_RIGHTS_AND_VINTAGES_MISSING",
+      "caveat": "Delayed proxy is not official real-time Sahm; six consecutive LEI declines differs from versioned provider 3Ds rule",
+      "sources": [
+        "https://www.conference-board.org/topics/us-leading-indicators/",
+        "https://fred.stlouisfed.org/series/SAHMREALTIME"
+      ]
+    },
+    {
+      "id": "SECTOR_ROTATION",
+      "priority": "P0",
+      "inputs": [
+        "XLC",
+        "XLY",
+        "XLP",
+        "XLE",
+        "XLF",
+        "XLV",
+        "XLI",
+        "XLB",
+        "XLRE",
+        "XLK",
+        "XLU",
+        "SPY"
+      ],
+      "existing": "Fourteen target set exists in contract, not a fully qualified sector-history training slice",
+      "new": "Private tested 21/63-session sector returns, cyclical vs defensive, technology vs defensive; energy separate",
+      "bear_hypothesis": "Defensive relative leadership with falling broad trends and credit stress",
+      "bull_hypothesis": "Cyclical/technology recovery with wider participation",
+      "historical_fit_status": "BLOCKED_SECTOR_PRICE_RIGHTS_CLOCKS_COVERAGE",
+      "caveat": "No fill before fund launch; XLC pre-2018 absent; no current-GICS historical membership assumption"
+    }
+  ],
+  "sentiment": [
+    {
+      "id": "VIX",
+      "priority": "P0",
+      "producer": "Cboe, not CNBC",
+      "status": "NATIVE_DIAGNOSTIC_EXISTS;PRIVATE_TRANSFORMS_TESTED;HISTORICAL_TRAINING_NOT_CONNECTED",
+      "features": [
+        "VIX",
+        "VIX3M",
+        "VVIX",
+        "VIX_VIX3M_RATIO",
+        "VIX_PRIOR_MA50"
+      ],
+      "source": "https://www.cboe.com/tradable_products/vix/vix_historical_data",
+      "caveat": "Index tenor ratio is not listed VIX futures curve; implied volatility is not direction"
+    },
+    {
+      "id": "CNN_FEAR_GREED",
+      "priority": "P2",
+      "status": "CONTEXT_ONLY;OFFICIAL_HISTORY_RIGHTS_PIT_UNVERIFIED",
+      "source": "https://www.cnn.com/markets/fear-and-greed",
+      "existing_proxy_is_official_index": false,
+      "independent_vote": false,
+      "caveat": "Overlaps momentum, highs/lows, breadth, put/call, VIX, safe-haven demand and credit. Respect publisher robots; no unofficial endpoint workaround."
+    }
+  ],
+  "additional": [
+    {
+      "id": "VIX_FUTURES_TERM_STRUCTURE",
+      "priority": "P1",
+      "status": "PROPOSED_RIGHTS_AND_CONTRACT_ROLL_HISTORY_REQUIRED",
+      "source": "https://www.cboe.com/tradable_products/vix/term_structure"
+    },
+    {
+      "id": "EQUITY_PUT_CALL",
+      "priority": "P1",
+      "status": "PRIVATE_TRANSFORM_TESTED;ACTUAL_ORIGINALS_AND_RIGHTS_MISSING"
+    },
+    {
+      "id": "INITIAL_CLAIMS_4W",
+      "priority": "P0",
+      "status": "REGISTERED_NOT_YET_DATED_ORIGINAL_TRAINING"
+    },
+    {
+      "id": "TREASURY_AUCTION_DEMAND",
+      "priority": "P0",
+      "status": "EXISTING_FINANCING_COMPONENT_CURRENT_RESEARCH;HISTORICAL_CLOCK_AND_COHORT_REVIEW_REQUIRED"
+    },
+    {
+      "id": "REAL_YIELD_AND_TERM_PREMIUM",
+      "priority": "P1",
+      "status": "CURRENT_PRIMARY_READERS_EXIST;REVISED_ACM_NOT_HISTORICAL_PIT"
+    },
+    {
+      "id": "OFR_FSI_OR_NFCI",
+      "priority": "P1",
+      "status": "PROPOSED_ORIGINAL_PUBLISHER_REVISION_POLICY_REVIEW_REQUIRED"
+    },
+    {
+      "id": "AAII_SENTIMENT",
+      "priority": "P2",
+      "status": "PROPOSED_MEMBERSHIP_RIGHTS_AND_VINTAGES_REQUIRED",
+      "source": "https://www.aaii.com/sentimentsurvey"
+    },
+    {
+      "id": "CHICAGO_CFNAI_REAL_TIME_VINTAGES",
+      "priority": "P0",
+      "status": "DISCOVERED_OFFICIAL_VINTAGE_ARCHIVE;NOT_COLLECTED_OR_ADMITTED",
+      "source": "https://www.chicagofed.org/research/data/cfnai/cfnai-historical-data-preview",
+      "caveat": "Potential dated alternative economic evidence; distinct from Conference Board LEI, not a substitute labelled LEI. Verify original releases/clock/rights and index-family overlap."
+    }
+  ],
+  "prohibitions": [
+    "NO_FRED_OR_ALFRED_SERVICE_CONTENT_IN_NEW_ML",
+    "NO_DUPLICATED_SIGNAL_VOTES",
+    "NO_AUTOMATIC_BEAR_PROBABILITY_FROM_FLAG_COUNT",
+    "NO_DAILY_EXPANSION_AS_INDEPENDENT_MACRO_RELEASES",
+    "NO_A3_A5_OR_PORTFOLIO_CHANGE"
+  ],
+  "status": "CANDIDATE_TRANSFORMS_NOT_NATIVE_FORECAST_ADMISSION",
+  "priorities_are_investment_weights": false,
+  "derived_features_are_independent_sources": false,
+  "source_or_PIT_or_training_admitted": false,
+  "native_risk_readiness_changed": false
+}

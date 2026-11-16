@@ -222,6 +222,7 @@ BOARD_INPUT_DEPENDENCIES = [
 # Retain canonical contract reads from the registered tests and their default
 # loaders/fingerprints, reviewed at 8f9d258. Code pins alone do not bind them.
 A6_FIXED_PROOF_INPUTS = (
+    'docs/a4_regime_hypotheses_v1.json',
     "docs/market_analysis_contract_v1.json",
     "tests/fixtures/manual_foundation_long_history_lake_v1.py.gz",
     "tests/fixtures/manual_foundation_sec_source_v1.json.gz",
@@ -414,6 +415,10 @@ A6_FIXED_PROOF_INPUTS = (
     'docs/A4_CLOUD_RESEARCH_OPERATIONS.md',
 )
 A6_FIXED_PROOF_PROGRAMS = (
+    'tests/a4_regime_signals_smoke.py',
+    'tools/a4_archived_fed_releases.py',
+    'tools/a4_regime_features.py',
+    'tools/a4_regime_context.py',
     'tests/a4_daily_multifactor_smoke.py',
     'tools/a4_daily_multifactor.py',
     '.github/workflows/alpaca_sip_private_backfill_v1.yml',
