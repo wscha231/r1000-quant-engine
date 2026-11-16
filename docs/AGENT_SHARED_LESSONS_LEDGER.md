@@ -11705,3 +11705,9 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 ### 2026-11-14 — Attest shared current-observation validation and retain typed date refusal
 
 - A new cross-module A3 validator is a runtime dependency of multi-asset publication. Pin the Moat helper in the existing source identity manifest and exercise changed helper bytes; before/after checks cannot protect an omitted module. Civil-date bounds also require typed handling of UTC conversion/14-hour overflow, including valid aware ISO values near datetime limits, in both Moat and A3 consumers.
+
+### 2026-11-16 — Keep independent stock research explicit when A4 is unavailable
+
+- Preserve STRICT_A4_V1 by default. Only an externally pinned STOCK_CASH_BASELINE_V1 with the explicit63-NYSE-interval stock profile may omit A4; it still requires the exact reviewed risk original and all Source/PIT/A3/net-ER/A6, liquidity, cost and model-book checks. No risk-on state or A4 receipt is invented, and special-risk gold/treasury admissions remain unavailable in this baseline.
+- Bind the same risk digest across planner context, Native request and core argument; two individually reviewed risk packets are not interchangeable. The planner exception is the exact canonical missing-regime failure, never a general exemption from missing or stale inputs. Synthetic full-graph tests are code evidence only; current qualitative scores and archived feature rows do not certify genuine63-session forecasts or actual portfolio weights.
+- Switching the existing sparse worktree removed three tracked A4 contract documents from disk. Preserve the actual full-module result26/29 PASS with three missing-contract failures and its102.0342027-second controller cost; restore only exact current-base Git bytes, then rerun the three affected cases. This is local materialization, not a product, A4-policy or expected-hash change.

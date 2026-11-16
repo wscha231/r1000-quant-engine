@@ -124,12 +124,53 @@ def pinned(row, policy, kind, cutoff):
     return row
 
 
+A5_STRICT_A4 = "STRICT_A4_V1"
+A5_STOCK_BASELINE = "STOCK_CASH_BASELINE_V1"
+
+
+def a5_context_profile(policy=None, context=None):
+    """Explicit reviewed selection; an absent report never selects baseline."""
+    require(policy is None or type(policy) is dict, "a5_context_policy_type")
+    value = (policy or {}).get("a5_context_profile", A5_STRICT_A4)
+    require(type(value) is str and value in {A5_STRICT_A4, A5_STOCK_BASELINE},
+            "a5_context_profile")
+    if value == A5_STOCK_BASELINE:
+        stock = policy.get("stock_cash_research", {})
+        require(type(stock) is dict and stock.get("enabled") is True and stock.get("horizon") == "63_NYSE_SESSIONS",
+                "a5_baseline_stock63_only")
+    if context is not None:
+        require(type(context) is dict and context.get("a5_context_profile", A5_STRICT_A4) == value,
+                "a5_context_profile_mismatch")
+    return value
+
+
+def baseline_risk(risk, policy, cutoff):
+    """Review fixed portfolio limits without claiming a current A4 regime."""
+    require(a5_context_profile(policy) == A5_STOCK_BASELINE, "a5_baseline_profile_required")
+    require(type(risk) is dict and risk.get("a5_context_profile") == A5_STOCK_BASELINE,
+            "a5_baseline_risk_profile")
+    require(not any(k in risk for k in ("regime", "a4_report_content_sha256", "a4_request_sha256")),
+            "a5_baseline_unselected_macro_context")
+    pinned(risk, policy, "risk", cutoff)
+    allocation = risk.get("stock_cash_allocation")
+    require(type(allocation) is dict, "a5_baseline_stock_allocation_required")
+    reviews = allocation.get("exception_reviews", [])
+    require(type(reviews) is list and all(type(row) is dict for row in reviews),
+            "a5_baseline_exception_review_shape")
+    require(all(row.get("basis") != "SPECIAL_RISK" for row in reviews),
+            "a5_baseline_special_risk_requires_a4")
+    return risk
+
+
 def current_a3_profile(policy, binding, feature_hash, risk, cutoff, code_sha):
     """An opt-in, externally pinned policy authenticates the complete review.
 
     Omit only the profile from its policy identity to avoid a self-hash cycle.
     This does not certify historical PIT, Source admission or account authority.
     """
+    selected = a5_context_profile(policy)
+    if selected == A5_STOCK_BASELINE:
+        baseline_risk(risk, policy, cutoff)
     profile=policy.get("current_a3_review_profile")
     fields={"schema","purpose","context_sha256","graph_sha256","binding_sha256","policy_base_sha256",
             "feature_sha256","risk_sha256","code_sha","available_at","expires_at","principals"}

@@ -227,7 +227,9 @@ def _model_origin(selection, read, cutoff):
     from tools import run_agent_board as board
     packet=read(selection["a5_packet"]);receipt=read(selection["a5_receipt"])
     board.schema_validate(packet,"task_packet_schema.json")
-    spec=board.contracts()["agents"]["A5"]
+    context=read(packet["inputs"]["portfolio_context"])
+    board.schema_validate(context,"system_state_schema.json","a5_portfolio_context")
+    spec=board.a5_context_spec(board.contracts()["agents"]["A5"],context)
     require(packet["agent"]==receipt["agent"]=="A5" and receipt["status"]=="SUCCEEDED"
             and packet["task_key"]==receipt["task_key"]
             and packet["task_key"]==board.digest({"agent":"A5",**packet["identity"]})
@@ -250,8 +252,6 @@ def _model_origin(selection, read, cutoff):
                             packet["dependency_outputs"],ready,cutoff)
     require(stamp(receipt["available_at"])<=stamp(selection["a5_receipt"]["observed_at"]),
             "model_original_receipt_clock")
-    context=read(packet["inputs"]["portfolio_context"])
-    board.schema_validate(context,"system_state_schema.json","a5_portfolio_context")
     return packet,receipt,context
 
 

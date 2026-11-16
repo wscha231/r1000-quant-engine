@@ -55,6 +55,20 @@ def account_only_blockers(state: dict) -> set[str]:
     return result
 
 
+def a5_context_spec(spec: dict, context: dict) -> dict:
+    """Select only the explicit MODEL baseline's declared dependency contract."""
+    from research.multi_asset_v1.contracts import A5_STRICT_A4, A5_STOCK_BASELINE
+    selected = context.get('a5_context_profile', A5_STRICT_A4)
+    if selected == A5_STRICT_A4:
+        return spec
+    expected = dict(inputs=['expected_return', 'risk_limits', 'qa_report', 'portfolio_context'],
+                    dependencies=['A3', 'A6'])
+    if (selected != A5_STOCK_BASELINE
+            or spec.get('context_profiles', {}).get(selected) != expected):
+        raise ContractError('a5_baseline_contract_required')
+    return dict(spec, **expected)
+
+
 def verify_current_model_incumbents(context: dict, root: Path, cutoff: datetime,
                                     now: datetime, *, policy: dict, code_sha: str) -> dict:
     return _verify_model_allocation_receipt(context, root, cutoff, now,
@@ -239,6 +253,10 @@ def _verify_model_allocation_receipt(context: dict, root: Path, cutoff: datetime
         if list(Draft202012Validator(receipt_schema, format_checker=FormatChecker()).iter_errors(receipt)):
             raise ContractError('a5_model_completion_schema')
         spec = contracts()['agents'][agent]
+        if agent == 'A5':
+            original_context = load(packet['inputs']['portfolio_context'])
+            schema_validate(original_context, 'system_state_schema.json', 'a5_portfolio_context')
+            spec = a5_context_spec(spec, original_context)
         if (packet['agent'] != agent or receipt['agent'] != agent
                 or packet['task_key'] != receipt['task_key']
                 or packet['task_key'] != digest({'agent': agent, **packet['identity']})
@@ -256,8 +274,6 @@ def _verify_model_allocation_receipt(context: dict, root: Path, cutoff: datetime
         if agent == 'A5':
             if portfolio_mode({'parameters': packet['identity']['parameters']}) != 'MODEL_PORTFOLIO':
                 raise ContractError('a5_model_original_account_proposal')
-            original_context = load(packet['inputs']['portfolio_context'])
-            schema_validate(original_context, 'system_state_schema.json', 'a5_portfolio_context')
             if (original_context['decision_time'] != state['decision_time']
                     or original_context['market_session_date'] != state['as_of']
                     or not set(positions) <= set(original_context['requested_security_ids'])):
@@ -351,6 +367,8 @@ def a5_model_preparation(request: dict, root: Path, cutoff: datetime, now: datet
     from research.candidate_registry_v1 import build_reference_index
     context = read_json(artifact_path(root, request['inputs']['portfolio_context']['path']))
     schema_validate(context, 'system_state_schema.json', 'a5_portfolio_context')
+    from research.multi_asset_v1.contracts import a5_context_profile, baseline_risk, A5_STOCK_BASELINE
+    baseline = a5_context_profile(model_policy, context) == A5_STOCK_BASELINE
     if context['portfolio_mode'] != 'MODEL_PORTFOLIO' or timestamp(context['decision_time']) != cutoff:
         raise ContractError('a5_context_mode_or_cutoff_mismatch')
     requested = context['requested_security_ids']
@@ -365,24 +383,40 @@ def a5_model_preparation(request: dict, root: Path, cutoff: datetime, now: datet
     elif context['model_state']['kind'] == 'PARENT_LINEAGE_ONLY':
         parent_lineage = verify_model_parent_lineage(context, root, cutoff, now,
                                                     policy=model_policy, code_sha=code_sha)
-    from tools import market_analysis_engine as market
-    a4 = context['a4_request']
-    request_path = artifact_path(root, a4['path'])
-    if request_path.stat().st_size > 256 * 1024:
-        raise ContractError('a5_a4_request_budget')
-    verify_artifact(root, a4, cutoff, now)
-    with request_path.open('rb') as handle:
-        request_raw = handle.read(256 * 1024 + 1)
-    a4_request = market.verify_request(request_raw, a4['sha256'], context['decision_time'],
-                                       context['market_session_date'])
     artifacts = context['artifact_inventory']
     a4_sources = {}
-    for spec in a4_request['inputs']:
-        path = (Path(context['a4_source_root']) / market.safe_path(spec['path'])).as_posix()
-        matches = [a for a in artifacts.values() if a['path'] == path and a['sha256'] == spec['sha256']]
-        if len(matches) != 1:
-            raise ContractError('a5_a4_original_not_in_review_inventory')
-        a4_sources[(path, spec['sha256'])] = spec
+    if baseline:
+        risk_ref = context['baseline_risk']
+        if (request['inputs'].get('risk_limits') != risk_ref
+                or not any(value == risk_ref for value in artifacts.values())):
+            raise ContractError('a5_baseline_original_risk_binding')
+        risk_path = artifact_path(root, risk_ref['path'])
+        if risk_path.stat().st_size > 2 * 1024 * 1024:
+            raise ContractError('a5_baseline_risk_budget')
+        verify_artifact(root, risk_ref, cutoff, now)
+        with risk_path.open('rb') as handle:
+            risk_raw = handle.read(2 * 1024 * 1024 + 1)
+        if len(risk_raw) > 2 * 1024 * 1024 or digest_bytes(risk_raw) != risk_ref['sha256']:
+            raise ContractError('a5_baseline_risk_changed')
+        fixed_risk = json.loads(risk_raw, object_pairs_hook=_review_pairs, parse_constant=_review_invalid)
+        baseline_risk(fixed_risk, model_policy, context['decision_time'])
+    else:
+        from tools import market_analysis_engine as market
+        a4 = context['a4_request']
+        request_path = artifact_path(root, a4['path'])
+        if request_path.stat().st_size > 256 * 1024:
+            raise ContractError('a5_a4_request_budget')
+        verify_artifact(root, a4, cutoff, now)
+        with request_path.open('rb') as handle:
+            request_raw = handle.read(256 * 1024 + 1)
+        a4_request = market.verify_request(request_raw, a4['sha256'], context['decision_time'],
+                                           context['market_session_date'])
+        for spec in a4_request['inputs']:
+            path = (Path(context['a4_source_root']) / market.safe_path(spec['path'])).as_posix()
+            matches = [a for a in artifacts.values() if a['path'] == path and a['sha256'] == spec['sha256']]
+            if len(matches) != 1:
+                raise ContractError('a5_a4_original_not_in_review_inventory')
+            a4_sources[(path, spec['sha256'])] = spec
     values, a3_total, a4_total = {}, 0, 0
     for aid, artifact in artifacts.items():
         path = artifact_path(root, artifact['path'])
@@ -393,7 +427,8 @@ def a5_model_preparation(request: dict, root: Path, cutoff: datetime, now: datet
             a3_total += size
         else:
             a4_total += size
-        if size > limit or a3_total > 32 * 1024 * 1024 or a4_total > market.MAX_TOTAL_BYTES:
+        if (size > limit or a3_total > 32 * 1024 * 1024
+                or (not baseline and a4_total > market.MAX_TOTAL_BYTES)):
             raise ContractError('a5_candidate_artifact_budget')
         verify_artifact(root, artifact, cutoff, now)
         with path.open('rb') as handle:
@@ -420,14 +455,17 @@ def a5_model_preparation(request: dict, root: Path, cutoff: datetime, now: datet
     original = read_json(artifact_path(root, request['inputs']['expected_return']['path']))
     if digest(original) != digest(index):
         raise ContractError('a5_expected_return_reference_set_mismatch')
-    risk = market.load_report(artifact_path(root, a4['path']), artifact_path(root, context['a4_source_root']),
-                       a4['sha256'], cutoff=context['decision_time'], session=context['market_session_date'])
-    if risk.get('status') != 'READY_RESEARCH_ONLY':
-        raise ContractError('a5_a4_native_inputs_not_ready')
-    if digest(read_json(artifact_path(root, request['inputs']['regime']['path']))) != digest(risk):
-        raise ContractError('a5_a4_original_report_mismatch')
     reviewed = {'a3:' + aid: artifact for aid, artifact in artifacts.items()}
-    reviewed['a4:request'] = a4
+    if baseline:
+        reviewed['risk:baseline'] = risk_ref
+    else:
+        risk = market.load_report(artifact_path(root, a4['path']), artifact_path(root, context['a4_source_root']),
+                           a4['sha256'], cutoff=context['decision_time'], session=context['market_session_date'])
+        if risk.get('status') != 'READY_RESEARCH_ONLY':
+            raise ContractError('a5_a4_native_inputs_not_ready')
+        if digest(read_json(artifact_path(root, request['inputs']['regime']['path']))) != digest(risk):
+            raise ContractError('a5_a4_original_report_mismatch')
+        reviewed['a4:request'] = a4
     info = dict(portfolio_mode='MODEL_PORTFOLIO', preparation_scope='A0_TASK_PREPARATION_ONLY',
         model_state_kind=context['model_state']['kind'],
         requested_security_ids=requested, reference_index_sha256=index['index_sha256'],
@@ -435,6 +473,8 @@ def a5_model_preparation(request: dict, root: Path, cutoff: datetime, now: datet
             for reason in row['consumption_blockers']}), current_a3_review_admitted=False,
         dispatch_allowed=False, target_write_allowed=False, account_rebalance_allowed=False,
         actual_holdings_claimed=False)
+    if baseline:
+        info.update(a5_context_profile=A5_STOCK_BASELINE, a4_connected=False)
     if incumbents is not None:
         info['model_incumbents'] = incumbents
     if parent_lineage is not None:
@@ -478,6 +518,8 @@ def current_a3_reference_admission(binding: dict, policy: dict, root: Path,
                                     parse_constant=_review_invalid)
     context, graph = snapshots['portfolio_context'], snapshots['review_graph']
     schema_validate(context, 'system_state_schema.json', 'a5_portfolio_context')
+    from research.multi_asset_v1.contracts import a5_context_profile, A5_STOCK_BASELINE
+    baseline = a5_context_profile(policy, context) == A5_STOCK_BASELINE
     if (type(graph) is not dict or set(graph) != {'schema_version', 'state', 'task_packets', 'principals'}
             or graph['schema_version'] != 'current-a3-review-graph-v1'
             or graph['principals'] != profile['principals']):
@@ -492,14 +534,16 @@ def current_a3_reference_admission(binding: dict, policy: dict, root: Path,
             or timestamp(context['decision_time']) != cutoff):
         raise ContractError('a3_review_selection_or_clock')
     requests = {r['agent']: r for r in state['requests']}
-    if set(requests) != {'A1', 'A2', 'A3', 'A4', 'A5', 'A6'}:
+    required_agents = {'A1', 'A2', 'A3', 'A5', 'A6'} | (set() if baseline else {'A4'})
+    if set(requests) != required_agents:
         raise ContractError('a3_review_complete_graph_required')
     request = requests['A5']
     if (portfolio_mode(request) != 'MODEL_PORTFOLIO'
             or request['inputs']['portfolio_context'] != binding['portfolio_context']):
         raise ContractError('a3_review_selected_context_mismatch')
     # Bound every original before the legacy planner's hash/read operations.
-    originals = list(context['artifact_inventory'].values()) + [context['a4_request']]
+    context_risk = context['baseline_risk'] if baseline else context['a4_request']
+    originals = list(context['artifact_inventory'].values()) + [context_risk]
     originals += [a for r in state['requests'] for a in r['inputs'].values()]
     originals += [a for r in state['completed_tasks'] for a in r['outputs'].values()]
     # The planner hashes every QA operand, including optional extra evidence.
@@ -537,6 +581,19 @@ def current_a3_reference_admission(binding: dict, policy: dict, root: Path,
             raise ContractError('a3_review_original_budget')
     for artifact in unique_originals.values():
         verify_artifact(root, artifact, cutoff, cutoff)
+    if baseline:
+        risk_path = artifact_path(root, context_risk['path'])
+        if risk_path.stat().st_size > 2 * 1024 * 1024:
+            raise ContractError('a3_review_baseline_risk_budget')
+        with risk_path.open('rb') as stream:
+            original_risk_raw = stream.read(2 * 1024 * 1024 + 1)
+        if (len(original_risk_raw) > 2 * 1024 * 1024
+                or digest_bytes(original_risk_raw) != context_risk['sha256']):
+            raise ContractError('a3_review_baseline_risk_changed')
+        original_risk = json.loads(original_risk_raw, object_pairs_hook=_review_pairs, parse_constant=_review_invalid)
+        from research.multi_asset_v1.contracts import digest as risk_digest
+        if risk_digest(original_risk) != risk_digest(risk):
+            raise ContractError('a3_review_baseline_original_risk_mismatch')
     index = read_json(artifact_path(root, request['inputs']['expected_return']['path']))
     refs = [entry[role] for entry in entries for role in ('a3_packet_ref', 'a3_result_ref')]
     refs += [ref for row in index['records'] for ref in row['upstream_artifact_refs'].values() if ref is not None]
@@ -554,7 +611,8 @@ def current_a3_reference_admission(binding: dict, policy: dict, root: Path,
     if digest(packets) != digest(graph['task_packets']):
         raise ContractError('a3_review_original_task_packets_mismatch')
     by_agent = {p['agent']: p for p in packets}
-    if (any(by_agent[a]['status'] != 'SKIP_UNCHANGED' for a in ('A1', 'A2', 'A3', 'A4', 'A6'))
+    completed_agents = ('A1', 'A2', 'A3', 'A6') if baseline else ('A1', 'A2', 'A3', 'A4', 'A6')
+    if (any(by_agent[a]['status'] != 'SKIP_UNCHANGED' for a in completed_agents)
             or by_agent['A5']['status'] != 'READY'):
         raise ContractError('a3_review_original_completion_blocked')
     qa = next(r for r in state['completed_tasks'] if r['agent'] == 'A6')
@@ -563,8 +621,8 @@ def current_a3_reference_admission(binding: dict, policy: dict, root: Path,
     scope = {digest(a) for a in report['reviewed_artifacts'].values()}
     # _plan_tasks already replayed a5_model_preparation and its QA scope.
     # Reuse that original scope here; do not run the expensive A4 replay twice.
-    required = list(context['artifact_inventory'].values()) + [context['a4_request']]
-    for agent in ('A1', 'A2', 'A3', 'A4'):
+    required = list(context['artifact_inventory'].values()) + [context_risk]
+    for agent in (('A1', 'A2', 'A3') if baseline else ('A1', 'A2', 'A3', 'A4')):
         required.extend(requests[agent]['inputs'].values())
         required.extend(next(r for r in state['completed_tasks'] if r['agent'] == agent)['outputs'].values())
     if not all(digest(a) in scope for a in required):
@@ -589,6 +647,8 @@ def current_a3_reference_admission(binding: dict, policy: dict, root: Path,
         context_sha256=binding['portfolio_context']['sha256'],
         historical_pit_certified=False, source_admission_granted=False,
         portfolio_write_allowed=False)
+    if baseline:
+        result.update(a5_context_profile=A5_STOCK_BASELINE, a4_connected=False)
     incumbents = by_agent['A5']['identity']['parameters']['a5_preparation'].get('model_incumbents')
     if incumbents is not None:
         result['model_incumbents'] = incumbents
@@ -1077,12 +1137,18 @@ def _plan_tasks(state: dict, root: Path, contract: dict, now: datetime,
     model_research = 'A5' in requests and portfolio_mode(requests['A5']) == 'MODEL_PORTFOLIO'
     model_genesis = False
     model_incumbents = None
+    model_context = None
+    model_baseline = False
     if model_research:
         try:
             artifact = requests['A5']['inputs']['portfolio_context']
             verify_artifact(root, artifact, cutoff, now)
             context = read_json(artifact_path(root, artifact['path']))
             schema_validate(context, 'system_state_schema.json', 'a5_portfolio_context')
+            model_context = context
+            from research.multi_asset_v1.contracts import a5_context_profile, A5_STOCK_BASELINE
+            model_baseline = (a5_context_profile(model_policy, context) == A5_STOCK_BASELINE
+                              and 'A4' not in requests)
             model_genesis = (context['model_state']['kind'] == 'GENESIS'
                              and timestamp(context['decision_time']) == cutoff)
             if context['model_state']['kind'] == 'INCUMBENTS':
@@ -1106,6 +1172,8 @@ def _plan_tasks(state: dict, root: Path, contract: dict, now: datetime,
         visiting.add(agent)
         spec, request = contract['agents'][agent], requests[agent]
         a5_mode = portfolio_mode(request) if agent == 'A5' else None
+        if agent == 'A5' and a5_mode == 'MODEL_PORTFOLIO' and model_context is not None:
+            spec = a5_context_spec(spec, model_context)
         reasons = []
         if set(request['inputs']) != set(spec['inputs']):
             raise ContractError('input_roles_mismatch:' + agent)
@@ -1134,6 +1202,10 @@ def _plan_tasks(state: dict, root: Path, contract: dict, now: datetime,
         context_reasons = state['context']['blockers']
         if model_research and agent in ('A2', 'A3', 'A4', 'A5'):
             context_reasons = [r for r in context_reasons if r not in account_only_blockers(state)]
+            regime = state.get('source_status', {}).get('regime', {})
+            if (model_baseline and regime.get('status') == 'UNKNOWN'
+                    and regime.get('reason') == 'source_missing'):
+                context_reasons = [r for r in context_reasons if r != 'regime:source_missing']
             prior = state.get('source_status', {}).get('model_portfolio', {})
             if model_genesis and prior.get('status') == 'UNKNOWN' and prior.get('reason') == 'source_missing':
                 context_reasons = [r for r in context_reasons if r != 'model_portfolio:source_missing']
