@@ -139,7 +139,21 @@
         "MODEL_PORTFOLIO"
       ],
       "default_portfolio_mode": "ACCOUNT_REBALANCE",
-      "preparation_boundary": "MODE_SEPARATION_ONLY_NOT_CURRENT_A3_OR_ECONOMIC_ADMISSION"
+      "preparation_boundary": "MODE_SEPARATION_ONLY_NOT_CURRENT_A3_OR_ECONOMIC_ADMISSION",
+      "context_profiles": {
+        "STOCK_CASH_BASELINE_V1": {
+          "inputs": [
+            "expected_return",
+            "risk_limits",
+            "qa_report",
+            "portfolio_context"
+          ],
+          "dependencies": [
+            "A3",
+            "A6"
+          ]
+        }
+      }
     },
     "A6": {
       "name": "Independent QA",

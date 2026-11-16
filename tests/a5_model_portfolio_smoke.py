@@ -58,6 +58,183 @@ class ModelTests(unittest.TestCase):
         er["portfolio_cost_basis"].update(schema="reviewed-portfolio-cost-basis-v2",
             horizon="63_NYSE_SESSIONS",ongoing_cost_period="HORIZON_TOTAL_BPS",gross_expected_return=.065)
 
+
+    def baseline_originals(self):
+        """Actual A1/A2/A3/A6/Native path, disposable synthetic originals only."""
+        from tests.multi_asset_leadership_smoke import A3OriginalInputs, CODE_SHA
+        from tests.control_plane_agent_contract_smoke import ControlPlaneTests
+        from research.er_horizon_v1 import session63_exposure
+        from research.multi_asset_v1.prices import grid
+        from research.multi_asset_v1.runtime import feature_identity
+        owner=A3OriginalInputs('runTest');owner.setUp();self.addCleanup(owner.doCleanups)
+        owner.r['assets']=[r for r in owner.r['assets'] if r['asset_id'] in {'US:SPY','US:FTI'}]
+        owner.p['prices']=[r for r in owner.p['prices'] if r['asset_id'] in {'US:SPY','US:FTI'}]
+        import math
+        security=[r for r in owner.p['prices'] if r['asset_id']=='US:FTI']
+        benchmark=[r for r in owner.p['prices'] if r['asset_id']=='US:SPY']
+        for i,(row,bench) in enumerate(zip(security,benchmark)):
+            factor=math.exp(.000005*i*i)
+            row['price']=bench['price']*factor
+            row['total_return_index']=bench['total_return_index']*factor
+        owner.market['price']=security[-1]['price']
+        for h in (20,60,120,240):
+            ret=security[-1]['total_return_index']/security[-1-h]['total_return_index']-1
+            bench=benchmark[-1]['total_return_index']/benchmark[-1-h]['total_return_index']-1
+            owner.market['return_'+str(h)+'d']=ret
+            owner.market['benchmark_return_'+str(h)+'d']=bench
+            owner.market['rs_'+str(h)+'d']=math.log1p(ret)-math.log1p(bench)
+        old_stock=A3OriginalInputs.stock_review_inputs
+        old_graph=ControlPlaneTests.current_review_case
+        def stock63(candidate):
+            old_stock(candidate)
+            candidate.policy['stock_cash_research'].update(schema='stock-cash-research-v2',horizon='63_NYSE_SESSIONS')
+            candidate.policy['validated_models']['TEST_MODEL']['horizon']='63_NYSE_SESSIONS'
+            self.as63(candidate.original,session63_exposure(list(grid(candidate.p['as_of']))[-1]))
+            candidate.policy['reviewed_pins']['evaluation'].append(digest(candidate.original))
+            rr=candidate.p['risk']
+            for key in ('regime','a4_report_content_sha256','a4_request_sha256'):rr.pop(key,None)
+            rr['a5_context_profile']='STOCK_CASH_BASELINE_V1'
+            rr['stock_cash_allocation'].update(horizon='63_NYSE_SESSIONS',
+                minimum_expected_alpha_horizon='63_NYSE_SESSIONS',
+                evaluation_sha256_by_asset={candidate.original['asset_id']:digest(candidate.original)})
+            candidate.policy['a5_context_profile']='STOCK_CASH_BASELINE_V1'
+            candidate.policy['reviewed_pins']['risk'].append(digest(rr))
+        def graph(case,candidate,*args,**kwargs):
+            case._baseline_risk=candidate.p['risk']
+            case._model_policy=candidate.policy
+            return old_graph(case,candidate,*args,**kwargs)
+        with patch.object(A3OriginalInputs,'stock_review_inputs',stock63), \
+             patch.object(ControlPlaneTests,'current_review_case',graph), \
+             patch('tools.market_analysis_engine.load_report',side_effect=AssertionError('A4 must not execute')):
+            case,graph=owner.current_review(stock=True)
+        self.assertEqual(owner.original['feature_sha256'],feature_identity(owner.p,owner.r))
+        owner.p['evaluations']=[]
+        return owner,case,graph,CODE_SHA
+
+    def baseline_call(self,owner,case,code):
+        # Only dirty-checkout Git attestation is isolated for synthetic fixtures;
+        # original A1/A2/A3/A6, risk, costs, Native allocation all run unchanged.
+        with patch('tools.run_multi_asset_leadership.verified_source_hashes',return_value={'synthetic':'a'*64}):
+            return a5.build_model_proposal(owner.p,owner.r,owner.policy,None,
+                artifact_resolver=owner.memory(),review_root=case.root,code_sha=code)
+
+    def test_baseline_full_original_graph_native_A5_and_replay_without_A4(self):
+        from tools import run_agent_board as board
+        owner,case,graph,code=self.baseline_originals()
+        before=copy.deepcopy(case.state)
+        with patch('tools.market_analysis_engine.load_report',side_effect=AssertionError('A4 must not execute')):
+            result=self.baseline_call(owner,case,code)
+            self.assertEqual(result['status'],'RESEARCH_PROPOSAL',result)
+            self.assertEqual(result,self.baseline_call(owner,case,code))
+        self.assertTrue(result['proposed_weights'])
+        self.assertAlmostEqual(sum(result['proposed_weights'].values())+result['cash'],1)
+        self.assertFalse(result['a4_connected'])
+        self.assertIsNone(result['a4_report_content_sha256'])
+        self.assertIsNone(result['a4_request_sha256'])
+        self.assertIsNone(result['macro_reason_evidence'])
+        self.assertEqual(result['market_regime_assessment'],'NOT_SELECTED')
+        self.assertFalse(result['orders_generated']);self.assertFalse(result['accepted_target_written'])
+        self.assertTrue(all(r['cost_assumptions'] is not None for r in result['changes'] if r['weight']>0))
+        self.assertEqual({r['agent'] for r in graph['state']['requests']},{'A1','A2','A3','A5','A6'})
+        packet=next(p for p in case.tasks() if p['agent']=='A5')
+        self.assertEqual(packet['status'],'READY',packet)
+        self.assertNotIn('regime',packet['inputs'])
+        self.assertIn('regime:source_missing',case.state['context']['blockers'])
+        self.assertEqual(case.state,before)
+        export=a5.prepare_model_replay_targets([result],owner.r,
+            expected_proposal_hashes=[digest(result)],expected_registry_sha256=digest(owner.r))
+        self.assertEqual(export['a5_context_profile'],'STOCK_CASH_BASELINE_V1')
+        self.assertFalse(export['a4_connected'])
+        self.assertNotIn('a4_report_content_sha256',export['decisions'][0])
+        self.assertIn('reviewed_risk_sha256',export['decisions'][0])
+        with self.assertRaises(ValueError):
+            a5.prepare_model_replay_targets([{**result,'a4_request_sha256':'a'*64}],owner.r,
+                expected_proposal_hashes=[digest({**result,'a4_request_sha256':'a'*64})],expected_registry_sha256=digest(owner.r))
+        text=a5.render(result)
+        self.assertIn('A4 disconnected',text)
+        self.assertIsNone(board.read_json(case.root/owner.p['current_a3_review']['portfolio_context']['path']).get('a4_request'))
+
+    def test_baseline_keeps_missing_source_g0_and_qa_failures(self):
+        owner,case,graph,code=self.baseline_originals()
+        for reason in ('regime:hash_mismatch','execution:source_missing','HISTORICAL_R1000_PIT_UNCERTIFIED'):
+            saved=copy.deepcopy(case.state)
+            case.state['context']['blockers'].append(reason)
+            packet=next(p for p in case.tasks() if p['agent']=='A5')
+            self.assertNotEqual(packet['status'],'READY',(reason,packet))
+            case.state=saved
+        case.state['g0']['status']='BLOCKED'
+        self.assertNotEqual(next(p for p in case.tasks() if p['agent']=='A5')['status'],'READY')
+        case.state['g0']['status']='PASS'
+        graph_ref=owner.p['current_a3_review']['review_graph']
+        (case.root/graph_ref['path']).write_bytes(b'changed original graph')
+        result=self.baseline_call(owner,case,code)
+        self.assertEqual(result['status'],'BLOCKED')
+        self.assertIsNone(result['proposed_weights']);self.assertIsNone(result['cash'])
+
+    def test_baseline_native_rejects_different_risk_even_when_both_are_reviewed_pins(self):
+        from tools import run_agent_board as board
+        owner,case,_,code=self.baseline_originals()
+        changed=copy.deepcopy(owner.p['risk']);changed['max_gross']=.25
+        owner.policy['reviewed_pins']['risk'].append(digest(changed))
+        profile=owner.policy['current_a3_review_profile']
+        profile['risk_sha256']=digest(changed)
+        profile['policy_base_sha256']=digest({k:v for k,v in owner.policy.items() if k!='current_a3_review_profile'})
+        with self.assertRaisesRegex(board.ContractError,'a3_review_baseline_original_risk_mismatch'):
+            board.current_a3_reference_admission(owner.p['current_a3_review'],owner.policy,case.root,
+                board.timestamp(owner.p['as_of']),code,owner.p['requested_security_ids'],
+                owner.p['a3_reference_entries'],profile['feature_sha256'],changed)
+
+    def test_baseline_model_origin_and_next_incumbent_acceptance_use_original_profile(self):
+        from tools import run_agent_board as board
+        from tools import run_multi_asset_leadership as publisher
+        from tests.control_plane_agent_contract_smoke import ControlPlaneTests
+        owner,_,_,code=self.baseline_originals()
+        origin=ControlPlaneTests('runTest');origin.setUp();self.addCleanup(origin.doCleanups)
+        origin._baseline_risk=owner.p['risk'];origin._model_policy=owner.policy
+        context,policy,acceptance,aid=origin.model_incumbents_case(owner)
+        at=board.timestamp(context['decision_time'])
+        read,_=publisher._model_originals(origin.root,at,at)
+        packet,receipt,original_context=publisher._model_origin(acceptance['proofs'],read,at)
+        self.assertEqual(packet['dependencies'],['A3','A6'])
+        self.assertNotIn('regime',packet['inputs'])
+        self.assertEqual(original_context['a5_context_profile'],'STOCK_CASH_BASELINE_V1')
+        result=board.verify_current_model_incumbents(context,origin.root,at,at,
+            policy=policy,code_sha=code)
+        self.assertEqual(result['current_weights'],{aid:.15})
+        self.assertFalse(result['actual_holdings_claimed'])
+
+    def test_model_cli_from_external_cwd_blocks_missing_originals_without_side_effects(self):
+        import json,subprocess
+        with tempfile.TemporaryDirectory() as folder:
+            script=Path(a5.__file__).resolve()
+            result=subprocess.run([sys.executable,*(['-O'] if sys.flags.optimize else []),str(script),
+                '--artifact-root',folder,'--request',str(Path(folder)/'missing.json'),
+                '--expected-policy-sha256','a'*64,'--code-sha','b'*40],cwd=folder,
+                capture_output=True,text=True,timeout=20)
+            self.assertEqual(result.returncode,2,result.stderr)
+            value=json.loads(result.stdout)
+            self.assertEqual(value['status'],'BLOCKED')
+            self.assertIsNone(value['proposed_weights']);self.assertIsNone(value['cash'])
+            self.assertFalse(value['orders_generated'])
+            self.assertEqual(list(Path(folder).iterdir()),[])
+
+    def test_baseline_requires_explicit_63_policy_pinned_risk_and_no_special_risk(self):
+        from research.multi_asset_v1.contracts import a5_context_profile,baseline_risk
+        self.assertEqual(a5_context_profile({}),'STRICT_A4_V1')
+        with self.assertRaises(ValueError):a5_context_profile({'a5_context_profile':'STOCK_CASH_BASELINE_V1'})
+        p,r,policy,_=self.stock63_inputs()
+        policy['a5_context_profile']='STOCK_CASH_BASELINE_V1'
+        rr=p['risk'];rr.pop('regime');rr['a5_context_profile']='STOCK_CASH_BASELINE_V1'
+        policy['reviewed_pins']['risk'].append(digest(rr))
+        self.assertIs(baseline_risk(rr,policy,p['as_of']),rr)
+        for updates in ({'regime':None},{'a4_request_sha256':'a'*64},
+                        {'stock_cash_allocation':{**rr['stock_cash_allocation'],
+                            'exception_reviews':[{'basis':'SPECIAL_RISK'}]}}):
+            bad={**rr,**updates};policy['reviewed_pins']['risk'].append(digest(bad))
+            with self.assertRaises(ValueError):baseline_risk(bad,policy,p['as_of'])
+        with self.assertRaises(ValueError):a5.validate_report(report(),p,policy)
+        with self.assertRaises(ValueError):a5.validate_report(None,p,self.policy)
+
     def test_stock63_clock_matches_existing_learner_and_cash_exposure(self):
         import pandas as pd
         from tools.run_run287_expected_return_challenger import expected_nyse_label_ends

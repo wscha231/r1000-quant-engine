@@ -7,9 +7,16 @@ from __future__ import annotations
 
 import math
 import re
+import sys
+from pathlib import Path
+
+ROOT=Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0,str(ROOT))
 
 from research.multi_asset_v1 import runtime
-from research.multi_asset_v1.contracts import digest, require, number, stamp, registry_rows
+from research.multi_asset_v1.contracts import (digest, require, number, stamp, registry_rows,
+    a5_context_profile, baseline_risk, A5_STRICT_A4, A5_STOCK_BASELINE)
 from tools import chameleon_market_context_v2 as context
 
 SCHEMA="a5-model-portfolio-proposal-v1"
@@ -22,14 +29,24 @@ def seal(value):
     return value
 
 
-def blocked(cutoff, reasons):
-    return seal(dict(schema=SCHEMA,status="BLOCKED",as_of=cutoff,proposed_weights=None,cash=None,
-        changes=[],reasons=reasons,owner_routes=[dict(owner="A1",need="CURRENT_PRICE_IDENTITY_AND_ORIGINALS"),
-            dict(owner="A3",need="CURRENT_REVIEWED_ORIGINAL_NET_ER"),dict(owner="A4",need="CURRENT_V2_RISK_AND_LIQUIDITY_CONTEXT"),
-            dict(owner="A6",need="INDEPENDENT_CURRENT_REVIEW_AND_RISK_BINDING")],**SAFETY))
+def blocked(cutoff, reasons, *, profile=A5_STRICT_A4):
+    routes=[dict(owner="A1",need="CURRENT_PRICE_IDENTITY_AND_ORIGINALS"),
+            dict(owner="A3",need="CURRENT_REVIEWED_ORIGINAL_NET_ER")]
+    if profile != A5_STOCK_BASELINE:
+        routes.append(dict(owner="A4",need="CURRENT_V2_RISK_AND_LIQUIDITY_CONTEXT"))
+    routes.append(dict(owner="A6",need="INDEPENDENT_CURRENT_REVIEW_AND_RISK_BINDING"))
+    value=dict(schema=SCHEMA,status="BLOCKED",as_of=cutoff,proposed_weights=None,cash=None,
+        changes=[],reasons=reasons,owner_routes=routes,**SAFETY)
+    if profile == A5_STOCK_BASELINE:
+        value.update(a5_context_profile=profile,a4_connected=False)
+    return seal(value)
 
 
 def validate_report(report, payload, policy):
+    if a5_context_profile(policy) == A5_STOCK_BASELINE:
+        require(report is None,"A5_BASELINE_A4_NOT_SELECTED")
+        baseline_risk(payload.get("risk"),policy,payload["as_of"])
+        return
     require(type(report) is dict and report.get("schema")=="market-analysis-report-v2","A5_A4_V2_REQUIRED")
     require(report.get("content_sha256")==context.digest({k:v for k,v in report.items() if k!="content_sha256"}),"A5_A4_REPORT_HASH")
     require(report.get("status")=="READY_RESEARCH_ONLY" and
@@ -49,6 +66,10 @@ def validate_report(report, payload, policy):
 def _explain_result(result, risk, report, *, previous=None, policy=None):
     """Pure presentation of an already computed native result; no new sizing."""
     stock=(policy or {}).get("stock_cash_research",{}).get("enabled") is True
+    baseline=a5_context_profile(policy)==A5_STOCK_BASELINE
+    if baseline:
+        require(report is None,"A5_BASELINE_A4_NOT_SELECTED")
+        baseline_risk(risk,policy,result["computed_at"])
     from tools.run_multi_asset_leadership import fully_admitted
     require(result["proposal"]["status"]=="RESEARCH_PROPOSAL" and
             (fully_admitted(result) if stock else result.get("global_ranking_ready") is True),
@@ -123,8 +144,9 @@ def _explain_result(result, risk, report, *, previous=None, policy=None):
         cash_change=cash-old_cash if stock or previous is not None else None,
         cash_reasons=["ONE_MINUS_NATIVE_SECURITY_WEIGHTS","REVIEWED_GROSS_AND_SECURITY_LIMITS","UNALLOCATED_NATIVE_COMPETITION_BUDGET"],
         reviewed_max_gross=risk["max_gross"],reviewed_max_security_weight=risk["max_security_weight"],
-        a4_report_content_sha256=report["content_sha256"],a4_request_sha256=report["request_sha256"],
-        macro_reason_evidence=dict(funding=report["funding"],liquidity=report["liquidity"],
+        a4_report_content_sha256=None if baseline else report["content_sha256"],
+        a4_request_sha256=None if baseline else report["request_sha256"],
+        macro_reason_evidence=None if baseline else dict(funding=report["funding"],liquidity=report["liquidity"],
             bank_credit=report["bank_credit"],horizon_outlook=report["horizon_outlook"]),
         native_result_sha256=result["result_sha256"],feature_sha256=result["feature_sha256"],
         policy_sha256=result["policy_sha256"],a3_reference_coverage=result.get("a3_reference_coverage"),**SAFETY)
@@ -144,6 +166,10 @@ def _explain_result(result, risk, report, *, previous=None, policy=None):
         explained["optimizer_certificate"]=proposal.get("optimizer_certificate")
         if policy["stock_cash_research"]["horizon"]=="63_NYSE_SESSIONS":
             explained["allocation_horizon"]="63_NYSE_SESSIONS"
+    if baseline:
+        explained.update(a5_context_profile=A5_STOCK_BASELINE,a4_connected=False,
+            market_regime_assessment="NOT_SELECTED",baseline_context_sha256=review["context_sha256"],
+            reviewed_risk_sha256=digest(risk))
     return seal(explained)
 
 
@@ -168,7 +194,7 @@ def prepare_model_replay_targets(proposals, registry, *, expected_proposal_hashe
     require(type(expected_registry_sha256) is str and _HASH.fullmatch(expected_registry_sha256)
             and digest(registry)==expected_registry_sha256,"A5_REPLAY_REGISTRY_PIN")
     _,assets=registry_rows(registry)
-    targets={arm:[] for arm in REPLAY_ARMS};decisions=[];seen=set();last=None;requirements=None
+    targets={arm:[] for arm in REPLAY_ARMS};decisions=[];seen=set();last=None;requirements=None;context_profile=None
     calendar=mcal.get_calendar("NYSE")
     for proposal,pin in zip(proposals,expected_proposal_hashes):
         require(type(pin) is str and _HASH.fullmatch(pin) and digest(proposal)==pin,
@@ -190,8 +216,20 @@ def prepare_model_replay_targets(proposals, registry, *, expected_proposal_hashe
         require(clock.get("fill_mode")=="NEXT_NYSE_CLOSE" and
                 stamp(clock["earliest_fill_at"])==schedule["market_close"].iloc[1].to_pydatetime(),
                 "A5_REPLAY_NEXT_CLOSE")
+        selected=proposal.get("a5_context_profile",A5_STRICT_A4)
+        require(selected in (A5_STRICT_A4,A5_STOCK_BASELINE) and
+                (context_profile is None or context_profile==selected),"A5_REPLAY_CONTEXT_PROFILE_CHANGED")
+        context_profile=selected
+        if selected==A5_STOCK_BASELINE:
+            require(proposal.get("a4_connected") is False and
+                    proposal.get("a4_report_content_sha256") is None and proposal.get("a4_request_sha256") is None
+                    and proposal.get("macro_reason_evidence") is None,"A5_REPLAY_BASELINE_MACRO_CONFLICT")
+            context_refs=("baseline_context_sha256","reviewed_risk_sha256")
+        else:
+            require(proposal.get("a4_connected",True) is True,"A5_REPLAY_STRICT_A4_CONFLICT")
+            context_refs=("a4_report_content_sha256","a4_request_sha256")
         for key in ("native_result_sha256","feature_sha256","policy_sha256",
-                    "comparison_inputs_sha256","a4_report_content_sha256","a4_request_sha256"):
+                    "comparison_inputs_sha256",*context_refs):
             require(type(proposal.get(key)) is str and _HASH.fullmatch(proposal[key]),
                     "A5_REPLAY_ORIGINAL_REFERENCE")
         req=proposal.get("replay_requirements")
@@ -243,6 +281,10 @@ def prepare_model_replay_targets(proposals, registry, *, expected_proposal_hashe
             a3_reference_coverage_sha256=digest(proposal.get("a3_reference_coverage")),
             full_roster_asset_ids=list(roster),ticker_to_asset_id=symbols,decision_clock=dict(clock),
             rebalance_exported=intent!="HOLD_UNTIL_SCHEDULED_REVIEW"))
+        if selected==A5_STOCK_BASELINE:
+            decisions[-1].update(a5_context_profile=selected,
+                baseline_context_sha256=proposal["baseline_context_sha256"],
+                reviewed_risk_sha256=proposal["reviewed_risk_sha256"])
         seen.add(session);last=at
     result=dict(schema="a5-fixed-target-replay-export-v1",status="PREPARED_NOT_EXECUTED",
         comparison_scope="FIXED_TARGET_ALLOCATION_NOT_CLOSED_LOOP_POLICY",arms=targets,decisions=decisions,
@@ -250,6 +292,8 @@ def prepare_model_replay_targets(proposals, registry, *, expected_proposal_hashe
         registry_sha256=expected_registry_sha256,replay_requirements=requirements,
         source_authentication="NOT_CERTIFIED_BY_SERIALIZATION_OR_HASH_PINS",Source_admitted=False,
         historical_PIT=False,replay_executed=False,model_fit=False,performance_claimed=False,**SAFETY)
+    if context_profile==A5_STOCK_BASELINE:
+        result.update(a5_context_profile=context_profile,a4_connected=False)
     result["content_sha256"]=digest(result)
     return result
 
@@ -343,7 +387,9 @@ def compare_model_replay_reports(export, reports, bindings, *, expected_export_s
 def build_model_proposal(payload, registry, policy, report, *, artifact_resolver=None,
                          review_root=None,code_sha=None,previous=None):
     cutoff=payload.get("as_of")
+    selected=A5_STRICT_A4
     try:
+        selected=a5_context_profile(policy)
         stock=policy.get("stock_cash_research",{}).get("enabled") is True
         if stock:
             require(payload.get("position_book_kind") in {None,"MODEL"} and
@@ -382,11 +428,17 @@ def build_model_proposal(payload, registry, policy, report, *, artifact_resolver
         binding=payload["current_a3_review"]
         graph=json_ref(review_root,binding["review_graph"],4*1024**2)
         request=next(r for r in graph["state"]["requests"] if r["agent"]=="A5")
-        original_report=json_ref(review_root,request["inputs"]["regime"],8*1024**2)
-        require(digest(original_report)==digest(report),"A5_A4_NOT_ORIGINAL_REVIEWED_REPORT")
+        if selected==A5_STOCK_BASELINE:
+            original_risk=json_ref(review_root,request["inputs"]["risk_limits"],2*1024**2)
+            require(digest(original_risk)==digest(payload["risk"]),"A5_BASELINE_NOT_ORIGINAL_REVIEWED_RISK")
+        else:
+            original_report=json_ref(review_root,request["inputs"]["regime"],8*1024**2)
+            require(digest(original_report)==digest(report),"A5_A4_NOT_ORIGINAL_REVIEWED_REPORT")
         return _explain_result(result,payload["risk"],report,previous=previous,policy=policy)
     except (ValueError,KeyError,TypeError,OSError,OverflowError,RecursionError):
-        return blocked(cutoff,["CURRENT_A3_A4_A6_RISK_OR_NATIVE_PROPOSAL_NOT_VERIFIED"])
+        reason=("CURRENT_A3_A6_BASELINE_RISK_OR_NATIVE_PROPOSAL_NOT_VERIFIED"
+                if selected==A5_STOCK_BASELINE else "CURRENT_A3_A4_A6_RISK_OR_NATIVE_PROPOSAL_NOT_VERIFIED")
+        return blocked(cutoff,[reason],profile=selected)
 
 
 def pinned_inputs(root, request, expected_policy_sha256):
@@ -422,6 +474,8 @@ def load_and_build(root, request, report, *, expected_policy_sha256,code_sha,exe
 
 def render(proposal):
     lines=["# A5 model portfolio", "", "Status: "+proposal["status"],"", "Research proposal; manual live decisions only."]
+    if proposal.get("a5_context_profile")==A5_STOCK_BASELINE:
+        lines += ["", "Context: stock/cash baseline; A4 disconnected and market regime not assessed."]
     if proposal["status"]=="BLOCKED":
         return "\n".join(lines+["", "Weights and cash: unavailable until original inputs and independent review pass.","",*proposal["reasons"],""])
     lines += ["", "| Security | Weight | Change vs previous model | Reasons |", "| --- | ---: | ---: | --- |"]
@@ -429,3 +483,44 @@ def render(proposal):
         lines.append(f"| {r['asset_id']} | {r['weight']:.2%} | {r['change']:+.2%} | {', '.join(r['reasons'])} |")
     lines += [f"| CASH | {proposal['cash']:.2%} | | {', '.join(proposal['cash_reasons'])} |",""]
     return "\n".join(lines)
+
+
+def main(argv=None):
+    """Read-only model CLI; the externally pinned policy chooses A4 use."""
+    import argparse
+    from datetime import datetime, timezone
+    from pathlib import Path
+    from research.multi_asset_v1.contracts import load_json, encoded
+    from tools.run_a4_research_cycle import json_ref
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--artifact-root",type=Path,required=True)
+    parser.add_argument("--request",type=Path,required=True)
+    parser.add_argument("--expected-policy-sha256",required=True)
+    parser.add_argument("--code-sha",required=True)
+    args=parser.parse_args(argv)
+    selected=A5_STRICT_A4
+    cutoff=None
+    try:
+        with args.request.open("rb") as handle:
+            raw=handle.read(1024**2+1)
+        require(len(raw)<=1024**2,"A5_REQUEST_BUDGET")
+        request=load_json(raw)
+        payload,_,policy=pinned_inputs(args.artifact_root,request,args.expected_policy_sha256)
+        cutoff=payload.get("as_of")
+        selected=a5_context_profile(policy)
+        report=None
+        if selected!=A5_STOCK_BASELINE:
+            graph=json_ref(args.artifact_root,payload["current_a3_review"]["review_graph"],4*1024**2)
+            a5_request=next(r for r in graph["state"]["requests"] if r["agent"]=="A5")
+            report=json_ref(args.artifact_root,a5_request["inputs"]["regime"],8*1024**2)
+        result=load_and_build(args.artifact_root,request,report,
+            expected_policy_sha256=args.expected_policy_sha256,code_sha=args.code_sha,
+            execution_at=datetime.now(timezone.utc).isoformat())
+    except (ValueError,KeyError,TypeError,OSError,OverflowError,RecursionError,StopIteration):
+        result=blocked(cutoff,["MODEL_REQUEST_OR_ORIGINAL_INPUTS_NOT_VERIFIED"],profile=selected)
+    print(encoded(result).decode("utf-8"),end="")
+    return 0 if result["status"]=="RESEARCH_PROPOSAL" else 2
+
+
+if __name__=="__main__":
+    raise SystemExit(main())
