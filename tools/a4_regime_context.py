@@ -52,7 +52,6 @@ def valuation(cape, *, up_revisions, down_revisions, unchanged_revisions, eligib
 def policy(events, sessions):
     """Rate announcements and effective targets stay distinct; no QE probability."""
     require(type(events) is list and len(events) <= 2000 and (type(sessions) is list) and (2 <= len(sessions) <= 10000), 'EVENT_BUDGET')
-    seen = {}
     announcements = {}
     ordered = []
     for event in events:
@@ -66,11 +65,9 @@ def policy(events, sessions):
         require(event['balance_sheet_action'] in ('QE', 'QT', 'NO_CHANGE'), 'REVIEWED_BALANCE_SHEET_LABEL')
         pin = event['original_sha256']
         require(type(pin) is str and len(pin) == 64 and all((c in '0123456789abcdef' for c in pin)), 'ORIGINAL_REF')
-        require(available not in seen or seen[available] == event, 'CONFLICTING_EVENT')
         require(announced not in announcements or announcements[announced] == event, 'CONFLICTING_ANNOUNCEMENT')
-        announcements[announced] = event
-        if available not in seen:
-            seen[available] = event
+        if announced not in announcements:
+            announcements[announced] = event
             ordered.append((available, event))
     ordered.sort(key=lambda x: x[0])
     closes = [stamp(s['close_utc']) for s in sessions]

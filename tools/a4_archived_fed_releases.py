@@ -145,6 +145,9 @@ def week_date(text, release):
 def observation(ref, release, logical, observed, value, unit, scope, basis, seasonal, locator):
     return dict(logical_id=logical, source_id='frb-archive:' + ref['feed'] + ':' + logical, observation_date=observed.isoformat(), value=value, unit=unit, frequency='weekly', scope=scope, balance_basis=basis, seasonal_adjustment=seasonal, release_date=release.isoformat(), vintage_date=release.isoformat(), published_at=None, available_at=(datetime.combine(release + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc) + timedelta(hours=5)).isoformat(), availability_policy='NEXT_CIVIL_DAY_05_UTC_CONSERVATIVE_RESEARCH_ASSUMPTION', collected_at=ref['collected_at'], original_sha256=ref['sha256'], original_url=ref['url'], locator=locator, methodology_notes_sha256=ref['sha256'], classification_break_adjusted=False, historical_use='DATE_ARCHIVE_RESEARCH_ONLY', historical_pit_certified=False, source_admitted=False, training_admitted=False)
 
+def amount_units(text):
+    return {unit.lower() for unit in re.findall(r'\b(Thousands|Millions|Billions|Trillions) of dollars\b', text, re.I)}
+
 def h8(raw, ref, official_dates):
     doc, release = release_identity(raw, ref, official_dates)
     require(ref['feed'] == 'h8', 'FEED')
@@ -160,7 +163,7 @@ def h8(raw, ref, official_dates):
         settings = set(re.findall(r'\b(Not seasonally adjusted|Seasonally adjusted)\b', context, re.I))
         settings = {setting.lower() for setting in settings}
         require(len(settings) == 1, 'SEASONAL_AMBIGUITY')
-        units = {unit.lower() for unit in re.findall(r'\b(Millions|Billions|Trillions) of dollars\b', context, re.I)}
+        units = amount_units(context)
         require(units == {'billions'}, 'H8_UNIT')
         if settings == {'not seasonally adjusted'}:
             continue
@@ -215,11 +218,14 @@ def h41_date(text):
     return datetime.strptime(text, '%b %d, %Y').date()
 
 def h41_unit(text):
-    require(set(re.findall('(Millions|Billions) of dollars', text)) == {'Millions'}, 'H41_UNIT')
+    require(amount_units(text) == {'millions'}, 'H41_UNIT')
 
 def rrp_transition(label, parent, pairs, values):
+    if parent == 'RRP_COMPLETE':
+        require(label not in ('Others', 'Foreign official and international accounts'), 'RRP_DUPLICATE_CHILD')
+        parent = None
     if label == 'Reverse repurchase agreements':
-        require(parent is None, 'RRP_UNFINISHED')
+        require(parent is None and 'rrp_other' not in pairs, 'RRP_UNFINISHED_OR_DUPLICATE')
         return 'RRP_EXPECT_FOREIGN'
     if parent == 'RRP_EXPECT_FOREIGN':
         require(label == 'Foreign official and international accounts', 'RRP_SEQUENCE')
@@ -227,7 +233,7 @@ def rrp_transition(label, parent, pairs, values):
     if parent == 'RRP_EXPECT_OTHERS':
         require(label == 'Others' and 'rrp_other' not in pairs, 'RRP_DUPLICATE_OR_SEQUENCE')
         pairs['rrp_other'] = values
-        return None
+        return 'RRP_COMPLETE'
     return parent
 
 def text_columns(line):
@@ -294,7 +300,7 @@ def h41(raw, ref, official_dates):
             if label == 'Reserve balances with Federal Reserve Banks':
                 require('reserves' not in pairs, 'DUPLICATE_RESERVES')
                 pairs['reserves'] = values
-        require(parent is None, 'RRP_UNFINISHED')
+        require(parent in (None, 'RRP_COMPLETE'), 'RRP_UNFINISHED')
         section = re.search('\\n[45]\\. Consolidated Statement of Condition[^\\n]*\\n.*?(?=\\n[56]\\. Statement of Condition|\\Z)', text, re.S)
         require(section is not None, 'H41_CONSOLIDATED_SECTION')
         asset_lines = section[0].splitlines()
@@ -345,7 +351,7 @@ def h41(raw, ref, official_dates):
                         key = 'tga' if label == 'U.S. Treasury, General Account' else 'reserves'
                         require(key not in pairs, 'H41_DUPLICATE')
                         pairs[key] = values
-                require(parent is None, 'RRP_UNFINISHED')
+                require(parent in (None, 'RRP_COMPLETE'), 'RRP_UNFINISHED')
             if 'Eliminations from consolidation' in header:
                 h41_unit(table['context'])
                 require(len(rows[0]) == 4 and re.fullmatch('Wednesday ' + DATE_TEXT, rows[0][2]) is not None, 'H41_ASSET_COLUMN_MEANING')

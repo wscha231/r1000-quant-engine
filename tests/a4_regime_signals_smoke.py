@@ -203,6 +203,25 @@ class H41Checks(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'H41_UNIT'):
                     a.h41(raw, h41_ref(raw), {'20160107'})
 
+    def test_all_conflicting_h41_amount_scales_are_refused(self):
+        for kind in ('text', 'html'):
+            for scale in (b'Trillions', b'billions', b'Thousands'):
+                raw = h41_fixture(kind).replace(b'Millions of dollars', b'Millions of dollars\n' + scale + b' of dollars')
+                with self.subTest(kind=kind, scale=scale), self.assertRaisesRegex(ValueError, 'H41_UNIT'):
+                    a.h41(raw, h41_ref(raw), {'20160107'})
+
+    def test_completed_rrp_rejects_adjacent_duplicate_children(self):
+        for kind in ('text', 'html'):
+            raw = h41_fixture(kind)
+            if kind == 'text':
+                original = b'Others'.ljust(65) + b'100  0  0  100\n'
+            else:
+                original = b'<tr><td>Others</td><td>100</td><td>0</td><td>0</td><td>100</td></tr>'
+            self.assertIn(original, raw)
+            altered = raw.replace(original, original + original.replace(b'100', b'200'), 1)
+            with self.subTest(kind=kind), self.assertRaisesRegex(ValueError, 'RRP_DUPLICATE_CHILD'):
+                a.h41(altered, h41_ref(altered), {'20160107'})
+
     def test_h8_both_adjustments_retained_beyond_old_context_cap(self):
         raw = fixture().replace(b'Seasonally adjusted, billions of dollars', b'Not seasonally adjusted, billions of dollars</p><p>' + b'x' * 1800 + b'</p><p>Seasonally adjusted, billions of dollars')
         with self.assertRaisesRegex(ValueError, 'SEASONAL_AMBIGUITY'):
@@ -405,6 +424,17 @@ class RegimeContext(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'CONFLICTING_ANNOUNCEMENT'):
             c.policy([older, conflict], ss())
 
+    def test_batch_availability_is_not_policy_identity(self):
+        older, newer = event('2020-03-03', 2.), event('2020-03-04', 1.5)
+        for e in (older, newer):
+            e['available_at'] = '2020-03-05T19:00:00+00:00'
+        result = c.policy([older, newer, older], ss())
+        self.assertTrue(result.announced_target_mid.iloc[:2].isna().all())
+        self.assertEqual(result.announced_target_mid.iloc[-1], 1.375)
+        self.assertEqual(result.latest_announced_change_bp.iloc[-1], -50.)
+        self.assertEqual(result.consecutive_cut_decisions.iloc[-1], 1)
+        pd.testing.assert_frame_equal(c.policy([newer, older], ss()), result)
+
     def test_announced_and_effective_are_separate(self):
         a = c.policy([event('2020-02-01', 1.75), event('2020-02-02', 2), event('2020-03-03', 1.5, effective='2020-03-04')], ss())
         self.assertEqual(a.announced_target_mid.iloc[0], 1.375)
@@ -436,7 +466,7 @@ class RegimeContext(unittest.TestCase):
             with self.subTest(change=change):
                 with self.assertRaises(ValueError):
                     c.policy([e], ss())
-        with self.assertRaisesRegex(ValueError, 'CONFLICTING_EVENT'):
+        with self.assertRaisesRegex(ValueError, 'CONFLICTING_ANNOUNCEMENT'):
             c.policy([event('2020-03-03', 2), event('2020-03-03', 1)], ss())
 
     def test_holds_break_consecutive_not_first_cut_context(self):
