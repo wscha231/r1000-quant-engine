@@ -8436,12 +8436,16 @@ class ManualTests(unittest.TestCase):
         programs.update({'tests/control_plane_agent_contract_smoke.py',
                          'tests/system_state_materializer_smoke.py',
                          'tests/manual_foundation_smoke.py', 'tools/run_pr_validation.py'})
-        self.assertEqual(len(registered_validation.DEFAULT_TESTS), 236)
+        self.assertEqual(len(registered_validation.DEFAULT_TESTS), 237)
+        self.assertEqual(registered_validation.DEFAULT_TESTS.count(
+            ('tests/a4_daily_multifactor_smoke.py', [])), 1)
         self.assertEqual(registered_validation.DEFAULT_TESTS.count(
             ('tests/alpaca_sip_managed_refresh_smoke.py', [])), 1)
         required = set(manual.required_dependencies('A6_INDEPENDENT_QA', self.root))
         self.assertTrue(programs.issubset(required), sorted(programs - required))
-        for name in ('tests/alpaca_sip_managed_refresh_smoke.py',
+        for name in ('tests/a4_daily_multifactor_smoke.py',
+                     'tools/a4_daily_multifactor.py',
+                     'tests/alpaca_sip_managed_refresh_smoke.py',
                      'tools/alpaca_sip_managed_refresh.py',
                      'tools/prepare_a1_managed_ohlcv.py'):
             self.assertEqual(manual.A6_FIXED_PROOF_PROGRAMS.count(name), 1)

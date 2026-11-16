@@ -414,6 +414,8 @@ A6_FIXED_PROOF_INPUTS = (
     'docs/A4_CLOUD_RESEARCH_OPERATIONS.md',
 )
 A6_FIXED_PROOF_PROGRAMS = (
+    'tests/a4_daily_multifactor_smoke.py',
+    'tools/a4_daily_multifactor.py',
     '.github/workflows/alpaca_sip_private_backfill_v1.yml',
     'tests/valuation_provenance_shadow_smoke.py',
     'tools/audit_valuation_provenance_shadow.py',

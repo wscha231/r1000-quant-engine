@@ -41,3 +41,6 @@ tools/a4_macro_diagnosis.py text eol=lf
 docs/A4_MACRO_CONDITION_DIAGNOSIS_V1.md text eol=lf
 tools/prepare_a4_native_inputs.py text eol=lf
 tools/a4_rtdsm_sources.py text eol=lf
+tools/a4_daily_multifactor.py text eol=lf
+tests/a4_daily_multifactor_smoke.py text eol=lf
+docs/A4_DAILY_MULTIFACTOR_V1.md text eol=lf
