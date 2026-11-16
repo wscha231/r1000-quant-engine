@@ -1,7 +1,7 @@
 {
   "schema": "moat-quality-v2-contract",
   "version": 2,
-  "revision": 3,
+  "revision": 4,
   "purpose": "Evidence-bound qualitative moat and company-quality research. This contract does not change selector weights, targets, portfolio sizing, or orders.",
   "dimensions": [
     "qualification_switching_cost",
@@ -12,8 +12,8 @@
     "next_generation_relevance"
   ],
   "dimension_scale": {
-    "minimum": 0.0,
-    "maximum": 1.0,
+    "minimum": 0,
+    "maximum": 1,
     "missing_policy": "BLOCK_NO_SCORE"
   },
   "freshness_policy": {
@@ -74,11 +74,23 @@
   "safety": {
     "research_only": true,
     "selector_weight_change_allowed": false,
-    "portfolio_weight_effect": 0.0,
+    "portfolio_weight_effect": 0,
     "target_book_write_allowed": false,
     "ledger_write_allowed": false,
     "orders_allowed": false,
     "production_activation_allowed": false,
     "oos_validation_required_before_weighting": true
+  },
+  "current_research_public_observation": {
+    "basis": "CURRENT_RESEARCH_OBSERVATION",
+    "scope": "CURRENT_RESEARCH_ONLY_NO_HISTORICAL_BACKFILL",
+    "published_at": null,
+    "publisher_reported_date": "DAY_ANNOTATION_OR_NULL_UNKNOWN_NOT_A_PUBLICATION_INSTANT",
+    "required_receipt_schema": "r1000-public-primary-document-capture-v1",
+    "receipt_max_bytes": 65536,
+    "receipt_result_limit": 16,
+    "receipt_binding": "Exact receipt bytes/hash; one matching HTTPS URL and original raw SHA; explicit first_public_at=null; actual capture_started<=collected_at=available_at<=as_of",
+    "date_annotation_bound": "No later than UTC capture plus14hours; equivalent aware timestamps have identical meaning",
+    "authority": "No Source/PIT/training/ER/selector/A5/portfolio authority; legacy exact publication clock remains default"
   }
 }

@@ -2083,7 +2083,7 @@ class StockCashResearch(unittest.TestCase):
     def test_publisher_replays_native_dependency_code_bytes(self):
         import tools.run_multi_asset_leadership as publisher
         native={"tools/run_broker_ledger_replay.py","tools/run287_hold_exit_policy.py","tools/security_lifecycle.py",
-                "research/er_horizon_v1.py",
+                "research/er_horizon_v1.py", "research/moat_quality_v2.py",
                 "tools/a4_liquidity_analysis.py","tools/a4_macro_bridge.py","docs/market_analysis_contract_v2.json",
                 "tools/a5_model_portfolio.py","tools/a4_macro_learning.py","tools/a4_rtdsm_sources.py","tools/macro_technical_study.py",
                 "tools/run_a4_research_cycle.py"}
