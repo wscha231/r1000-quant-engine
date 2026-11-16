@@ -765,7 +765,8 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
                               benchmark_trusted_qualification_sources: Mapping[str, Any] | None = None,
                               raw_generation: str | None = None,
                               expected_qualification_sha256: str | None = None,
-                              trusted_qualification_source=None) -> dict[str, Any]:
+                              trusted_qualification_source=None,
+                              benchmark_profile: str = "STRICT_VERIFIED_V1") -> dict[str, Any]:
     """Read one frozen security through the unchanged single-security contract."""
     return _research_feature_snapshot(reader, generation, security_id=security_id,
         session=session, as_of=as_of, benchmark_ids=benchmark_ids,
@@ -773,7 +774,8 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
         benchmark_expected_qualification_sha256=benchmark_expected_qualification_sha256,
         benchmark_trusted_qualification_sources=benchmark_trusted_qualification_sources,
         raw_generation=raw_generation, expected_qualification_sha256=expected_qualification_sha256,
-        trusted_qualification_source=trusted_qualification_source)
+        trusted_qualification_source=trusted_qualification_source,
+        benchmark_profile=benchmark_profile)
 
 
 def _research_feature_snapshot(reader, generation: str, *, security_id: str,
@@ -785,6 +787,7 @@ def _research_feature_snapshot(reader, generation: str, *, security_id: str,
                               raw_generation: str | None = None,
                               expected_qualification_sha256: str | None = None,
                               trusted_qualification_source=None,
+                              benchmark_profile: str = "STRICT_VERIFIED_V1",
                               _cohort=None) -> dict[str, Any]:
     """One security/completed session, research only; no writes or collection.
 
@@ -812,6 +815,8 @@ def _research_feature_snapshot(reader, generation: str, *, security_id: str,
     from tools.macro_history_sources import digest, encoded
 
     check(isinstance(reader, ResearchDataReader), "FEATURE_READER_REQUIRED")
+    check(type(benchmark_profile) is str and benchmark_profile in {
+        "STRICT_VERIFIED_V1", "CURRENT_REVIEWED_ARCHIVE_V1"}, "FEATURE_BENCHMARK_PROFILE")
     sha(generation)
     day(session)
     decision = clock(as_of)
@@ -874,6 +879,11 @@ def _research_feature_snapshot(reader, generation: str, *, security_id: str,
         eligible_for_selector=False, ranking_allowed=False, ER_allowed=False,
         portfolio_allowed=False, orders_generated=False,
     )
+
+    if benchmark_profile == "CURRENT_REVIEWED_ARCHIVE_V1":
+        result["benchmark_profile"] = benchmark_profile
+        result["benchmark_comparison_only"] = True
+        result["relative_features_historical_pit_certified"] = False
 
     def refuse_all(code):
         result["features"] = {key: None for key in TECH_FEATURE_NAMES}
@@ -1219,10 +1229,28 @@ def _research_feature_snapshot(reader, generation: str, *, security_id: str,
                       "BENCHMARK_SECURITY_TYPE_MISMATCH")
                 check(bm_ref["adjustment_basis"] == stock_ref["adjustment_basis"],
                       "BENCHMARK_ADJUSTMENT_MISMATCH")
-                check(bm_ref["pit_status"] == stock_ref["pit_status"] == "VERIFIED",
-                      "BENCHMARK_PIT_UNVERIFIED")
-                benchmark = bm.drop(index=pd.DatetimeIndex(bm_identity["halted_sessions"]),
-                                    errors="ignore")
+                if bm_ref["pit_status"] == stock_ref["pit_status"] == "VERIFIED":
+                    pass  # Preserve the default PIT-verified comparison.
+                elif benchmark_profile == "CURRENT_REVIEWED_ARCHIVE_V1":
+                    # Current price-relative research only. Both independent
+                    # qualification tuples were authenticated by read_one;
+                    # this never certifies historical PIT or model training.
+                    check(label == "SPY" and all(
+                        ref.get("pit_status") == "PIT_PROXY" and
+                        ref.get("classification") == "REAL_SOURCE" and
+                        ref.get("qualification_meaning") == PROVIDER_CLOSE_MEANING and
+                        type(ref.get("provider_close_qualification_sha256")) is str
+                        for ref in (stock_ref, bm_ref)),
+                        "BENCHMARK_RESEARCH_QUALIFICATION_REQUIRED")
+                    bm_ref = dict(bm_ref, comparison_scope="CURRENT_PRIVATE_RESEARCH_ONLY",
+                        historical_pit_certified=False, training_eligible=False,
+                        semantics="PIT_PROXY_PROVIDER_PRICE_RELATIVE")
+                else:
+                    check(False, "BENCHMARK_PIT_UNVERIFIED")
+                # Qualified archival observations declare known exclusions;
+                # their complete physical halt history remains UNKNOWN.
+                bm_halts = bm_ref.get("known_halted_sessions", bm_identity["halted_sessions"])
+                benchmark = bm.drop(index=pd.DatetimeIndex(bm_halts), errors="ignore")
                 result["benchmark_ref"][label] = bm_ref
             except ContractError as exc:
                 if global_refusals:
