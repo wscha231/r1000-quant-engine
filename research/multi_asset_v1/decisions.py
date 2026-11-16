@@ -11,7 +11,8 @@ import numpy as np
 
 from research.theme_etf_runtime_v1.strict import normalize_snapshot
 from .contracts import (ContractError, ER_HORIZONS, EVENTS, day, digest, identifier,
-                        metadata, number, pinned, require, stamp, unique)
+                        metadata, number, pinned, require, stamp, unique,
+                        a5_context_profile, baseline_risk, A5_STOCK_BASELINE)
 
 COMPONENTS = {"price":.25, "supply_demand":.25, "inventory":.10,
               "forward_supply":.10, "technology":.10, "valuation":.10, "catalyst":.10}
@@ -218,7 +219,8 @@ def propose(rows, assets, risk, holdings, cutoff, policy, input_hash, current_we
             artifact_resolver=None,model_review=None):
     pinned(risk,policy,"risk",cutoff)
     require(risk.get("feature_sha256")==input_hash,"risk_feature_mismatch")
-    require(risk.get("regime") in {"RISK_ON","CAUTION","RISK_OFF","RECOVERY"},"market_regime")
+    if a5_context_profile(policy) != A5_STOCK_BASELINE:
+        require(risk.get("regime") in {"RISK_ON","CAUTION","RISK_OFF","RECOVERY"},"market_regime")
     if policy.get("stock_cash_research",{}).get("enabled") is True:
         return stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,current_weights,
                                    decision_events=decision_events,artifact_resolver=artifact_resolver,
@@ -589,6 +591,11 @@ def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,curre
     p=stock_research_profile(policy)
     suffix=stock_er_suffix(policy)
     pinned(risk,policy,"risk",cutoff)
+    if a5_context_profile(policy) == A5_STOCK_BASELINE:
+        baseline_risk(risk, policy, cutoff)
+        regime = None
+    else:
+        regime = risk["regime"]
     require(risk.get("feature_sha256")==input_hash,"risk_feature_mismatch")
     review=risk.get("stock_cash_allocation")
     require(type(review) is dict and review.get("horizon")==p["horizon"],"stock_reviewed_allocation_required")
@@ -682,7 +689,7 @@ def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,curre
             no_entry_cost_inputs=costs,cash_quote_sha256=digest(quote),cash_return=carry,
             covariance_status="NOT_REQUIRED_ZERO_EQUITY",horizon=p["horizon"])
         return dict(status="RESEARCH_PROPOSAL",proposed_weights={},cash=1.0,
-            regime=risk["regime"],intent="NO_ENTRY_HOLD_CASH",model_state_kind=kind,
+            regime=regime,intent="NO_ENTRY_HOLD_CASH",model_state_kind=kind,
             carried_position_weights=current,decision_clock=clock,exception_exposure=0,
             exit_reviews=[],exception_reviews=[],comparison_inputs=frozen,
             comparison_inputs_sha256=digest(frozen),
@@ -842,7 +849,7 @@ def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,curre
         covariance=covariance.tolist(),cash_return=cash_return,side_cost=side.tolist(),
         lower=lo.tolist(),upper=hi.tolist(),current_weights=old.tolist(),risk_aversion=p["risk_aversion"],
         feature_sha256=input_hash,risk_sha256=digest(risk),cash_quote_sha256=digest(quote))
-    return dict(status="RESEARCH_PROPOSAL",regime=risk["regime"],proposed_weights=weights,
+    return dict(status="RESEARCH_PROPOSAL",regime=regime,proposed_weights=weights,
         cash=1-sum(weights.values()),carried_position_weights=current,
         accepted_target=False,orders_generated=False,execution_ready=False,
         decision_clock=clock,exception_exposure=float(alt@chosen),exception_reviews=exception_audit,exit_reviews=exit_audit,

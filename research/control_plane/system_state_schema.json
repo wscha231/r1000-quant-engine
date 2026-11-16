@@ -1065,9 +1065,7 @@
         "requested_security_ids",
         "a3_reference_entries",
         "artifact_inventory",
-        "model_state",
-        "a4_request",
-        "a4_source_root"
+        "model_state"
       ],
       "properties": {
         "schema_version": {
@@ -1237,9 +1235,14 @@
               ],
               "properties": {
                 "kind": {
-                  "enum": ["INCUMBENTS", "PARENT_LINEAGE_ONLY"]
+                  "enum": [
+                    "INCUMBENTS",
+                    "PARENT_LINEAGE_ONLY"
+                  ]
                 },
-                "model_identity": {"$ref": "#/$defs/current_model_identity"},
+                "model_identity": {
+                  "$ref": "#/$defs/current_model_identity"
+                },
                 "artifact": {
                   "$ref": "#/$defs/artifact"
                 }
@@ -1254,8 +1257,61 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 240
+        },
+        "a5_context_profile": {
+          "enum": [
+            "STRICT_A4_V1",
+            "STOCK_CASH_BASELINE_V1"
+          ]
+        },
+        "baseline_risk": {
+          "$ref": "#/$defs/artifact"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "a5_context_profile"
+            ],
+            "properties": {
+              "a5_context_profile": {
+                "const": "STOCK_CASH_BASELINE_V1"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "baseline_risk"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "a4_request"
+                  ]
+                },
+                {
+                  "required": [
+                    "a4_source_root"
+                  ]
+                }
+              ]
+            }
+          },
+          "else": {
+            "required": [
+              "a4_request",
+              "a4_source_root"
+            ],
+            "not": {
+              "required": [
+                "baseline_risk"
+              ]
+            }
+          }
+        }
+      ]
     },
     "current_model_identity": {
       "type": "object", "additionalProperties": false,
