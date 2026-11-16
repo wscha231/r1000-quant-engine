@@ -222,6 +222,15 @@ class H41Checks(unittest.TestCase):
             with self.subTest(kind=kind), self.assertRaisesRegex(ValueError, 'RRP_DUPLICATE_CHILD'):
                 a.h41(altered, h41_ref(altered), {'20160107'})
 
+    def test_extra_numeric_column_cannot_hide_a_critical_label(self):
+        raw = h41_fixture('text')
+        original = b'Others'.ljust(65) + b'100  0  0  100\n'
+        self.assertIn(original, raw)
+        for label in ('Others', 'Foreign official and international accounts', 'Reverse repurchase agreements', 'U.S. Treasury, General Account', 'Reserve balances with Federal Reserve Banks'):
+            altered = raw.replace(original, original + label.encode() + b'  200  0  0  200  999\n', 1)
+            with self.subTest(label=label), self.assertRaisesRegex(ValueError, 'H41_CRITICAL_ROW_FORMAT'):
+                a.h41(altered, h41_ref(altered), {'20160107'})
+
     def test_h8_both_adjustments_retained_beyond_old_context_cap(self):
         raw = fixture().replace(b'Seasonally adjusted, billions of dollars', b'Not seasonally adjusted, billions of dollars</p><p>' + b'x' * 1800 + b'</p><p>Seasonally adjusted, billions of dollars')
         with self.assertRaisesRegex(ValueError, 'SEASONAL_AMBIGUITY'):

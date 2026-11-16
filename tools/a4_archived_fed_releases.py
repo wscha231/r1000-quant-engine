@@ -287,10 +287,12 @@ def h41(raw, ref, official_dates):
         for line in lines:
             parts = text_columns(line)
             matched = len(parts) >= 5 and numeric_columns(parts[-4:])
-            if re.search(critical, line):
-                require(matched, 'H41_CRITICAL_ROW_FORMAT')
+            label = clean(re.sub('\\(\\d+\\)', '', ' '.join(parts[:-4]))) if matched else None
+            critical_match = re.search(critical, line)
+            if critical_match:
+                require(matched and label == critical_match[1], 'H41_CRITICAL_ROW_FORMAT')
             if matched:
-                rows.append((clean(re.sub('\\(\\d+\\)', '', ' '.join(parts[:-4]))), [number(parts[-4]), number(parts[-1])]))
+                rows.append((label, [number(parts[-4]), number(parts[-1])]))
         parent = None
         for label, values in rows:
             parent = rrp_transition(label, parent, pairs, values)
