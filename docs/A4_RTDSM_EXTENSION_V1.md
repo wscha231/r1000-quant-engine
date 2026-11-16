@@ -61,6 +61,10 @@ Offline original replay with a supplied collection clock stays supported.
 The typed collection-verified route additionally requires the replayed
 capture_ref and BODY_COMPLETION_CALLER_REFERENCE precision. A successful
 execution bound to a valid offline generation cannot supply that evidence.
+The recipe collector pin must match this reader's trusted loaded producer
+bytes, which are checked again before extension replay. A different collector
+revision needs an independently reviewed compatible reader or migration;
+syntactically valid caller-rebound hashes do not establish producer evidence.
 
 The data-center CLI pairs repeated --extension-vintage-generation-sha256
 and --extension-vintage-execution-sha256 values. An optional

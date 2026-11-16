@@ -292,7 +292,7 @@ class DataCenterChecks(unittest.TestCase):
   with self.assertRaisesRegex(ValueError,'ARCHIVE_UNAVAILABLE'):
    self.center.extension_vintage_context([self.bound_ref(result)],v.p.now(),budget={'bytes':0})
   recipe_path.write_bytes(original)
-  for change in ({'start':'2017-01-01'},{'rights_notice_sha256':'0'*64},{'normalizer_sha256':'0'*64},
+  for change in ({'start':'2017-01-01'},{'rights_notice_sha256':'0'*64},{'normalizer_sha256':'0'*64},{'collector_sha256':'0'*64},
                  {'reuse_generations':{result['captures'][0]['feed']:result['generation_sha256s'][0]}}):
    changed=json.loads(original);changed.update(change);body=encoded(changed);pin=digest(body)
    (root/'objects'/pin).write_bytes(body);altered=copy.deepcopy(result);altered['recipe_sha256']=pin
@@ -313,6 +313,13 @@ class DataCenterChecks(unittest.TestCase):
   ref=self.bound_ref(result)
   items,audit,n=self.center.extension_vintage_context([ref],v.p.now(),budget={'bytes':0})
   self.assertEqual((len(items),n),(1,5));self.assertFalse(items[0]['original_pairs_remote_verified'])
+ def test_changed_loaded_producer_refuses_before_archive_reads(self):
+  result=self.collect();ref=self.bound_ref(result);budget={'bytes':0}
+  changed=self.root/'changed-producer.py';changed.write_bytes(b'SYNTHETIC changed producer bytes')
+  with patch.object(self.center.collector,'__file__',str(changed)):
+   with self.assertRaisesRegex(ValueError,'LOADED_COLLECTOR_CHANGED'):
+    self.center.extension_vintage_context([ref],v.p.now(),budget=budget)
+  self.assertEqual(budget['bytes'],0)
  def test_accepted_state_write_flag_refuses(self):
   result=self.collect();result['accepted_state_written']=True
   with self.assertRaisesRegex(ValueError,'EXTENSION_EXECUTION_BINDING'):

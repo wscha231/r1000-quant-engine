@@ -27,6 +27,7 @@ SAFETY=dict(source_admitted=False,historical_pit_certified=False,training_admitt
     automatic_promotion_allowed=False,accepted_model_changed=False,accepted_portfolio_changed=False,
     ledger_mutated=False,orders_generated=False)
 LOADED_INDEX_SHA256=digest(Path(__file__).read_bytes())
+LOADED_COLLECTOR_SHA256=digest(Path(collector.__file__).read_bytes().replace(b'\r\n',b'\n'))
 
 
 def index_identity():
@@ -103,6 +104,8 @@ def vintage_context(references,cutoff,*,remote=None,budget=None):
 
 def extension_vintage_context(references,cutoff,*,remote=None,budget=None):
     """Explicit dated-vintage pins, separate from revised-current risk operands."""
+    p.check(digest(Path(collector.__file__).read_bytes().replace(b'\r\n',b'\n'))==LOADED_COLLECTOR_SHA256,
+        'DATA_CENTER_LOADED_COLLECTOR_CHANGED')
     p.check(type(references) is list and len(references)<=MAX_CAPTURES,'DATA_CENTER_EXTENSION_BUDGET')
     selected={};seen=set();audit=[];result=[];used=0
     for ref in references:
@@ -148,7 +151,7 @@ def extension_vintage_context(references,cutoff,*,remote=None,budget=None):
             all(recipe[k]==meta[j] for k,j in (('start','requested_start'),('through','requested_through'),
                 ('rights_notice_sha256','rights_notice_sha256'),('normalizer_sha256','normalizer_sha256'),
                 ('legacy_codec_sha256','legacy_codec_sha256'),('shared_codec_sha256','shared_codec_sha256'))) and
-            type(recipe['collector_sha256']) is str and re.fullmatch('[a-f0-9]{64}',recipe['collector_sha256']) and
+            recipe['collector_sha256']==LOADED_COLLECTOR_SHA256 and
             type(recipe['reuse_generations']) is dict and set(recipe['reuse_generations'])<=set(extension.FEEDS) and
             all(type(x) is str and re.fullmatch('[a-f0-9]{64}',x) for x in recipe['reuse_generations'].values()) and
             all(x['reused']==(x['feed'] in recipe['reuse_generations']) and
