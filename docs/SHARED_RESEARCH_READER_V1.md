@@ -540,3 +540,23 @@ successful bytes read cannot certify a current Source generation, current A4
 regime, economically validated score or an independently approved A5 model.
 The registered technical-feature suite includes these regressions through its
 existing OHLCV wrapper; no duplicate PR validation entry is necessary.
+
+## Explicit current private-research benchmark comparison
+
+The single-security Feature API defaults to `benchmark_profile="STRICT_VERIFIED_V1"`.
+Its existing PIT-verified benchmark requirement and legacy output stay unchanged.
+An explicit `CURRENT_REVIEWED_ARCHIVE_V1` profile permits SPY price-relative
+research on PIT_PROXY inputs only when both subject and benchmark independently pass their exact
+provider-close qualification and external trusted Source binding at the same
+current decision cutoff. Both must remain REAL_SOURCE / PIT_PROXY research
+observations with the existing identity, rights, expiry, hash, completed-session
+and adjustment checks. Bare proxy flags, absent trust, mixed status, aliasing
+QQQ as NASDAQ, or stale generations do not qualify.
+
+These values describe retained provider prices as observed now. They do not
+certify historical publication, physical trading continuity, total return,
+model-training purpose or a past investable signal. The result explicitly marks
+current private-research comparison and leaves Source, historical PIT, ranking,
+selector, ER, portfolio and orders authority false. Missing optional benchmarks
+and insufficient 2n+1 history remain UNKNOWN, with no zero fill or candidate
+removal. Generic training/backtest admission and the cohort default are unchanged.

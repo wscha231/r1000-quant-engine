@@ -1467,9 +1467,117 @@ class CohortFeatureTests(unittest.TestCase):
                 target.FrozenFeatureTransport(root, {'../outside': 1})
 
 
+
+def reviewed_archive_pair_fixture():
+    from a1_reader_generation_binding_smoke import provider_close_fixture, rewrite_provider_qualification
+    from tools import prepare_a1_reader_generation as binding
+    transport = MemoryTransport()
+    def prepared(ticker, run):
+        state = provider_close_fixture(names=(ticker,), run_id=run)
+        if ticker == 'SPY':
+            e, objects = state[3], state[5]
+            ref = e['technical_metadata']['SPY']['identity_evidence']
+            identity = json.loads(objects.pop(ref['sha256'])); identity['asset_class'] = 'ETF'
+            raw = encoded(identity); h = digest(raw); objects[h] = raw
+            e['technical_metadata']['SPY']['identity_evidence'] = dict(sha256=h, bytes=len(raw))
+            rewrite_provider_qualification(state, lambda q: q['instruments']['US.TEST.SPY'].update(
+                identity_evidence_sha256=h))
+        raw, norm, rec, e, trust, objects = state
+        result = binding.prepare(raw, norm, rec, encoded(e), decision_time='2026-10-24T09:00:00Z',
+            trusted_source=trust, proof_objects=tuple(sorted(objects.items())))
+        if result.status != 'REAL_SOURCE_PREPARED_UNADMITTED': raise AssertionError(result.blockers)
+        for base in result.bases:
+            transport.objects[f'{access.PREFIX_V1}/generations/{base.generation_id}'] = base.manifest
+            for h, raw in base.objects: transport.objects[f'{access.PREFIX_V1}/objects/{h}'] = raw
+        raw, split = result.bases
+        qsha = json.loads(split.manifest)['datasets'][0]['source']['provider_close_qualification_sha256']
+        return raw, split, qsha, trust
+    raw, subject, qsha, trust = prepared('AAPL', 987654321)
+    _, benchmark, bqsha, btrust = prepared('SPY', 987654322)
+    reader = access.ResearchDataReader(transport)
+    arguments = dict(security_id='US.TEST.AAPL', session='2016-01-12',
+        as_of='2026-10-24T09:00:00Z', raw_generation=raw.generation_id,
+        expected_qualification_sha256=qsha, trusted_qualification_source=trust,
+        benchmark_ids={'SPY': 'US.TEST.SPY'}, benchmark_generations={'SPY': benchmark.generation_id})
+    return reader, raw, subject, benchmark, bqsha, btrust, arguments
+
+
+class ReviewedArchiveBenchmarkProfileTests(unittest.TestCase):
+    PROFILE = 'CURRENT_REVIEWED_ARCHIVE_V1'
+
+    def test_explicit_current_comparison_preserves_strict_default_and_closed_authority(self):
+        reader, raw, subject, benchmark, bqsha, btrust, args = reviewed_archive_pair_fixture()
+        opts = dict(benchmark_expected_qualification_sha256={'SPY': bqsha},
+                    benchmark_trusted_qualification_sources={'SPY': btrust}, **args)
+        strict = target.research_feature_snapshot(reader, subject.generation_id, **opts)
+        self.assertEqual(strict['blocker']['rs_log_spy_5s'], 'BENCHMARK_PIT_UNVERIFIED')
+        self.assertNotIn('benchmark_profile', strict)
+        result = target.research_feature_snapshot(reader, subject.generation_id,
+                    benchmark_profile=self.PROFILE, **opts)
+        self.assertEqual(result['feature_status']['rs_log_spy_5s'], 'OK', result['blocker'])
+        self.assertAlmostEqual(result['features']['rs_log_spy_5s'], 0.0, places=12)
+        self.assertIsNone(result['features']['rs_log_spy_change_5s'])
+        self.assertEqual(result['benchmark_ref']['SPY']['semantics'], 'PIT_PROXY_PROVIDER_PRICE_RELATIVE')
+        self.assertEqual(result['benchmark_profile'], self.PROFILE)
+        self.assertTrue(result['benchmark_comparison_only'])
+        for flag in ('source_admitted', 'historical_pit_certified', 'eligible_for_selector',
+                     'ranking_allowed', 'ER_allowed', 'portfolio_allowed', 'orders_generated',
+                     'relative_features_historical_pit_certified'):
+            self.assertFalse(result[flag], flag)
+        self.assertEqual(result, target.research_feature_snapshot(reader, subject.generation_id,
+                         benchmark_profile=self.PROFILE, **opts))
+
+    def test_unknown_profile_refuses_before_transport_reads(self):
+        case = FeatureTests(); case.setUp()
+        generation = case.generation()
+        for profile in ('research', '', None, True, []):
+            with self.subTest(profile=profile), patch.object(case.transport, 'read',
+                    side_effect=AssertionError('PROFILE_READ_BEFORE_VALIDATION')):
+                with self.assertRaisesRegex(access.ContractError, 'FEATURE_BENCHMARK_PROFILE'):
+                    target.research_feature_snapshot(case.reader, generation,
+                        security_id=IDS['TEST'], session=SESSION, as_of=ASOF,
+                        benchmark_profile=profile)
+
+    def test_proxy_without_independent_qualification_does_not_gain_comparison(self):
+        case = FeatureTests(); case.setUp()
+        case.manifest['datasets'][0]['source']['pit_status'] = 'PIT_PROXY'
+        result = target.research_feature_snapshot(case.reader, case.generation(),
+                    security_id=IDS['TEST'], session=SESSION, as_of=ASOF,
+                    benchmark_ids={'SPY': IDS['SPY']}, benchmark_profile=self.PROFILE)
+        self.assertIsNotNone(result['features']['ret_5s'])
+        self.assertIsNone(result['features']['rs_log_spy_5s'])
+        self.assertEqual(result['blocker']['rs_log_spy_5s'], 'BENCHMARK_RESEARCH_QUALIFICATION_REQUIRED')
+
+    def test_missing_benchmark_stays_unknown_and_wrong_external_trust_is_global(self):
+        reader, raw, subject, benchmark, bqsha, btrust, args = reviewed_archive_pair_fixture()
+        missing = dict(args, benchmark_ids={'SPY': 'US.TEST.ABSENT'})
+        result = target.research_feature_snapshot(reader, subject.generation_id, **missing,
+                    benchmark_profile=self.PROFILE,
+                    benchmark_expected_qualification_sha256={'SPY': bqsha},
+                    benchmark_trusted_qualification_sources={'SPY': btrust})
+        self.assertIsNotNone(result['features']['ret_5s'])
+        self.assertIsNone(result['features']['rs_log_spy_5s'])
+        self.assertEqual(result['blocker']['rs_log_spy_5s'], 'MISSING_INSTRUMENT')
+        bad = target.research_feature_snapshot(reader, subject.generation_id, **args,
+                    benchmark_profile=self.PROFILE)
+        self.assertTrue(all(v is None for v in bad['features'].values()))
+        self.assertEqual(set(bad['blocker'].values()), {'QUALIFICATION_TRUST_REQUIRED'})
+        self.assertEqual(bad['benchmark_profile'], self.PROFILE)
+
+    def test_expired_source_is_refused_in_current_research_profile(self):
+        reader, raw, subject, benchmark, bqsha, btrust, args = reviewed_archive_pair_fixture()
+        args = dict(args, as_of='2026-11-16T04:00:00Z')
+        result = target.research_feature_snapshot(reader, subject.generation_id, **args,
+                    benchmark_profile=self.PROFILE,
+                    benchmark_expected_qualification_sha256={'SPY': bqsha},
+                    benchmark_trusted_qualification_sources={'SPY': btrust})
+        self.assertTrue(all(v is None for v in result['features'].values()))
+        self.assertEqual(set(result['blocker'].values()), {'STALE_GENERATION'})
+
 def run_contract_suite():
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(FeatureTests)
     suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(BenchmarkGenerationTests))
+    suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(ReviewedArchiveBenchmarkProfileTests))
     suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(CompositionFeatureTests))
     suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(CalendarBatchFeatureTests))
     suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(CohortFeatureTests))
