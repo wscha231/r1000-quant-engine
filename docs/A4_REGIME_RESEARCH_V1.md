@@ -38,6 +38,16 @@ consecutive-decline hypothesis distinct from a versioned six-month depth and
 diffusion condition. CAPE is context, not a short-horizon timer; analyst revision
 breadth requires complete dated up/down/unchanged counts.
 
+Availability gates which policy decisions are visible, then announcement and
+effective chronology determine their respective targets. A delayed older
+announcement cannot restore a superseded announced target. Conflicting originals
+for the same announcement are refused. Output dtypes remain fixed when later
+visible events add previously unknown values. LEI's confirmed decline suffix
+length is separate from a six-change hypothesis, which stays unknown when any
+required month is missing. Monthly expansion is capped before allocation.
+Breadth validates each present count relationship even on partial rows; its
+divergence flag requires current values and both complete 252-session references.
+
 Callers independently pin/replay original bytes, applicable rights, publisher
 identity, historical availability and input policy. These math APIs do not
 authenticate supplied data or manufacture PIT evidence. Revised current
@@ -62,4 +72,4 @@ overlapping daily rows do not remove that limit; changing a budget, target or
 qualification policy requires a separate reviewed contract and adequate history.
 
 Validation: `python tests/a4_regime_signals_smoke.py`. Registration also binds
-the smoke and both implementations in the independent A6 proof inventory.
+the smoke, three implementations and JSON in the independent A6 proof inventory.

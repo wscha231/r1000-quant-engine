@@ -16,6 +16,7 @@ def stamp(value):
 def monthly(series):
     require(isinstance(series, pd.Series) and isinstance(series.index, pd.PeriodIndex) and (series.index.freqstr == 'M'), 'MONTHLY_INDEX')
     require(series.index.is_unique and series.index.is_monotonic_increasing and (not series.index.hasnans) and (1 <= len(series) <= 2000), 'MONTHLY_ORDER')
+    require(series.index[-1].ordinal - series.index[0].ordinal + 1 <= 2000, 'MONTHLY_EXPANSION_BUDGET')
     require(not np.isinf(series.to_numpy(float)).any(), 'MONTHLY_NONFINITE')
     return series.reindex(pd.period_range(series.index[0], series.index[-1], freq='M'))
 
@@ -34,7 +35,8 @@ def lei(monthly_values, diffusion, *, method_version, annualized_threshold):
             break
         streak += 1
     growth = None if values.iloc[-7:].isna().any() else float((values.iloc[-1] / values.iloc[-7]) ** 2 - 1)
-    return dict(method_version=method_version, annualized_threshold=annualized_threshold, consecutive_decline_months=streak, six_consecutive_declines_USER_HYPOTHESIS=streak >= 6, six_month_annualized_growth=growth, six_month_diffusion=diffusion, depth_diffusion_threshold_condition=None if growth is None or diffusion is None else growth < annualized_threshold and diffusion <= 50, official_recession_prediction=False)
+    six_declines = None if delta.iloc[-6:].isna().any() else bool((delta.iloc[-6:] < 0).all())
+    return dict(method_version=method_version, annualized_threshold=annualized_threshold, consecutive_decline_months=streak, decline_count_basis='CONFIRMED_CONTIGUOUS_SUFFIX_ONLY', six_consecutive_declines_USER_HYPOTHESIS=six_declines, six_month_annualized_growth=growth, six_month_diffusion=diffusion, depth_diffusion_threshold_condition=None if growth is None or diffusion is None else growth < annualized_threshold and diffusion <= 50, official_recession_prediction=False)
 
 def valuation(cape, *, up_revisions, down_revisions, unchanged_revisions, eligible_estimates):
     """CAPE context and dated consensus-count arithmetic; no short-horizon timer."""
@@ -51,6 +53,7 @@ def policy(events, sessions):
     """Rate announcements and effective targets stay distinct; no QE probability."""
     require(type(events) is list and len(events) <= 2000 and (type(sessions) is list) and (2 <= len(sessions) <= 10000), 'EVENT_BUDGET')
     seen = {}
+    announcements = {}
     ordered = []
     for event in events:
         announced = stamp(event['announced_at'])
@@ -64,6 +67,8 @@ def policy(events, sessions):
         pin = event['original_sha256']
         require(type(pin) is str and len(pin) == 64 and all((c in '0123456789abcdef' for c in pin)), 'ORIGINAL_REF')
         require(available not in seen or seen[available] == event, 'CONFLICTING_EVENT')
+        require(announced not in announcements or announcements[announced] == event, 'CONFLICTING_ANNOUNCEMENT')
+        announcements[announced] = event
         if available not in seen:
             seen[available] = event
             ordered.append((available, event))
@@ -81,36 +86,49 @@ def policy(events, sessions):
     latest_change = None
     first_cut_event = None
     for session, cutoff in zip(sessions, closes):
+        changed = False
         while position < len(ordered) and ordered[position][0] <= cutoff:
             _, e = ordered[position]
             position += 1
-            mid = (e['target_lower'] + e['target_upper']) / 2
-            change = None if last_mid is None else round((mid - last_mid) * 100, 10)
-            direction = None if change is None else 1 if change > 0 else -1 if change < 0 else 0
-            if direction == -1:
-                first_cut_event = None if last_direction is None else last_direction == 1
-                if first_cut_event:
-                    first_cut = stamp(e['announced_at']).tz_convert('America/New_York').date()
-                cuts += 1
-                hikes = 0
-            elif direction == 1:
-                hikes += 1
-                cuts = 0
-                first_cut_event = False
-                first_cut = None
-            elif direction == 0:
-                hikes = cuts = 0
-                first_cut_event = False
-            else:
-                first_cut_event = None
-            if direction in (-1, 1):
-                last_direction = direction
-            last_mid = mid
-            latest_change = change
             visible.append(e)
+            changed = True
+        if changed:
+            # Availability gates visibility; announcement chronology determines
+            # the decision sequence, including a newly visible older decision.
+            visible.sort(key=lambda e: stamp(e['announced_at']))
+            last_mid = last_direction = first_cut = first_cut_event = latest_change = None
+            hikes = cuts = 0
+            for e in visible:
+                mid = (e['target_lower'] + e['target_upper']) / 2
+                change = None if last_mid is None else round((mid - last_mid) * 100, 10)
+                direction = None if change is None else 1 if change > 0 else -1 if change < 0 else 0
+                if direction == -1:
+                    first_cut_event = None if last_direction is None else last_direction == 1
+                    if first_cut_event:
+                        first_cut = stamp(e['announced_at']).tz_convert('America/New_York').date()
+                    cuts += 1
+                    hikes = 0
+                elif direction == 1:
+                    hikes += 1
+                    cuts = 0
+                    first_cut_event = False
+                    first_cut = None
+                elif direction == 0:
+                    hikes = cuts = 0
+                    first_cut_event = False
+                else:
+                    first_cut_event = None
+                if direction in (-1, 1):
+                    last_direction = direction
+                last_mid = mid
+                latest_change = change
         day = date.fromisoformat(session['session'])
         effective = [e for e in visible if date.fromisoformat(e['effective_on']) <= day]
         latest = visible[-1] if visible else None
-        active = effective[-1] if effective else None
+        active = max(effective, key=lambda e: (e['effective_on'], stamp(e['announced_at']))) if effective else None
         out.append(dict(announced_target_mid=last_mid, effective_target_mid=None if active is None else (active['target_lower'] + active['target_upper']) / 2, latest_announced_change_bp=latest_change, first_cut_of_known_cycle=first_cut_event, consecutive_hike_decisions=hikes if latest else None, consecutive_cut_decisions=cuts if latest else None, days_since_known_first_cut=None if first_cut is None else (day - first_cut).days, latest_announced_balance_sheet_action=None if latest is None else latest['balance_sheet_action'], qe_probability=None, source_or_PIT_certified=False))
-    return pd.DataFrame(out, index=pd.DatetimeIndex([s['session'] for s in sessions]))
+    result = pd.DataFrame(out, index=pd.DatetimeIndex([s['session'] for s in sessions]))
+    for column in ('announced_target_mid', 'effective_target_mid', 'latest_announced_change_bp', 'consecutive_hike_decisions', 'consecutive_cut_decisions', 'days_since_known_first_cut', 'qe_probability'):
+        result[column] = result[column].astype(float)
+    result['first_cut_of_known_cycle'] = result.first_cut_of_known_cycle.astype('boolean')
+    return result

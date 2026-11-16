@@ -157,9 +157,12 @@ def h8(raw, ref, official_dates):
         if title not in SCOPES:
             continue
         context = table['context']
-        settings = set(re.findall('(Not seasonally adjusted|Seasonally adjusted), billions of dollars', context))
+        settings = set(re.findall(r'\b(Not seasonally adjusted|Seasonally adjusted)\b', context, re.I))
+        settings = {setting.lower() for setting in settings}
         require(len(settings) == 1, 'SEASONAL_AMBIGUITY')
-        if settings == {'Not seasonally adjusted'}:
+        units = {unit.lower() for unit in re.findall(r'\b(Millions|Billions|Trillions) of dollars\b', context, re.I)}
+        require(units == {'billions'}, 'H8_UNIT')
+        if settings == {'not seasonally adjusted'}:
             continue
         scope = SCOPES[title]
         headers = {}
@@ -227,6 +230,26 @@ def rrp_transition(label, parent, pairs, values):
         return None
     return parent
 
+def text_columns(line):
+    """Linear bounded splitting; padded numeric columns never backtrack."""
+    parts = re.split(r' {2,}', line.strip())
+    joined = []
+    pending_sign = None
+    for part in parts:
+        if pending_sign is not None:
+            joined.append(pending_sign + part)
+            pending_sign = None
+        elif part in ('+', '-'):
+            pending_sign = part
+        else:
+            joined.append(part)
+    if pending_sign is not None:
+        return []
+    return joined
+
+def numeric_columns(parts):
+    return all(len(part) <= 64 and re.fullmatch(r'[+-]?\s*[\d,]+', part) is not None for part in parts)
+
 def h41(raw, ref, official_dates):
     doc, release = release_identity(raw, ref, official_dates)
     require(ref['feed'] == 'h41', 'FEED')
@@ -256,11 +279,12 @@ def h41(raw, ref, official_dates):
         rows = []
         critical = '^\\s*(Reverse repurchase agreements|Foreign official and international accounts|Others|U\\.S\\. Treasury, General Account|Reserve balances with Federal Reserve Banks)\\b'
         for line in lines:
-            match = re.fullmatch('(.+?) {2,}([\\d,]+) {2,}([+-]?\\s*[\\d,]+) {2,}([+-]?\\s*[\\d,]+) {2,}([\\d,]+)\\s*', line)
+            parts = text_columns(line)
+            matched = len(parts) >= 5 and numeric_columns(parts[-4:])
             if re.search(critical, line):
-                require(match is not None, 'H41_CRITICAL_ROW_FORMAT')
-            if match:
-                rows.append((clean(re.sub('\\(\\d+\\)', '', match[1])), [number(match[2]), number(match[5])]))
+                require(matched, 'H41_CRITICAL_ROW_FORMAT')
+            if matched:
+                rows.append((clean(re.sub('\\(\\d+\\)', '', ' '.join(parts[:-4]))), [number(parts[-4]), number(parts[-1])]))
         parent = None
         for label, values in rows:
             parent = rrp_transition(label, parent, pairs, values)
@@ -281,7 +305,14 @@ def h41(raw, ref, official_dates):
             own_date = re.findall(DATE_TEXT, asset_lines[n + 1])
             require(len(own_date) == 1, 'H41_ASSET_DATE')
             consolidated_days.append(h41_date(own_date[0]))
-        matches = re.findall('^Total assets\\s+(?:\\([\\d,]+\\)\\s+)?([\\d,]+)\\s+([+-]?\\s*[\\d,]+)\\s+([+-]?\\s*[\\d,]+)\\s*$', section[0], re.M)
+        matches = []
+        for line in asset_lines:
+            if not line.startswith('Total assets '):
+                continue
+            parts = text_columns(line)
+            require(len(parts) in (4, 5) and parts[0] == 'Total assets' and numeric_columns(parts[-3:]), 'H41_TOTAL_ASSETS_FORMAT')
+            require(len(parts) == 4 or re.fullmatch(r'\([\d,]+\)', parts[1]) is not None, 'H41_ELIMINATION_FORMAT')
+            matches.append(parts[-3:])
         require(len(matches) == 1, 'H41_TOTAL_ASSETS')
         asset = number(matches[0][0])
     else:

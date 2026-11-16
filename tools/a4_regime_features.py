@@ -104,18 +104,25 @@ def breadth(frame, index_price, *, population_id):
     require(set(frame) == {'advances', 'declines', 'unchanged', 'new_highs', 'new_lows', 'eligible', 'above_ma50', 'above_ma200', 'eligible_ma50', 'eligible_ma200'}, 'BREADTH_COLUMNS')
     require((frame.dropna(how='all').fillna(0) >= 0).all().all(), 'BREADTH_NEGATIVE')
     require((frame.dropna(how='all').fillna(0) % 1 == 0).all().all(), 'BREADTH_COUNTS')
-    complete = frame.notna().all(axis=1)
-    require((frame.loc[complete, ['advances', 'declines', 'unchanged']].sum(axis=1) == frame.loc[complete, 'eligible']).all(), 'BREADTH_COVERAGE')
-    require((frame.loc[complete, 'eligible'] > 0).all(), 'EMPTY_BREADTH_POPULATION')
-    require(frame.loc[complete, ['new_highs', 'new_lows', 'eligible_ma50', 'eligible_ma200']].le(frame.loc[complete, 'eligible'], axis=0).all().all(), 'BREADTH_LIMIT')
+    count_columns = ['advances', 'declines', 'unchanged']
+    coverage = frame[count_columns + ['eligible']].notna().all(axis=1)
+    require((frame.loc[coverage, count_columns].sum(axis=1) == frame.loc[coverage, 'eligible']).all(), 'BREADTH_COVERAGE')
+    require((frame.eligible.dropna() > 0).all(), 'EMPTY_BREADTH_POPULATION')
+    require((frame[count_columns].sum(axis=1) <= frame.eligible).where(frame.eligible.notna(), True).all(), 'BREADTH_COVERAGE')
+    for column in count_columns + ['new_highs', 'new_lows', 'eligible_ma50', 'eligible_ma200']:
+        known = frame[[column, 'eligible']].notna().all(axis=1)
+        require((frame.loc[known, column] <= frame.loc[known, 'eligible']).all(), 'BREADTH_LIMIT')
     for n in (50, 200):
-        require((frame.loc[complete, f'above_ma{n}'] <= frame.loc[complete, f'eligible_ma{n}']).all(), 'BREADTH_MA_LIMIT')
+        known = frame[[f'above_ma{n}', f'eligible_ma{n}']].notna().all(axis=1)
+        require((frame.loc[known, f'above_ma{n}'] <= frame.loc[known, f'eligible_ma{n}']).all(), 'BREADTH_MA_LIMIT')
     eligible = frame.eligible.replace(0, np.nan)
-    ad = (frame.advances - frame.declines).where(complete).cumsum(skipna=False)
+    ad = (frame.advances - frame.declines).where(coverage).cumsum(skipna=False)
     out = pd.DataFrame(dict(ad_line=ad, advance_fraction=frame.advances / eligible, new_high_low_net_fraction=(frame.new_highs - frame.new_lows) / eligible, new_high_low_ratio=frame.new_highs / frame.new_lows.replace(0, np.nan), above_ma50_fraction=frame.above_ma50 / frame.eligible_ma50.replace(0, np.nan), above_ma200_fraction=frame.above_ma200 / frame.eligible_ma200.replace(0, np.nan)), index=frame.index)
-    price_high = index_price >= index_price.shift(1).rolling(252, min_periods=252).max()
-    ad_high = ad >= ad.shift(1).rolling(252, min_periods=252).max()
-    known = index_price.shift(252).notna() & ad.shift(252).notna()
+    prior_price_high = index_price.shift(1).rolling(252, min_periods=252).max()
+    prior_ad_high = ad.shift(1).rolling(252, min_periods=252).max()
+    price_high = index_price >= prior_price_high
+    ad_high = ad >= prior_ad_high
+    known = index_price.notna() & ad.notna() & prior_price_high.notna() & prior_ad_high.notna()
     out['index_new_high_without_ad_confirmation'] = (price_high & ~ad_high).astype(float).where(known)
     return out
 ECON_COLUMNS = ('delayed_sahm_gap_pp', 'delayed_sahm_above_05pp', 'unemployment_3m_change_pp', 'payroll_3m_annualized', 'payroll_12m_growth', 'cpi_12m_inflation', 'cpi_3m_annualized', 'cpi_yoy_change_3m')

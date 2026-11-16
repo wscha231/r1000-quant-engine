@@ -24,6 +24,11 @@ RRP children, restarted unfinished blocks and pending parents refuse parsing.
 H.4.1 is millions of USD; H.8 is billions of USD. No fixed reserve threshold
 classifies risk.
 
+Seasonal and monetary-unit declarations are parsed independently, including
+conflicts expressed in different amount units. Legacy preformatted columns use
+bounded splitting and token checks rather than a backtracking row expression;
+malformed padded rows cannot consume an unbounded replay interval.
+
 Each row retains original URL/hash, release/vintage date, observation date,
 scope, SA basis, unit, balance basis and locator. Structural definitions and
 footnotes remain recoverable in the original, with its hash referenced by the

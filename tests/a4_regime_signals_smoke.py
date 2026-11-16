@@ -75,6 +75,16 @@ class ArchiveChecks(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     a.h8(raw, ref(raw), {'20160108'})
 
+    def test_adjustment_and_amount_conflicts_are_independent(self):
+        for declaration, reason in (
+            (b'Not seasonally adjusted, millions of dollars', 'SEASONAL_AMBIGUITY'),
+            (b'Seasonally adjusted, millions of dollars', 'H8_UNIT'),
+            (b'Seasonally adjusted, trillions of dollars', 'H8_UNIT'),
+        ):
+            raw = fixture().replace(b'Seasonally adjusted, billions of dollars', b'Seasonally adjusted, billions of dollars</p><p>' + declaration)
+            with self.subTest(declaration=declaration), self.assertRaisesRegex(ValueError, reason):
+                a.h8(raw, ref(raw), {'20160108'})
+
     def test_aggregate_identity_failure(self):
         raw = fixture().replace(b'>100.0</td>', b'>101.0</td>')
         with self.assertRaisesRegex(ValueError, 'DOMESTIC_COMPONENT_SUM'):
@@ -136,6 +146,21 @@ def h41_ref(raw):
     return r
 
 class H41Checks(unittest.TestCase):
+
+    def test_padded_malformed_row_finishes_within_process_budget(self):
+        import subprocess
+        malformed = b'x' + (b' ' * 1200 + b'1') * 3 + b'\n'
+        raw = h41_fixture('text').replace(b'2. Next section', malformed + b'2. Next section')
+        code = "import sys,hashlib; from tools import a4_archived_fed_releases as a; raw=sys.stdin.buffer.read(); ref=dict(feed='h41',release_date='20160107',url='https://www.federalreserve.gov/releases/h41/20160107/',collected_at='2026-11-16T00:00:00+00:00',sha256=hashlib.sha256(raw).hexdigest()); print(len(a.h41(raw,ref,{'20160107'})['observations']))"
+        result = subprocess.run([sys.executable, '-c', code], input=raw, capture_output=True, timeout=5, cwd=REPO)
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        self.assertEqual(result.stdout.strip(), b'7')
+
+    def test_linear_signed_columns_and_malformed_critical_row(self):
+        self.assertEqual(a.text_columns('Label  1  -    2  + 3  4'), ['Label', '1', '-2', '+ 3', '4'])
+        raw = h41_fixture('text').replace(b'2. Next section', b'Reserve balances with Federal Reserve Banks  1  2  3\n2. Next section')
+        with self.assertRaisesRegex(ValueError, 'H41_CRITICAL_ROW_FORMAT'):
+            a.h41(raw, h41_ref(raw), {'20160107'})
 
     def test_both_layouts_keep_units_dates_and_value_bases(self):
         for kind in ('text', 'html'):
@@ -294,6 +319,30 @@ class RegimeFeatures(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'COVERAGE'):
             r.breadth(f, pd.Series(100.0, index=idx), population_id='TEST_COHORT')
 
+    def test_breadth_missing_current_or_reference_never_confirms(self):
+        idx = pd.bdate_range('2020-01-01', periods=260)
+        f = pd.DataFrame(dict(advances=2., declines=1., unchanged=0., new_highs=1., new_lows=0., eligible=3., above_ma50=2., above_ma200=2., eligible_ma50=3., eligible_ma200=3.), index=idx)
+        price = pd.Series(np.arange(260) + 100., index=idx)
+        for field, at in (('advances', -1), ('price', -1), ('price', -100)):
+            counts, p = f.copy(), price.copy()
+            if field == 'price':
+                p.iloc[at] = np.nan
+            else:
+                counts.loc[idx[at], field] = np.nan
+            with self.subTest(field=field, at=at):
+                result = r.breadth(counts, p, population_id='TEST_COHORT')
+                self.assertTrue(np.isnan(result.index_new_high_without_ad_confirmation.iloc[-1]))
+                pd.testing.assert_frame_equal(result.iloc[:-1], r.breadth(counts.iloc[:-1], p.iloc[:-1], population_id='TEST_COHORT'))
+
+    def test_partial_breadth_cannot_bypass_operand_bounds(self):
+        idx = pd.bdate_range('2020-01-01', periods=2)
+        base = pd.DataFrame(dict(advances=np.nan, declines=1., unchanged=0., new_highs=1., new_lows=0., eligible=3., above_ma50=2., above_ma200=2., eligible_ma50=3., eligible_ma200=3.), index=idx)
+        for changes, reason in (({'above_ma50': 4}, 'BREADTH_MA_LIMIT'), ({'new_highs': 4}, 'BREADTH_LIMIT'), ({'eligible_ma200': 4}, 'BREADTH_LIMIT'), ({'eligible': 0}, 'EMPTY_BREADTH_POPULATION'), ({'declines': 2, 'unchanged': 2}, 'BREADTH_COVERAGE')):
+            f = base.assign(**changes)
+            with self.subTest(changes=changes), self.assertRaisesRegex(ValueError, reason):
+                r.breadth(f, pd.Series(100., index=idx), population_id='TEST_COHORT')
+        self.assertTrue(r.breadth(base, pd.Series(100., index=idx), population_id='TEST_COHORT').ad_line.isna().all())
+
     def test_breadth_ma_denominators_and_signed_credit(self):
         idx = pd.bdate_range('2020-01-01', periods=2)
         f = pd.DataFrame(dict(advances=2.0, declines=1.0, unchanged=0.0, new_highs=1.0, new_lows=0.0, eligible=3.0, above_ma50=2.0, above_ma200=1.0, eligible_ma50=2.0, eligible_ma200=1.0), index=idx)
@@ -330,6 +379,31 @@ def ss():
     return [dict(session=x, close_utc=x + 'T20:00:00+00:00') for x in ('2020-03-03', '2020-03-04', '2020-03-05')]
 
 class RegimeContext(unittest.TestCase):
+
+    def test_late_old_policy_does_not_restore_superseded_target(self):
+        older = event('2020-03-03', 2.)
+        older['available_at'] = '2020-03-05T19:00:00+00:00'
+        newer = event('2020-03-04', 1.5)
+        result = c.policy([older, newer], ss())
+        self.assertTrue(np.isnan(result.announced_target_mid.iloc[0]))
+        self.assertEqual(result.announced_target_mid.iloc[1], 1.375)
+        self.assertEqual(result.announced_target_mid.iloc[2], 1.375)
+        self.assertEqual(result.effective_target_mid.iloc[2], 1.375)
+        self.assertEqual(result.latest_announced_change_bp.iloc[2], -50.)
+        self.assertEqual(result.consecutive_hike_decisions.iloc[2], 0)
+        pd.testing.assert_frame_equal(c.policy([newer], ss()).iloc[:2], result.iloc[:2])
+        pd.testing.assert_frame_equal(c.policy([newer, older], ss()), result)
+
+    def test_effective_chronology_and_announcement_conflicts(self):
+        older = event('2020-03-03', 2., effective='2020-03-05')
+        newer = event('2020-03-04', 1.5)
+        result = c.policy([older, newer], ss())
+        self.assertEqual(result.announced_target_mid.iloc[-1], 1.375)
+        self.assertEqual(result.effective_target_mid.iloc[-1], 1.875)
+        conflict = event('2020-03-03', 1.)
+        conflict['available_at'] = '2020-03-04T19:00:00+00:00'
+        with self.assertRaisesRegex(ValueError, 'CONFLICTING_ANNOUNCEMENT'):
+            c.policy([older, conflict], ss())
 
     def test_announced_and_effective_are_separate(self):
         a = c.policy([event('2020-02-01', 1.75), event('2020-02-02', 2), event('2020-03-03', 1.5, effective='2020-03-04')], ss())
@@ -388,6 +462,25 @@ class RegimeContext(unittest.TestCase):
         self.assertIsNone(a['six_month_annualized_growth'])
         self.assertIsNone(a['depth_diffusion_threshold_condition'])
         self.assertEqual(a['consecutive_decline_months'], 2)
+        self.assertIsNone(a['six_consecutive_declines_USER_HYPOTHESIS'])
+
+    def test_lei_unknown_latest_and_partial_decline_window(self):
+        for at in (-1, -4):
+            values = pd.Series(np.linspace(100, 97, 8), index=pd.period_range('2020-01', periods=8, freq='M'))
+            values.iloc[at] = np.nan
+            result = c.lei(values, 40, method_version='A', annualized_threshold=-.043)
+            with self.subTest(at=at):
+                self.assertIsNone(result['six_consecutive_declines_USER_HYPOTHESIS'])
+                self.assertEqual(result['decline_count_basis'], 'CONFIRMED_CONTIGUOUS_SUFFIX_ONLY')
+        values = pd.Series(np.arange(8) + 100., index=pd.period_range('2020-01', periods=8, freq='M'))
+        self.assertFalse(c.lei(values, 40, method_version='A', annualized_threshold=-.043)['six_consecutive_declines_USER_HYPOTHESIS'])
+
+    def test_month_span_is_bounded_before_allocating(self):
+        from unittest.mock import patch
+        series = pd.Series([1., 2.], index=pd.PeriodIndex(['1900-01', '2100-01'], freq='M'))
+        with patch.object(c.pd, 'period_range', side_effect=AssertionError('must reject before expansion')):
+            with self.assertRaisesRegex(ValueError, 'MONTHLY_EXPANSION_BUDGET'):
+                c.monthly(series)
 
     def test_lei_threshold_units_and_method_required(self):
         values = pd.Series(np.arange(7) + 100.0, index=pd.period_range('2020-01', periods=7, freq='M'))
