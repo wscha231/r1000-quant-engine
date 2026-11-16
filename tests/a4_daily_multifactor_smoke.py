@@ -176,6 +176,34 @@ class DailyMultifactor(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'TARGETS'):
                 daily.compare({'SPY':panel},{'SPY':close},expected_spec_sha256=daily.digest(daily.specification()))
 
+    def test_direct_evaluate_refuses_invalid_dates_before_labels(self):
+        close,benchmark=self.prices(30)
+        panel=daily.price_features(close,benchmark)
+        duplicate=panel.index.to_list();duplicate[1]=duplicate[0]
+        missing=panel.index.to_list();missing[1]=pd.NaT
+        bad_indexes=(panel.index[::-1],pd.DatetimeIndex(duplicate),
+                     pd.DatetimeIndex(missing),pd.Index([str(v.date()) for v in panel.index]))
+        with patch.object(daily.learning,'outcome_labels',side_effect=AssertionError('unexpected labels')):
+            for index in bad_indexes:
+                with self.subTest(index_type=type(index).__name__):
+                    broken=panel.copy();broken.index=index
+                    prices=close.copy();prices.index=index
+                    with self.assertRaisesRegex(ValueError,'DATE_GRID'):
+                        daily.evaluate(broken,prices,'TECHNICAL','RISK',horizon=21,
+                                       outcome='return',shared_columns=list(daily.RISK))
+
+    def test_all_target_dates_checked_before_any_label_or_fit(self):
+        close,benchmark=self.prices(30)
+        panel=daily.price_features(close,benchmark)
+        # QQQ is sorted first by compare; keep it valid to prove that the
+        # malformed later SPY target is checked before evaluating QQQ.
+        with patch.object(daily.learning,'outcome_labels',side_effect=AssertionError('unexpected labels')):
+            with patch.object(daily,'evaluate',side_effect=AssertionError('unexpected fit')):
+                with self.assertRaisesRegex(ValueError,'DATE_GRID'):
+                    daily.compare({'QQQ':panel,'SPY':panel.iloc[::-1]},
+                        {'QQQ':close,'SPY':close.iloc[::-1]},
+                        expected_spec_sha256=daily.digest(daily.specification()))
+
 
 if __name__=='__main__':
     unittest.main()

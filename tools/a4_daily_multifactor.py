@@ -75,6 +75,11 @@ def digest(value):
     return hashlib.sha256(encoded(value)).hexdigest()
 
 
+def chronological_dates(index):
+    require(isinstance(index, pd.DatetimeIndex) and not index.hasnans
+            and index.is_unique and index.is_monotonic_increasing, 'DATE_GRID')
+
+
 def registry():
     """Priorities are research order, not investment weights or proven skill."""
     result = []
@@ -113,7 +118,7 @@ def specification():
 
 def price_features(close, benchmark):
     require(isinstance(close, pd.Series) and close.index.equals(benchmark.index), 'PRICE_GRID')
-    require(close.index.is_unique and close.index.is_monotonic_increasing, 'PRICE_ORDER')
+    chronological_dates(close.index)
     for series in (close, benchmark):
         require(not np.isinf(series.to_numpy(float)).any() and (series.dropna() > 0).all(), 'PRICE_VALUE')
     features, _ = study.technical_features(close, benchmark)
@@ -240,6 +245,7 @@ def hac_improvement(actual, model, baseline, horizon):
 def evaluate(panel, close, cohort, arm, *, horizon, outcome, shared_columns,
              initial=756, fold_size=252, min_train=504, target_labels=None):
     require(panel.index.equals(close.index) and horizon in HORIZONS and outcome in learning.OUTCOMES, 'EVALUATION_SCOPE')
+    chronological_dates(panel.index)
     require(arm in COHORTS[cohort] and initial >= 2 and fold_size >= 1 and min_train >= 2, 'EVALUATION_CONFIG')
     names = list(COHORTS[cohort][arm])
     matrix = panel.reindex(columns=names).to_numpy(float)
@@ -297,11 +303,16 @@ def compare(panels, prices, *, expected_spec_sha256, horizons=HORIZONS):
     require(digest(specification()) == expected_spec_sha256,'SPECIFICATION_PIN')
     require(set(panels) == set(prices) == {'SPY','QQQ'}, 'TARGETS')
     require(tuple(horizons) == HORIZONS, 'DECLARED_HORIZONS')
-    rows = []
+    # Validate every target before any label construction or fit. Checking
+    # only the transform does not protect panels reordered by a caller.
     for target in sorted(prices):
         panel, close = panels[target],prices[target]
         require(panel.index.equals(close.index) and 2 <= len(panel) <= 10000
                 and len(panel.columns) <= 128 and panel.columns.is_unique, 'PANEL_BUDGET')
+        chronological_dates(panel.index)
+    rows = []
+    for target in sorted(prices):
+        panel, close = panels[target],prices[target]
         labels = {h: learning.outcome_labels(close,h) for h in horizons}
         for cohort,arms in COHORTS.items():
             shared = sorted({name for names in arms.values() for name in names})

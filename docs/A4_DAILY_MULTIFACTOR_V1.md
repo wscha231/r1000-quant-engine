@@ -64,6 +64,8 @@ declared cases.504 is separate exploratory research; it does not modify the
 native request, release protocol or its seven horizons.
 Both targets are mandatory for this specification. A missing target refuses
 before fitting, rather than silently shrinking the declared testing family.
+All target date indexes must be unique, nonmissing, increasing DatetimeIndexes
+before constructing any labels. Direct evaluation enforces the same invariant.
 
 Expanding folds start at756 sessions with252-session test blocks. Training
 requires504 complete rows, fixed ridge penalty10, train-only means/scales and
