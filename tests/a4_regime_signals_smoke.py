@@ -226,9 +226,20 @@ class H41Checks(unittest.TestCase):
         raw = h41_fixture('text')
         original = b'Others'.ljust(65) + b'100  0  0  100\n'
         self.assertIn(original, raw)
-        for label in ('Others', 'Foreign official and international accounts', 'Reverse repurchase agreements', 'U.S. Treasury, General Account', 'Reserve balances with Federal Reserve Banks'):
-            altered = raw.replace(original, original + label.encode() + b'  200  0  0  200  999\n', 1)
-            with self.subTest(label=label), self.assertRaisesRegex(ValueError, 'H41_CRITICAL_ROW_FORMAT'):
+        for label in a.CRITICAL_LABELS:
+            for variant in (label, label.replace(' ', '  '), label.replace(' ', '\t'), label.replace(' ', '\u00a0'), label.lower()):
+                altered = raw.replace(original, original + variant.encode() + b'  200  0  0  200  999\n', 1)
+                with self.subTest(label=label, variant=variant), self.assertRaisesRegex(ValueError, 'H41_CRITICAL_ROW_FORMAT'):
+                    a.h41(altered, h41_ref(altered), {'20160107'})
+
+    def test_shared_whitespace_normalization_for_units_and_html_labels(self):
+        self.assertEqual(a.amount_units('Millions of dollars\n billions of\t dollars'), {'millions', 'billions'})
+        raw = h41_fixture('html')
+        original = b'<tr><td>Others</td><td>100</td><td>0</td><td>0</td><td>100</td></tr>'
+        for variant, reason in (('others', 'H41_CRITICAL_ROW_FORMAT'), ('Foreign  official and international accounts 200', 'RRP_DUPLICATE_CHILD')):
+            extra = '<tr><td>' + variant + '</td><td>200</td><td>0</td><td>0</td><td>200</td></tr>'
+            altered = raw.replace(original, original + extra.encode(), 1)
+            with self.subTest(variant=variant), self.assertRaisesRegex(ValueError, reason):
                 a.h41(altered, h41_ref(altered), {'20160107'})
 
     def test_h8_both_adjustments_retained_beyond_old_context_cap(self):

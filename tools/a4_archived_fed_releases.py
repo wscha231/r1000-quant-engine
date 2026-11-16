@@ -146,7 +146,7 @@ def observation(ref, release, logical, observed, value, unit, scope, basis, seas
     return dict(logical_id=logical, source_id='frb-archive:' + ref['feed'] + ':' + logical, observation_date=observed.isoformat(), value=value, unit=unit, frequency='weekly', scope=scope, balance_basis=basis, seasonal_adjustment=seasonal, release_date=release.isoformat(), vintage_date=release.isoformat(), published_at=None, available_at=(datetime.combine(release + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc) + timedelta(hours=5)).isoformat(), availability_policy='NEXT_CIVIL_DAY_05_UTC_CONSERVATIVE_RESEARCH_ASSUMPTION', collected_at=ref['collected_at'], original_sha256=ref['sha256'], original_url=ref['url'], locator=locator, methodology_notes_sha256=ref['sha256'], classification_break_adjusted=False, historical_use='DATE_ARCHIVE_RESEARCH_ONLY', historical_pit_certified=False, source_admitted=False, training_admitted=False)
 
 def amount_units(text):
-    return {unit.lower() for unit in re.findall(r'\b(Thousands|Millions|Billions|Trillions) of dollars\b', text, re.I)}
+    return {unit.lower() for unit in re.findall(r'\b(Thousands|Millions|Billions|Trillions) of dollars\b', clean(text), re.I)}
 
 def h8(raw, ref, official_dates):
     doc, release = release_identity(raw, ref, official_dates)
@@ -220,6 +220,12 @@ def h41_date(text):
 def h41_unit(text):
     require(amount_units(text) == {'millions'}, 'H41_UNIT')
 
+CRITICAL_LABELS = ('Reverse repurchase agreements', 'Foreign official and international accounts', 'Others', 'U.S. Treasury, General Account', 'Reserve balances with Federal Reserve Banks')
+
+def critical_prefix(text):
+    normalized = clean(text)
+    return next((label for label in CRITICAL_LABELS if re.match(re.escape(label) + r'\b', normalized, re.I)), None)
+
 def rrp_transition(label, parent, pairs, values):
     if parent == 'RRP_COMPLETE':
         require(label not in ('Others', 'Foreign official and international accounts'), 'RRP_DUPLICATE_CHILD')
@@ -283,14 +289,13 @@ def h41(raw, ref, official_dates):
         require(len(dates) == 2 and len(set(dates)) == 1, 'H41_HEADER_COVERAGE')
         observed = dates[0]
         rows = []
-        critical = '^\\s*(Reverse repurchase agreements|Foreign official and international accounts|Others|U\\.S\\. Treasury, General Account|Reserve balances with Federal Reserve Banks)\\b'
         for line in lines:
             parts = text_columns(line)
             matched = len(parts) >= 5 and numeric_columns(parts[-4:])
             label = clean(re.sub('\\(\\d+\\)', '', ' '.join(parts[:-4]))) if matched else None
-            critical_match = re.search(critical, line)
-            if critical_match:
-                require(matched and label == critical_match[1], 'H41_CRITICAL_ROW_FORMAT')
+            canonical = critical_prefix(line)
+            if canonical:
+                require(matched and label == canonical, 'H41_CRITICAL_ROW_FORMAT')
             if matched:
                 rows.append((label, [number(parts[-4]), number(parts[-1])]))
         parent = None
@@ -344,8 +349,10 @@ def h41(raw, ref, official_dates):
                     if not row:
                         continue
                     label = re.sub(' \\d+$', '', row[0])
+                    canonical = critical_prefix(label)
+                    require(canonical is None or label == canonical, 'H41_CRITICAL_ROW_FORMAT')
                     if len(row) != 5:
-                        require(label not in ('Reverse repurchase agreements', 'Foreign official and international accounts', 'Others', 'U.S. Treasury, General Account', 'Reserve balances with Federal Reserve Banks'), 'H41_CRITICAL_ROW_FORMAT')
+                        require(canonical is None, 'H41_CRITICAL_ROW_FORMAT')
                         continue
                     values = [number(row[1]), number(row[4])] if label in ('Reverse repurchase agreements', 'Foreign official and international accounts', 'Others', 'U.S. Treasury, General Account', 'Reserve balances with Federal Reserve Banks') else None
                     parent = rrp_transition(label, parent, pairs, values)
