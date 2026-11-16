@@ -54,5 +54,12 @@ unavailable cases remain in the testing family and private research history.
 The prior 576-case and additional 144-case discovery comparison found no positive
 MSE-improvement case at q<=0.05. That result does not select a model.
 
+The standalone504-session horizon remains exploratory. With the current
+10,000-session input cap and756-session initial split, even ignoring feature
+warmup and training maturity yields at most18 nonoverlap OOS windows at504.
+It cannot meet the existing20-window evidence gate under this budget. More
+overlapping daily rows do not remove that limit; changing a budget, target or
+qualification policy requires a separate reviewed contract and adequate history.
+
 Validation: `python tests/a4_regime_signals_smoke.py`. Registration also binds
 the smoke and both implementations in the independent A6 proof inventory.
