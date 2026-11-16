@@ -8436,14 +8436,21 @@ class ManualTests(unittest.TestCase):
         programs.update({'tests/control_plane_agent_contract_smoke.py',
                          'tests/system_state_materializer_smoke.py',
                          'tests/manual_foundation_smoke.py', 'tools/run_pr_validation.py'})
-        self.assertEqual(len(registered_validation.DEFAULT_TESTS), 237)
+        self.assertEqual(len(registered_validation.DEFAULT_TESTS), 238)
+        self.assertEqual(registered_validation.DEFAULT_TESTS.count(
+            ('tests/a4_regime_signals_smoke.py', [])), 1)
         self.assertEqual(registered_validation.DEFAULT_TESTS.count(
             ('tests/a4_daily_multifactor_smoke.py', [])), 1)
         self.assertEqual(registered_validation.DEFAULT_TESTS.count(
             ('tests/alpaca_sip_managed_refresh_smoke.py', [])), 1)
         required = set(manual.required_dependencies('A6_INDEPENDENT_QA', self.root))
         self.assertTrue(programs.issubset(required), sorted(programs - required))
-        for name in ('tests/a4_daily_multifactor_smoke.py',
+        for name in ('tests/a4_regime_signals_smoke.py',
+                     'tools/a4_rtdsm_sources.py',
+                     'tools/a4_archived_fed_releases.py',
+                     'tools/a4_regime_features.py',
+                     'tools/a4_regime_context.py',
+                     'tests/a4_daily_multifactor_smoke.py',
                      'tools/a4_daily_multifactor.py',
                      'tests/alpaca_sip_managed_refresh_smoke.py',
                      'tools/alpaca_sip_managed_refresh.py',
@@ -8462,6 +8469,31 @@ class ManualTests(unittest.TestCase):
                          '.github/workflows/api_credentials_check.yml',
                          '.github/workflows/twelve_data_credential_preflight.yml'}.issubset(required))
         packet, scope = self.packet('A6_INDEPENDENT_QA')
+        result = self.validate(packet, scope)
+        self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
+        self.assertFalse(result['worker_invoked'])
+        self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
+
+    def test_a6_regime_vintage_codec_refuses_changed_and_rebound_omission(self):
+        # The regime/daily transform imports this pre-existing codec. Its source
+        # identity must remain bound even though Source/PIT admission is separate.
+        name = 'tools/a4_rtdsm_sources.py'
+        packet, scope = self.packet('A6_INDEPENDENT_QA')
+        self.assertEqual(manual.A6_FIXED_PROOF_PROGRAMS.count(name), 1)
+        self.assertIn(name, packet['dependencies'])
+        target = self.root / name
+        original = target.read_bytes()
+        self.assertEqual(original, fixture_dependency_bytes(name, 'HEAD'))
+        try:
+            target.write_bytes(original + b'\n# synthetic changed vintage helper\n')
+            self.rejected(packet, scope, 'dependency_bytes_changed:' + name)
+        finally:
+            target.write_bytes(original)
+        omitted, verified = copy.deepcopy(packet), copy.deepcopy(scope)
+        del omitted['dependencies'][name]
+        del verified['dependencies'][name]
+        self.rebind_all(omitted, verified)
+        self.rejected(omitted, verified, 'missing_dependency')
         result = self.validate(packet, scope)
         self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
         self.assertFalse(result['worker_invoked'])

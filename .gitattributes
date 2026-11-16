@@ -44,3 +44,7 @@ tools/a4_rtdsm_sources.py text eol=lf
 tools/a4_daily_multifactor.py text eol=lf
 tests/a4_daily_multifactor_smoke.py text eol=lf
 docs/A4_DAILY_MULTIFACTOR_V1.md text eol=lf
+tools/a4_archived_fed_releases.py text eol=lf
+tools/a4_regime_features.py text eol=lf
+tools/a4_regime_context.py text eol=lf
+tests/a4_regime_signals_smoke.py text eol=lf
