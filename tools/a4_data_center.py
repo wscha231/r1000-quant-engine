@@ -13,7 +13,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from tools import a4_primary_sources as p,a4_primary_macro_sources as e,a4_financing_sources as f
 from tools import market_analysis_engine as market,collect_a4_primary_data as collector
 from tools import a4_macro_learning as learning,run_a4_research_cycle as cycle
-from tools import a4_rtdsm_sources as vintage
+from tools import a4_rtdsm_sources as vintage, a4_rtdsm_extension as extension
 from tools.macro_history_sources import digest,encoded,exclusive
 from tools.macro_research_checkpoint import LocalTransport,RcloneTransport
 
@@ -33,6 +33,7 @@ def index_identity():
     identity=market.implementation_identity()
     identity[Path(__file__).name]=digest(Path(__file__).read_bytes())
     identity[Path(vintage.__file__).name]=digest(Path(vintage.__file__).read_bytes())
+    identity[Path(extension.__file__).name]=digest(Path(extension.__file__).read_bytes())
     identity[Path(collector.__file__).name]=digest(Path(collector.__file__).read_bytes().replace(b'\r\n',b'\n'))
     path=Path(__file__).resolve().parents[1]/'docs/research_data_access.json'
     identity[path.name]=digest(path.read_bytes())
@@ -98,6 +99,97 @@ def vintage_context(references,cutoff,*,remote=None,budget=None):
             original_pairs_remote_verified=reader is remote and remote is not None
                 and remote.transport.remote_verified is True,**SAFETY))
     return result,audit,used
+
+
+def extension_vintage_context(references,cutoff,*,remote=None,budget=None):
+    """Explicit dated-vintage pins, separate from revised-current risk operands."""
+    p.check(type(references) is list and len(references)<=MAX_CAPTURES,'DATA_CENTER_EXTENSION_BUDGET')
+    selected={};seen=set();audit=[];result=[];used=0
+    for ref in references:
+        p.check(type(ref) is dict and set(ref)=={'root','generation_sha256','execution_sha256'},'DATA_CENTER_VINTAGE_REFERENCE')
+        sha=pin(ref['generation_sha256']);p.check(sha not in seen,'DATA_CENTER_DUPLICATE_VINTAGE');seen.add(sha)
+        if ref['root'] is None:
+            p.check(remote is not None,'DATA_CENTER_VINTAGE_TRANSPORT');reader=remote
+        else:
+            path=Path(ref['root']);p.check(path.is_dir() and not any(q.is_symlink() for q in (path,*path.parents)),
+                'DATA_CENTER_SOURCE_SYMLINK')
+            reader=OriginalReader(LocalTransport(path),local=True,budget=budget)
+        raw=p.read_object(reader,p.PREFIX+'/generations/'+sha+'.json',sha,65536);meta=p.f.strict_json(raw)
+        p.check(meta.get('schema')==extension.SCHEMA and meta.get('feed') in extension.FEEDS,'DATA_CENTER_VINTAGE_SCHEMA')
+        if p.clock(meta['collected_at'])>p.clock(cutoff):
+            audit.append(dict(generation_sha256=sha,status='EXCLUDED_FUTURE_VINTAGE_CAPTURE'));continue
+        execution_pin=pin(ref['execution_sha256'])
+        execution_raw=p.read_object(reader,p.PREFIX+'/executions/'+execution_pin+'.json',execution_pin,128*1024)
+        execution=p.f.strict_json(execution_raw)
+        p.check(type(execution) is dict and execution.get('schema')=='a4-rtdsm-extension-execution-v1' and
+            execution.get('status') in {'LOCAL_EXTENSION_RESEARCH_CAPTURE_COMPLETE','DURABLE_EXTENSION_RESEARCH_CAPTURE_COMPLETE','LOCAL_EXTENSION_TRANSPORT_CHECKED'} and
+            execution.get('requested_feeds')==list(extension.FEEDS) and execution.get('failures')==[] and
+            execution.get('not_run_feeds')==[] and len(execution.get('generation_sha256s',[]))==3 and
+            sha in execution['generation_sha256s'] and all(execution.get(k) is False for k in (*SAFETY,*extension.SAFETY,'model_fit_performed','a3_executed','a5_executed')),
+            'DATA_CENTER_EXTENSION_EXECUTION_BINDING')
+        p.check(p.clock(meta['collected_at'])<=p.clock(execution['cutoff'])<=p.clock(execution['completed_at'])<=p.clock(cutoff),
+            'DATA_CENTER_EXTENSION_EXECUTION_CLOCK')
+        p.check(re.fullmatch('[a-f0-9]{40}',execution.get('code_sha','')) and pin(execution.get('recipe_sha256')),
+            'DATA_CENTER_EXTENSION_EXECUTION_CODE')
+        generations=execution['generation_sha256s'];captures=execution.get('captures');publication=execution.get('publication')
+        p.check(all(type(x) is str and re.fullmatch('[a-f0-9]{64}',x) for x in generations) and
+            len(set(generations))==3 and type(captures) is list and len(captures)==3 and
+            all(type(x) is dict and set(x)=={'feed','generation_sha256','reused'} and type(x['reused']) is bool for x in captures) and
+            [x['feed'] for x in captures]==list(extension.FEEDS) and
+            [x['generation_sha256'] for x in captures]==generations and
+            next(x['feed'] for x in captures if x['generation_sha256']==sha)==meta['feed'],
+            'DATA_CENTER_EXTENSION_CAPTURE_BINDING')
+        recipe_raw=p.read_object(reader,p.PREFIX+'/objects/'+execution['recipe_sha256'],execution['recipe_sha256'],65536)
+        recipe=p.f.strict_json(recipe_raw)
+        recipe_keys={'schema','feeds','start','through','rights_notice_sha256','normalizer_sha256',
+            'legacy_codec_sha256','shared_codec_sha256','collector_sha256','reuse_generations'}
+        p.check(type(recipe) is dict and set(recipe)==recipe_keys and recipe['schema']=='a4-rtdsm-extension-capture-recipe-v1' and
+            recipe['feeds']==list(extension.FEEDS) and
+            all(recipe[k]==meta[j] for k,j in (('start','requested_start'),('through','requested_through'),
+                ('rights_notice_sha256','rights_notice_sha256'),('normalizer_sha256','normalizer_sha256'),
+                ('legacy_codec_sha256','legacy_codec_sha256'),('shared_codec_sha256','shared_codec_sha256'))) and
+            type(recipe['collector_sha256']) is str and re.fullmatch('[a-f0-9]{64}',recipe['collector_sha256']) and
+            type(recipe['reuse_generations']) is dict and set(recipe['reuse_generations'])<=set(extension.FEEDS) and
+            all(type(x) is str and re.fullmatch('[a-f0-9]{64}',x) for x in recipe['reuse_generations'].values()) and
+            all(x['reused']==(x['feed'] in recipe['reuse_generations']) and
+                (not x['reused'] or recipe['reuse_generations'][x['feed']]==x['generation_sha256']) for x in captures),
+            'DATA_CENTER_EXTENSION_RECIPE_BINDING')
+        if execution['status']=='LOCAL_EXTENSION_RESEARCH_CAPTURE_COMPLETE':
+            p.check(publication==[],'DATA_CENTER_EXTENSION_PUBLICATION_BINDING')
+        else:
+            remote_success=execution['status']=='DURABLE_EXTENSION_RESEARCH_CAPTURE_COMPLETE'
+            fields={'generation_sha256','observations','transport_readback_verified',*extension.SAFETY}
+            p.check(type(publication) is list and len(publication)==3 and
+                all(type(x) is dict and set(x)==fields and type(x['observations']) is int and x['observations']>0 and
+                    x['transport_readback_verified'] is remote_success and all(x[k] is False for k in extension.SAFETY) for x in publication) and
+                [x['generation_sha256'] for x in publication]==generations and
+                next(x['observations'] for x in publication if x['generation_sha256']==sha)==meta['observations'],
+                'DATA_CENTER_EXTENSION_PUBLICATION_BINDING')
+
+        if ref['root'] is not None:
+            p.check(not (Path(ref['root']).parent/'publication_failed.json').exists(),'DATA_CENTER_EXTENSION_PUBLICATION_FAILED')
+        feed=meta['feed'];old=selected.get(feed)
+        p.check(old is None or p.clock(old[2]['collected_at'])!=p.clock(meta['collected_at']),
+            'DATA_CENTER_AMBIGUOUS_VINTAGE_CAPTURE')
+        if old is None or p.clock(old[2]['collected_at'])<p.clock(meta['collected_at']):selected[feed]=(reader,sha,meta,execution_pin)
+    for feed,(reader,sha,_,execution_pin) in sorted(selected.items()):
+        rows,meta=extension.read_generation(reader,sha,cutoff=cutoff);used+=len(rows)
+        p.check(meta['capture_ref'] is not None and meta['capture_clock_precision']=='BODY_COMPLETION_CALLER_REFERENCE',
+            'DATA_CENTER_EXTENSION_CAPTURE_CLOCK_REQUIRED')
+        p.check(used<=MAX_ROWS,'DATA_CENTER_ROW_BUDGET')
+        visible=extension.asof_rows(rows,cutoff);latest=max(visible,key=lambda r:r['observation_date'])
+        result.append(dict(feed=feed,generation_sha256=sha,execution_sha256=execution_pin,collection_execution_verified=True,status='VERIFIED_EXTENSION_DATED_VINTAGE_RESEARCH_ONLY',
+            original_sha256=meta['original_sha256'],normalized_object_sha256=meta['normalized_object_sha256'],
+            documentation_sha256=meta['documentation_sha256'],rights_notice_sha256=meta['rights_notice_sha256'],
+            normalizer_sha256=meta['normalizer_sha256'],source_uri=meta['source_uri'],
+            collected_at=meta['collected_at'],observations=len(rows),vintages=meta['vintages'],
+            first_vintage_month=meta['first_vintage_month'],last_vintage_month=meta['last_vintage_month'],
+            retained_months_per_vintage=meta['retained_months_per_vintage'],latest=latest,
+            historical_use=meta['historical_use'],publication_time_verified=False,
+            original_pairs_remote_verified=reader is remote and remote is not None
+                and remote.transport.remote_verified is True,**SAFETY))
+    return result,audit,used
+
 
 
 def summarise(rows,feed,cutoff):
@@ -328,6 +420,9 @@ def render_catalog(catalog):
             f"observation {row['observation_date']}, value {row['value']} {row['unit']}; "
             f"research availability bound {row['available_at']} ({row['availability_basis']}).",
             'Monthly observations and quarterly vintage releases remain distinct. Exact publication time and training admission are unverified.']
+    for item in catalog.get('dated_extension_sources',[]):
+        lines+=['',f"RTDSM extension {item['feed']}: {item['vintages']} retained vintages; research bytes only.",
+            'Source/PIT/learning/current-risk admission remains false. Related G17/CPI components are not independent votes.']
     if 'long_horizon_preparation' in catalog:
         capacity=catalog['long_horizon_preparation']
         lines+=['',f"504-session preparation: dense maximum at the current input ceiling is "
@@ -337,7 +432,7 @@ def render_catalog(catalog):
 
 
 def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,probe_lake=False,learning_root=None,
-          learning_policy_sha256=None,code_sha=None,vintage_references=None):
+          learning_policy_sha256=None,code_sha=None,vintage_references=None,extension_vintage_references=None):
     """Produce a hash-bound as-of view; old successes never hide newer failed attempts."""
     now=p.clock(cutoff);cutoff=now.isoformat()
     identity=index_identity();p.check(identity[Path(__file__).name]==LOADED_INDEX_SHA256,'DATA_CENTER_LOADED_CODE_CHANGED')
@@ -345,6 +440,10 @@ def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,prob
         'DATA_CENTER_PUBLICATION_CODE_PIN')
     p.check(type(captures) is list and 0<len(captures)<=MAX_CAPTURES and
         all(type(s) is dict and set(s)=={'root','execution_sha256'} for s in captures),'DATA_CENTER_CAPTURE_BUDGET')
+    vintage_references=[] if vintage_references is None else vintage_references
+    extension_vintage_references=[] if extension_vintage_references is None else extension_vintage_references
+    p.check(type(vintage_references) is list and type(extension_vintage_references) is list and
+        len(vintage_references)+len(extension_vintage_references)<=MAX_CAPTURES,'DATA_CENTER_COMBINED_VINTAGE_BUDGET')
     root=Path(output_dir);p.check(not root.exists() and not any(q.is_symlink() for q in (root,*root.parents)),
         'DATA_CENTER_OUTPUT_EXISTS_OR_SYMLINK')
     originals=[Path(item['root']) for item in captures]
@@ -501,7 +600,8 @@ def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,prob
         'DATA_CENTER_LATEST_CORE_INPUT_FAILED_OR_MISSING',cutoff=cutoff,session=request['session'])
     learn=learning_readiness(learning_root,learning_policy_sha256,cutoff)
     dated,vintage_audit,vintage_rows=vintage_context([] if vintage_references is None else vintage_references,cutoff,remote=remote,budget=budget)
-    p.check(rows_used+vintage_rows<=MAX_ROWS,'DATA_CENTER_ROW_BUDGET');audit.extend(vintage_audit)
+    extra,extra_audit,extra_rows=extension_vintage_context(extension_vintage_references or [],cutoff,remote=remote,budget=budget)
+    p.check(rows_used+vintage_rows+extra_rows<=MAX_ROWS,'DATA_CENTER_ROW_BUDGET');audit.extend(vintage_audit);audit.extend(extra_audit)
     legacy=lake_metadata(source_transport if probe_lake else None,cutoff)
     p.check(identity==index_identity(),'DATA_CENTER_IMPLEMENTATION_CHANGED')
     catalog=dict(schema=SCHEMA,cutoff=cutoff,mode='RESEARCH_ONLY',status='PARTIAL_RESEARCH',
@@ -512,7 +612,7 @@ def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,prob
         selected_sources={key:selected[key] for key in sorted(selected)},native_frequencies_preserved=True,
         retrospective_descriptions=[dict(item,generation_sha256=s['generation_sha256'],original_sha256=s['original_sha256'])
             for _,s in sorted(selected.items()) for item in s.get('retrospective_descriptions',[])],
-        native_input_state=native_state,dated_vintage_sources=dated,
+        native_input_state=native_state,dated_vintage_sources=dated,dated_extension_sources=extra,
         long_horizon_preparation=learning.prospective_horizon_capacity(10000,504),
         legacy_lake=legacy,price_and_financial_route=dict(status='LOCATOR_ONLY_NOT_COVERAGE',
             reader='tools/research_model_inputs.py:replay_model_inputs',source_originals_reverified_here=False),
@@ -578,14 +678,18 @@ def main():
     parser.add_argument('--learning-input-root');parser.add_argument('--learning-policy-sha256')
     parser.add_argument('--vintage-generation-sha256',action='append',default=[])
     parser.add_argument('--vintage-archive-root',help='Existing local archive; omit to read the explicit vintage pins from Drive')
+    parser.add_argument('--extension-vintage-generation-sha256',action='append',default=[])
+    parser.add_argument('--extension-vintage-archive-root')
+    parser.add_argument('--extension-vintage-execution-sha256',action='append',default=[])
     args=parser.parse_args()
     attempt_root=Path(args.output_dir)
     owned=not attempt_root.exists() and not any(q.is_symlink() for q in (attempt_root,*attempt_root.parents))
     try:
         p.check(len(args.capture_root)==len(args.execution_sha256),'DATA_CENTER_CAPTURE_BINDING')
+        p.check(len(args.extension_vintage_generation_sha256)==len(args.extension_vintage_execution_sha256),'DATA_CENTER_EXTENSION_EXECUTION_REFERENCES')
         if args.publish:p.check(type(args.code_sha) is str and re.fullmatch('[a-f0-9]{40}',args.code_sha),'DATA_CENTER_PUBLICATION_CODE_PIN')
         reader=RcloneTransport(os.environ['MACRO_RESEARCH_REMOTE']) if args.publish or args.remote_execution_sha256 or (
-            args.vintage_generation_sha256 and args.vintage_archive_root is None) else None
+            args.vintage_generation_sha256 and args.vintage_archive_root is None) or (args.extension_vintage_generation_sha256 and args.extension_vintage_archive_root is None) else None
         specs=[dict(root=r,execution_sha256=s) for r,s in zip(args.capture_root,args.execution_sha256)]
         p.check(len(specs)+len(args.remote_execution_sha256)<=MAX_CAPTURES,'DATA_CENTER_CAPTURE_BUDGET')
         cache=Path(args.output_dir).with_name(Path(args.output_dir).name+'-references')
@@ -594,7 +698,8 @@ def main():
             cutoff=args.cutoff,output_dir=args.output_dir,transport=reader if args.publish else None,source_transport=reader,
             probe_lake=args.probe_lake_metadata,
             learning_root=args.learning_input_root,learning_policy_sha256=args.learning_policy_sha256,code_sha=args.code_sha,
-            vintage_references=[dict(root=args.vintage_archive_root,generation_sha256=s) for s in args.vintage_generation_sha256])
+            vintage_references=[dict(root=args.vintage_archive_root,generation_sha256=s) for s in args.vintage_generation_sha256],
+            extension_vintage_references=[dict(root=args.extension_vintage_archive_root,generation_sha256=s,execution_sha256=x) for s,x in zip(args.extension_vintage_generation_sha256,args.extension_vintage_execution_sha256)])
         print(encoded(dict(status=receipt['status'],catalog_sha256=receipt['catalog_sha256'],
             current_diagnosis=catalog['current_diagnosis']['status'],historical_evaluation=catalog['historical_evaluation']['status'],
             future_view=catalog['future_view']['status'])).decode().strip())

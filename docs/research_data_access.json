@@ -66,6 +66,26 @@
     "source_admitted": false,
     "training_admitted": false
   },
+  "a4_extended_dated_vintage_component": {
+    "guide": "docs/A4_RTDSM_EXTENSION_V1.md",
+    "reader": "tools/a4_rtdsm_extension.py:read_generation",
+    "schema": "a4-rtdsm-extension-bundle-v1",
+    "producer": "tools/collect_a4_primary_data.py --rtdsm-extension-only",
+    "shared_archive_prefix": "shared-research-v1/macro-primary",
+    "source_ids": [
+      "rtdsm-ext:PCPIX",
+      "rtdsm-ext:IPT",
+      "rtdsm-ext:CUT"
+    ],
+    "typed_catalog_field": "dated_extension_sources",
+    "exact_generation_and_successful_execution_pins_required": true,
+    "replayed_body_completion_clock_required": true,
+    "historical_use": "DATE_ARCHIVE_RESEARCH_ONLY; monthly conservative vintage bounds, not historical-PIT certification",
+    "current_risk_operands_replaced": false,
+    "native_learning_registered": false,
+    "source_admitted": false,
+    "training_admitted": false
+  },
   "a4_primary_component": {
     "guide": "docs/A4_PRIMARY_DATA_OPERATIONS.md",
     "producer": "tools/collect_a4_primary_data.py",

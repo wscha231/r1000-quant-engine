@@ -1,5 +1,11 @@
 # A4 primary-original collection
 
+The [closed dated-vintage extension](A4_RTDSM_EXTENSION_V1.md) reuses this
+producer only through explicit --rtdsm-extension-only with a pinned three-
+feed recipe and reviewed execution scope. Default collection and workflow
+settings are unchanged. Its generation/recipe/execution readbacks remain
+separate from Source/PIT/model permission.
+
 The separately enabled [financing component](A4_FINANCING_CONDITIONS_V1.md)
 adds Treasury auction cohorts, domestic SLOOS and native daily/monthly ACM
 inputs through its own typed Reader in this same archive. Missing licensed
