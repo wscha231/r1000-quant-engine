@@ -3,10 +3,12 @@ import copy
 from datetime import timedelta
 import json
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 from urllib.error import HTTPError
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from tools import a4_data_center as d,a4_primary_sources as p,collect_a4_primary_data as c
 from tools.macro_history_sources import encoded,digest
 from tools.macro_research_checkpoint import LocalTransport

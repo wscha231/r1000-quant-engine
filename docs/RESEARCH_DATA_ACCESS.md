@@ -1,5 +1,10 @@
 # 다른 채팅·에이전트의 공통 연구 데이터 이용
 
+PCPIX·IPT·CUT 확장은 별도 RTDSM 구성요소(A4_RTDSM_EXTENSION_V1.md)의
+정확한 원본·수집 조건·성공 실행 영수증과 본문 수신 완료 시각을 함께 검증한다.
+dated_extension_sources는 기존 3개 빈티지와 별도이며 Native 학습·위험 입력을
+대체하지 않는다. 기존 수집기의 명시적 선택 경로만 사용한다.
+
 필라델피아 연준의 과거 빈티지는 [RTDSM 계약](A4_RTDSM_VINTAGES_V1.md)과
 `tools/a4_rtdsm_sources.py`의 고정 원본 Reader를 사용한다. 고용·CPI의 월별
 빈티지와 실업률의 분기별 빈티지를 구분하며, 관측 월을 실제 발표 시각으로

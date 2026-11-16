@@ -1,5 +1,12 @@
 # Unified A4 research data center
 
+The [PCPIX/IPT/CUT extension](A4_RTDSM_EXTENSION_V1.md) uses the separate
+dated_extension_sources typed view. Each reference binds a generation and
+successful component execution; the recipe original, ordered feed/capture map
+and actual body-completion reference must replay. Legacy and extension pins
+share the existing8-reference/64MiB/150,000-row budget. This is research
+context with no native risk or learning admission.
+
 Explicit Philadelphia Fed vintage pins are documented in
 [dated-vintage research](A4_RTDSM_VINTAGES_V1.md). Their original replay and
 conservative availability bounds appear separately under `dated_vintage_sources`;

@@ -222,6 +222,7 @@ BOARD_INPUT_DEPENDENCIES = [
 # Retain canonical contract reads from the registered tests and their default
 # loaders/fingerprints, reviewed at 8f9d258. Code pins alone do not bind them.
 A6_FIXED_PROOF_INPUTS = (
+    'docs/A4_RTDSM_EXTENSION_V1.md',
     'docs/a4_regime_hypotheses_v1.json',
     "docs/market_analysis_contract_v1.json",
     "tests/fixtures/manual_foundation_long_history_lake_v1.py.gz",
@@ -415,6 +416,9 @@ A6_FIXED_PROOF_INPUTS = (
     'docs/A4_CLOUD_RESEARCH_OPERATIONS.md',
 )
 A6_FIXED_PROOF_PROGRAMS = (
+    'tools/a4_rtdsm_extension.py',
+    'tests/a4_rtdsm_extension_smoke.py',
+    'tests/a4_rtdsm_sources_smoke.py',
     'tools/a4_rtdsm_sources.py',
     'tests/a4_regime_signals_smoke.py',
     'tools/a4_archived_fed_releases.py',
