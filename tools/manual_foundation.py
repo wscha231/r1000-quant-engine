@@ -415,6 +415,7 @@ A6_FIXED_PROOF_INPUTS = (
     'docs/A4_CLOUD_RESEARCH_OPERATIONS.md',
 )
 A6_FIXED_PROOF_PROGRAMS = (
+    'tools/a4_rtdsm_sources.py',
     'tests/a4_regime_signals_smoke.py',
     'tools/a4_archived_fed_releases.py',
     'tools/a4_regime_features.py',

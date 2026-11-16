@@ -72,4 +72,6 @@ overlapping daily rows do not remove that limit; changing a budget, target or
 qualification policy requires a separate reviewed contract and adequate history.
 
 Validation: `python tests/a4_regime_signals_smoke.py`. Registration also binds
-the smoke, three implementations and JSON in the independent A6 proof inventory.
+the smoke, three implementations, consumed legacy vintage codec and JSON in the
+independent A6 proof inventory. The legacy codec bytes remain unchanged; separate
+literal witnesses reject its changed bytes and omission after caller rebinding.
