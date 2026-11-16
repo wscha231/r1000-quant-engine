@@ -92,6 +92,7 @@ hashes, implementation and dependencies; run the do-not-repeat preflight and
 retain all attempts in the existing research-history route. Prior inspected
 outcomes are not blind. Identical input/specification reuses the recorded run.
 
-Focused validation: `python tests/a4_daily_multifactor_smoke.py`. Shared runner
-registration is a separate coordinated patch after the Source/Main publication
-sequence; no shared runner or frozen historical fixture is modified here.
+Focused validation: `python tests/a4_daily_multifactor_smoke.py`. The test is
+registered in `tools/run_pr_validation.py` after the accepted Source/Main
+integration. `--only a4_daily_multifactor_smoke` selects it without adding a
+second registration. No frozen historical fixture or production pin is changed.

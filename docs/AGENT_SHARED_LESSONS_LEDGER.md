@@ -11712,3 +11712,9 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 ### 2026-11-14 — Attest shared current-observation validation and retain typed date refusal
 
 - A new cross-module A3 validator is a runtime dependency of multi-asset publication. Pin the Moat helper in the existing source identity manifest and exercise changed helper bytes; before/after checks cannot protect an omitted module. Civil-date bounds also require typed handling of UTC conversion/14-hour overflow, including valid aware ISO values near datetime limits, in both Moat and A3 consumers.
+
+### 2026-11-16 — Register A4 after accepted Main integration
+
+- Register the standalone multifactor smoke exactly once after the accepted Source/Main base. Keep the earlier private experiment's exact implementation identity and its negative/insufficient results; source publication and CI do not turn those results into historical-PIT, learning or portfolio admission.
+- The first unpublished local ledger merge retained CRLF conflict-marker lines after an LF-only replacement. Preserve that failed local commit reference and repair only the resolution before publication. Verify zero markers and preserve both complete lesson blocks; explicitly stop PowerShell on a native diff-check failure before any commit. The repaired merge does not alter either owner's original lesson text.
+- The expanded Windows quick smoke initially failed nested A2 hash checks because three clean schema worktree representations used CRLF. Preserve their raw bytes/hashes; restore only when LF normalization exactly reproduces both the authenticated Git blob and the existing schema pin. The repaired quick smoke passed38/38. No schema content, expected pin or validation guard was changed, and these representation-only files are outside the PR diff.
