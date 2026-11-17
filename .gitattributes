@@ -56,3 +56,5 @@ tests/a4_guarded_regression_smoke.py text eol=lf
 tools/a4_flow_relationships.py text eol=lf
 tools/a4_flow_price_inputs.py text eol=lf
 tests/a4_flow_relationships_smoke.py text eol=lf
+tools/a4_price_fallback.py text eol=lf
+tests/a4_price_fallback_smoke.py text eol=lf

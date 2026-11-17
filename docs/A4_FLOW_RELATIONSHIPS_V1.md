@@ -113,3 +113,56 @@ an earlier scope or infer current market coverage from the retained July cache.
 Public GitHub artifacts remain counts/hashes only; numerical research stays
 in the existing private Drive catalog. Research is RESEARCH_ONLY and cannot
 supply A3 expected returns, A5 weights or a champion replacement.
+
+## Bounded multi-provider price test (v2, opt-in)
+
+The v1 policy/view and its single existing-yfinance batch remain supported.
+An independently pinned a4-flow-test-policy-v2 may explicitly order two or
+three existing adapters: alpaca_sip, yfinance and twelve_data. It allows one
+attempt per provider, at most the declared two/three batches in total, under
+the same single consumed session claim and existing hosted timeout. Each
+descriptor binds a private-test-use scope hash and explicit owner test
+authorization. Alpaca additionally requires the noncommercial terms
+acknowledgment; Twelve Data requires the reviewed SPY/QQQ MIC mapping. These
+declarations do not establish supplier storage, training or Source rights.
+Missing credentials/entitlement, network/limit errors, empty/partial/stale
+frames or inadequate history advance only to the next declared provider.
+Policy expiry, session rollover or credential echoes stop the whole chain.
+No retry of a provider, failed session or expired execution scope is added.
+
+Select both exact latest-completed-session closes from one provider; never
+splice one ETF or historical segment from another provider/cache. History
+must start no later than 2016-01-11 and contain at least 2,000 nonmissing
+closes per ETF. This lower coverage check is not exchange-calendar, identity,
+corporate-action or PIT certification. All-failed is BLOCKED; retained July
+2026 prices never qualify as current prices. An existing same-session view
+is reusable only under the same external policy, producer and durable rules.
+
+Alpaca reuses the SIP raw-bars request/parser and preserves its inclusive-end
+delay before credentials/networking. Twelve reuses authenticated header-only,
+no-redirect/no-retry HTTP; its inclusive end is the selected session and
+adjust=none. Each has at most two reserved-before-call HTTP requests, each
+response at most 2MiB. Yahoo keeps the existing auto_adjust=False downloader;
+one logical batch has UNKNOWN backend HTTP count. No false cross-provider
+HTTP total is asserted. API keys stay in existing environment/secrets, never
+policy, URL, diagnostics or artifact contents. Existing hosted scheduling
+and default-OFF policy activation are unchanged.
+
+Private provider-evidence.json records whitelisted frame type/shape/columns/
+index, safe failure category, times and exact-body hashes. It never repeats
+arbitrary labels, exception text or provider error bodies into public logs.
+Credential-checked HTTP bodies are retained only in private content-addressed
+evidence. The v2 snapshot/view bind selected provider, policy descriptor and
+ordered attempted prefix. The Reader rehashes retained bodies and replays
+Alpaca/Twelve normalization to the snapshot closes; Yahoo explicitly has no
+raw HTTP original. A v2 snapshot is at most 8MiB, its view 4MiB, and provider
+evidence 8MiB, within the unchanged cumulative transport allowance. An
+all-failed witness is separately stored/read back; no completion marker is
+written. Public receipts list only hashes/byte counts, including that witness.
+
+The raw original flag does not grant Source/PIT/training admission. These
+current-vintage raw Close series omit total-return/cost qualification and
+cannot be silently passed to learning or portfolio allocation. Deployment,
+actual provider capture, private Drive readback and scheduled execution must
+be evidenced separately; offline synthetic failure tests establish none of
+those actual outcomes.

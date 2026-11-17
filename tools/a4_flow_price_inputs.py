@@ -1,7 +1,7 @@
-"""Thin test-only SPY/QQQ wrapper over the existing price collector.
+"""Finite test-only SPY/QQQ wrapper over existing price collectors.
 
-Returned DataFrame snapshots are not raw HTTP originals or qualified Source
-inputs. This component grants no supplier, historical-PIT or learning rights.
+V1 retains normalized DataFrames; opt-in v2 may retain authenticated HTTP
+bodies too. Neither grants supplier, Source, historical-PIT or learning rights.
 """
 from __future__ import annotations
 from datetime import timedelta
@@ -17,19 +17,25 @@ from tools.macro_history_sources import digest,encoded
 TARGETS=('SPY','QQQ')
 PURPOSE='PRIVATE_CURRENT_VINTAGE_FLOW_ASSOCIATION'
 MAX_VIEW_BYTES=4*1024**2
+MAX_SNAPSHOT_BYTES=8*1024**2
 MAX_TRANSPORT_COMMANDS=128
 MAX_TRANSPORT_BYTES=32*1024**2
 MAX_TRANSPORT_SECONDS=600
 
-def _file_pins():
-    return {p.name:digest(p.read_bytes().replace(b'\r\n',b'\n') if p.name=='build_replay_price_cache.py' else p.read_bytes())
-            for p in (Path(__file__),Path(collector.__file__),Path(market.__file__),Path(primary.__file__))}
+def _file_pins(version=1):
+    paths=[Path(__file__),Path(collector.__file__),Path(market.__file__),Path(primary.__file__)]
+    if version==2:
+        from tools import a4_price_fallback as fallback
+        paths.extend(Path(__file__).parents[1]/name for name in fallback.PIN_PATHS)
+    return {p.name:digest(p.read_bytes().replace(b'\r\n',b'\n') if version==2 or p.name=='build_replay_price_cache.py' else p.read_bytes())
+            for p in paths}
 
 LOADED_PRODUCER_PINS=_file_pins()
+LOADED_FALLBACK_PINS=_file_pins(2)
 
-def producer_pins():
-    pins=_file_pins()
-    need(pins==LOADED_PRODUCER_PINS,'LOADED_PRODUCER_CHANGED')
+def producer_pins(version=1):
+    pins=_file_pins(version)
+    need(pins==(LOADED_FALLBACK_PINS if version==2 else LOADED_PRODUCER_PINS),'LOADED_PRODUCER_CHANGED')
     return pins
 
 def need(ok,why):
@@ -38,30 +44,37 @@ def need(ok,why):
 def validate_policy(raw,expected_sha256,cutoff):
     need(type(raw) is bytes and 0<len(raw)<=65536 and digest(raw)==expected_sha256,'EXTERNAL_POLICY_PIN')
     policy=primary.f.strict_json(raw);now=primary.clock(cutoff)
-    need(policy.get('schema')=='a4-flow-test-policy-v1' and policy.get('purpose')==PURPOSE,'POLICY_PURPOSE')
+    need(policy.get('schema') in ('a4-flow-test-policy-v1','a4-flow-test-policy-v2') and policy.get('purpose')==PURPOSE,'POLICY_PURPOSE')
+    version=2 if policy['schema'].endswith('v2') else 1
+    if version==2:
+        from tools import a4_price_fallback as fallback
+        fallback.policy_check(policy)
     start,end=primary.clock(policy['available_at']),primary.clock(policy['expires_at'])
     need(start<=now<end and end-start<=timedelta(days=31),'POLICY_CLOCK')
     need(policy.get('targets')==list(TARGETS) and policy.get('price_start')=='2016-01-01'
-         and type(policy.get('maximum_batch_calls_per_attempt')) is int and policy['maximum_batch_calls_per_attempt']==1
+         and type(policy.get('maximum_batch_calls_per_attempt')) is int
+         and policy['maximum_batch_calls_per_attempt']==(len(policy['providers']) if version==2 else 1)
          and type(policy.get('maximum_attempts_per_session')) is int and policy['maximum_attempts_per_session']==1,'BOUNDED_PROFILE')
     need(policy.get('price_column')=='Close' and policy.get('currency_expectation')=='USD'
          and policy.get('source_quality')=='UNQUALIFIED_DATAFRAME_SNAPSHOT'
          and policy.get('supplier_training_permission_granted') is False,'PRICE_PURPOSE')
     need(type(policy.get('research_folder_ID')) is str and re.fullmatch('[A-Za-z0-9_-]+',policy['research_folder_ID'])
          and policy.get('provider_private_use_and_storage_rights')=='UNVERIFIED','CUSTODY_AND_RIGHTS')
-    expected=producer_pins()
+    expected=producer_pins(version)
     need(policy.get('producer_sha256')==expected,'PRODUCER_IMPLEMENTATION')
     need(policy.get('model_fits_allowed')==0 and policy.get('portfolio_changes_allowed') is False,'NO_FIT_OR_PORTFOLIO')
     return policy
 
 def price_series(view,*,policy_sha256,cutoff,expected_session=None):
-    need(type(view) is dict and view.get('schema')=='a4-flow-test-price-view-v1'
+    need(type(view) is dict and view.get('schema') in ('a4-flow-test-price-view-v1','a4-flow-test-price-view-v2')
          and view.get('policy_sha256')==policy_sha256 and view.get('purpose')==PURPOSE,'VIEW_SCOPE')
+    version=2 if view['schema'].endswith('v2') else 1
     need(primary.clock(view['available_at'])<=primary.clock(cutoff),'FUTURE_VIEW')
-    need(view.get('basis')=='VENDOR_CLOSE_CURRENT_VINTAGE_UNQUALIFIED'
-         and view.get('raw_http_originals_available') is False and view.get('provider_currency_verified') is False
+    need(view.get('basis')==('VENDOR_RAW_CLOSE_CURRENT_VINTAGE_UNQUALIFIED' if version==2 else 'VENDOR_CLOSE_CURRENT_VINTAGE_UNQUALIFIED')
+         and (type(view.get('raw_http_originals_available')) is bool if version==2 else view.get('raw_http_originals_available') is False)
+         and view.get('provider_currency_verified') is False
          and view.get('provider_private_use_and_storage_rights')=='UNVERIFIED','VIEW_EVIDENCE')
-    need(view.get('producer_sha256')==producer_pins(),'VIEW_PRODUCER')
+    need(view.get('producer_sha256')==producer_pins(version),'VIEW_PRODUCER')
     if expected_session is not None:need(view.get('target_session')==expected_session,'SESSION_NOT_CURRENT')
     series={}
     need(type(view.get('targets')) is dict and set(view['targets'])==set(TARGETS),'BOTH_TARGETS')
@@ -80,7 +93,7 @@ def price_series(view,*,policy_sha256,cutoff,expected_session=None):
     grid=series['SPY'].index.union(series['QQQ'].index).sort_values()
     return {target:values.reindex(grid) for target,values in series.items()}
 
-def collect(policy_raw,expected_policy_sha256,*,cutoff,download=None):
+def _collect_single(policy_raw,expected_policy_sha256,*,cutoff,download=None):
     """Exactly one existing collector batch. Caller owns one-shot session scope.
 
     This intentionally returns an unqualified research view. Missing raw HTTP,
@@ -118,11 +131,54 @@ def collect(policy_raw,expected_policy_sha256,*,cutoff,download=None):
 
 
 
+def verify_policy_view(policy,view):
+    if policy['schema']=='a4-flow-test-policy-v2':
+        ids=[r['id'] for r in policy['providers']]
+        need(view.get('schema')=='a4-flow-test-price-view-v2' and view.get('approved_provider_ids')==ids
+             and view.get('selected_provider') in ids,'VIEW_PROVIDER_POLICY')
+        descriptor=next(row for row in policy['providers'] if row['id']==view['selected_provider'])
+        need(view.get('selected_descriptor_sha256')==digest(encoded(descriptor)),'VIEW_PROVIDER_POLICY')
+        attempts=view.get('provider_attempts')
+        need(type(attempts) is list and 1<=len(attempts)<=len(ids)
+             and [a.get('provider') for a in attempts]==ids[:len(attempts)]
+             and attempts[-1].get('status')=='SELECTED'
+             and all(a.get('status')=='REJECTED' for a in attempts[:-1]),'VIEW_PROVIDER_POLICY')
+    else:need(view.get('schema')=='a4-flow-test-price-view-v1','VIEW_PROVIDER_POLICY')
+
+
+def collect(policy_raw,expected_policy_sha256,*,cutoff,download=None,audit=None,adapters=None):
+    policy=validate_policy(policy_raw,expected_policy_sha256,cutoff)
+    if policy['schema']=='a4-flow-test-policy-v1':
+        need(adapters is None,'V1_PROVIDER_OVERRIDE')
+        return _collect_single(policy_raw,expected_policy_sha256,cutoff=cutoff,download=download)
+    need(download is None,'V2_USE_DECLARED_PROVIDERS')
+    from tools import a4_price_fallback as fallback
+    def build(frames):
+        return _collect_single(policy_raw,expected_policy_sha256,cutoff=cutoff,
+                               download=lambda *_:(frames,{}))
+    session=market.current_session(cutoff)
+    def check_policy():
+        validate_policy(policy_raw,expected_policy_sha256,primary.now())
+        if market.current_session(primary.now())!=session:raise fallback.IntegrityError('SESSION_ROLLED')
+    snapshot,view=fallback.collect(policy,session=session,build=build,
+        check_policy=check_policy,
+        clock=primary.now,audit=audit,adapters=adapters)
+    view['producer_sha256']=producer_pins(2)
+    need(len(encoded(snapshot))<=MAX_SNAPSHOT_BYTES and len(encoded(view))<=MAX_VIEW_BYTES,'SNAPSHOT_SIZE')
+    verify_policy_view(policy,view)
+    verify_snapshot(view,encoded(snapshot))
+    check_policy()
+    price_series(view,policy_sha256=expected_policy_sha256,cutoff=primary.now(),expected_session=session)
+    return snapshot,view
+
+
 def verify_snapshot(view,raw):
-    need(type(raw) is bytes and 0<len(raw)<=MAX_VIEW_BYTES and digest(raw)==view['snapshot_sha256'],'SNAPSHOT_PIN')
+    version=2 if view.get('schema')=='a4-flow-test-price-view-v2' else 1
+    need(type(raw) is bytes and 0<len(raw)<=(MAX_SNAPSHOT_BYTES if version==2 else MAX_VIEW_BYTES)
+         and digest(raw)==view['snapshot_sha256'],'SNAPSHOT_PIN')
     snapshot=primary.f.strict_json(raw)
-    need(snapshot.get('schema')=='a4-collector-dataframe-snapshot-v1' and snapshot.get('purpose')==PURPOSE
-         and snapshot.get('raw_http_originals_available') is False
+    need(snapshot.get('schema')==('a4-collector-dataframe-snapshot-v2' if version==2 else 'a4-collector-dataframe-snapshot-v1') and snapshot.get('purpose')==PURPOSE
+         and (snapshot.get('raw_http_originals_available')==view['raw_http_originals_available'] if version==2 else snapshot.get('raw_http_originals_available') is False)
          and snapshot.get('provider_private_use_and_storage_rights')=='UNVERIFIED'
          and snapshot.get('collection_completed_at')==view['available_at'],'SNAPSHOT_EVIDENCE')
     need(type(snapshot.get('frames')) is dict and set(snapshot['frames'])==set(TARGETS),'SNAPSHOT_TARGETS')
@@ -133,16 +189,26 @@ def verify_snapshot(view,raw):
         need(all(type(row) is list and len(row)==len(columns) for row in values),'SNAPSHOT_ROW_WIDTH')
         close=columns.index('Close')
         need([[day,row[close]] for day,row in zip(dates,values)]==view['targets'][target],'NORMALIZATION_REPLAY')
+    if version==2:
+        from tools import a4_price_fallback as fallback
+        evidence=fallback.verify_evidence(snapshot)
+        need(evidence['attempts']==view['provider_attempts'] and snapshot['provider']==view['selected_provider'],'PROVIDER_EVIDENCE_REPLAY')
+        need(digest(encoded(snapshot['provider_descriptor']))==view['selected_descriptor_sha256'],'PROVIDER_EVIDENCE_REPLAY')
     return snapshot
 
 
 def _finish(root,receipt,transport,policy_raw,policy_sha256):
     from tools.macro_history_sources import exclusive
+    def check():
+        policy=validate_policy(policy_raw,policy_sha256,primary.now())
+        if policy['schema']=='a4-flow-test-policy-v2':
+            need(receipt['target_session']==market.current_session(primary.now()),'SESSION_ROLLED')
+    if primary.f.strict_json(policy_raw)['schema']=='a4-flow-test-policy-v2':check()
     raw=encoded(receipt);exclusive(root/'execution.json',raw)
     if transport is not None:
-        validate_policy(policy_raw,policy_sha256,primary.now())
+        check()
         transport.write(primary.PREFIX+'/reports/'+digest(raw)+'.json',raw)
-        validate_policy(policy_raw,policy_sha256,primary.now())
+        check()
         if transport.remote_verified is True:
             exclusive(root/'durable-completion.json',encoded(dict(schema='a4-flow-price-durable-completion-v1',
                 execution_sha256=digest(raw),view_sha256=receipt['view_sha256'],
@@ -150,7 +216,7 @@ def _finish(root,receipt,transport,policy_raw,policy_sha256):
                 completed_at=primary.now(),remote_readback_verified=True,source_admitted=False,training_admitted=False)))
 
 
-def stage(policy_raw,expected_policy_sha256,*,cutoff,output_root,transport=None,previous=None,download=None):
+def stage(policy_raw,expected_policy_sha256,*,cutoff,output_root,transport=None,previous=None,download=None,adapters=None):
     """Single-writer session claim precedes one batch; same-session reuse is read-only.
 
     A content-addressed immutable claim in the existing reports directory is
@@ -159,7 +225,7 @@ def stage(policy_raw,expected_policy_sha256,*,cutoff,output_root,transport=None,
     """
     from tools.macro_history_sources import exclusive
     policy=validate_policy(policy_raw,expected_policy_sha256,cutoff)
-    need(download is not None or transport is not None and transport.remote_verified is True,'REAL_EXECUTION_REQUIRES_DURABLE_CLAIM')
+    need(download is not None or adapters is not None or transport is not None and transport.remote_verified is True,'REAL_EXECUTION_REQUIRES_DURABLE_CLAIM')
     root=Path(output_root);need(not root.exists() and not any(p.is_symlink() for p in (root,*root.parents)),'ATTEMPT_EXISTS_OR_SYMLINK')
     root.mkdir(parents=True);session=market.current_session(cutoff)
     try:
@@ -169,6 +235,7 @@ def stage(policy_raw,expected_policy_sha256,*,cutoff,output_root,transport=None,
             need(old_session<=primary.day(session),'FUTURE_PREVIOUS_VIEW')
             if old_session==primary.day(session):
                 price_series(previous,policy_sha256=expected_policy_sha256,cutoff=cutoff,expected_session=session)
+                verify_policy_view(policy,previous)
                 exclusive(root/'price-view.json',encoded(previous))
                 receipt=dict(schema='a4-flow-test-price-execution-v1',status='REUSED_SAME_COMPLETED_SESSION',
                     target_session=session,view_sha256=digest(encoded(previous)),snapshot_sha256=previous['snapshot_sha256'],
@@ -183,7 +250,10 @@ def stage(policy_raw,expected_policy_sha256,*,cutoff,output_root,transport=None,
             need(claim_pin+'.json' not in names,'SESSION_ALREADY_CONSUMED_OWNER_RECOVERY_REQUIRED')
             validate_policy(policy_raw,expected_policy_sha256,primary.now());transport.write(claim_path,claim_raw)
         exclusive(root/'session-consumed.json',claim_raw)
-        snapshot,view=collect(policy_raw,expected_policy_sha256,cutoff=cutoff,download=download)
+        def audit(evidence):
+            evidence_raw=encoded(evidence);need(len(evidence_raw)<=MAX_SNAPSHOT_BYTES,'PROVIDER_EVIDENCE_SIZE')
+            tmp=root/'provider-evidence.next';tmp.write_bytes(evidence_raw);tmp.replace(root/'provider-evidence.json')
+        snapshot,view=collect(policy_raw,expected_policy_sha256,cutoff=cutoff,download=download,adapters=adapters,audit=audit)
         snapshot_raw,view_raw=encoded(snapshot),encoded(view)
         exclusive(root/'dataframe-snapshot.json',snapshot_raw);exclusive(root/'price-view.json',view_raw)
         if transport is not None:
@@ -191,20 +261,27 @@ def stage(policy_raw,expected_policy_sha256,*,cutoff,output_root,transport=None,
                 validate_policy(policy_raw,expected_policy_sha256,primary.now());transport.write(primary.PREFIX+'/objects/'+digest(raw),raw)
         receipt=dict(schema='a4-flow-test-price-execution-v1',status='DURABLE_UNQUALIFIED_PRICE_VIEW' if transport is not None and transport.remote_verified else 'LOCAL_UNQUALIFIED_PRICE_VIEW',
             target_session=session,policy_sha256=expected_policy_sha256,claim_sha256=claim_pin,
-            snapshot_sha256=digest(snapshot_raw),view_sha256=digest(view_raw),provider_batch_calls=1,
-            backend_HTTP_count='UNKNOWN',raw_http_originals_available=False,provider_currency_verified=False,
+            snapshot_sha256=digest(snapshot_raw),view_sha256=digest(view_raw),provider_batch_calls=len(view.get('provider_attempts',[{}])),
+            backend_HTTP_count='UNKNOWN',raw_http_originals_available=view['raw_http_originals_available'],provider_currency_verified=False,
             source_admitted=False,training_admitted=False,model_fits=0,accepted_portfolio_changed=False)
+        if policy['schema']=='a4-flow-test-policy-v2':
+            receipt.update(selected_provider=view['selected_provider'],provider_attempts=view['provider_attempts'])
         _finish(root,receipt,transport,policy_raw,expected_policy_sha256)
         return view
     except Exception as exc:
+        evidence_raw=None
+        if (root/'provider-evidence.json').is_file():
+            evidence_raw=market.bounded(root/'provider-evidence.json',MAX_SNAPSHOT_BYTES)
         failure_raw=encoded(dict(schema='a4-flow-test-price-failure-v1',status='BLOCKED',
             target_session=session,reason=str(exc) if isinstance(exc,ValueError) and str(exc).startswith('A4_FLOW_PRICE_') else 'PRICE_COLLECTION_OR_READBACK_FAILED',
             policy_sha256=expected_policy_sha256,completed_at=primary.now(),
+            provider_evidence_sha256=digest(evidence_raw) if evidence_raw is not None else None,
             source_admitted=False,training_admitted=False,model_fits=0,accepted_portfolio_changed=False))
         exclusive(root/'failure.json',failure_raw)
         if transport is not None:
             try:
                 validate_policy(policy_raw,expected_policy_sha256,primary.now())
+                if evidence_raw is not None:transport.write(primary.PREFIX+'/objects/'+digest(evidence_raw),evidence_raw)
                 transport.write(primary.PREFIX+'/reports/'+digest(failure_raw)+'.json',failure_raw)
             except (ValueError,OSError):
                 # Keep the consumed claim and local witness; never retry a batch.
