@@ -414,8 +414,12 @@ A6_FIXED_PROOF_INPUTS = (
     'docs/market_analysis_contract_v2.json',
     'docs/a4_macro_hypotheses_v1.json',
     'docs/A4_CLOUD_RESEARCH_OPERATIONS.md',
+    'docs/A4_FLOW_RELATIONSHIPS_V1.md',
 )
 A6_FIXED_PROOF_PROGRAMS = (
+    'tools/a4_flow_relationships.py',
+    'tools/a4_flow_price_inputs.py',
+    'tests/a4_flow_relationships_smoke.py',
     'tools/a4_guarded_regression.py',
     'tests/a4_guarded_regression_smoke.py',
     'tools/a4_rtdsm_extension.py',

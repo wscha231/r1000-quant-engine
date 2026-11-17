@@ -8436,7 +8436,7 @@ class ManualTests(unittest.TestCase):
         programs.update({'tests/control_plane_agent_contract_smoke.py',
                          'tests/system_state_materializer_smoke.py',
                          'tests/manual_foundation_smoke.py', 'tools/run_pr_validation.py'})
-        self.assertEqual(len(registered_validation.DEFAULT_TESTS), 243)
+        self.assertEqual(len(registered_validation.DEFAULT_TESTS), 244)
         self.assertEqual(registered_validation.DEFAULT_TESTS.count(
             ('tests/a4_guarded_regression_smoke.py', [])), 1)
         self.assertEqual(registered_validation.DEFAULT_TESTS.count(
@@ -8447,7 +8447,13 @@ class ManualTests(unittest.TestCase):
             ('tests/alpaca_sip_managed_refresh_smoke.py', [])), 1)
         required = set(manual.required_dependencies('A6_INDEPENDENT_QA', self.root))
         self.assertTrue(programs.issubset(required), sorted(programs - required))
-        for name in ('tools/a4_guarded_regression.py',
+        self.assertEqual(registered_validation.DEFAULT_TESTS.count(
+            ('tests/a4_flow_relationships_smoke.py', [])), 1)
+        self.assertEqual(manual.A6_FIXED_PROOF_INPUTS.count('docs/A4_FLOW_RELATIONSHIPS_V1.md'),1)
+        self.assertIn('docs/A4_FLOW_RELATIONSHIPS_V1.md',required)
+        for name in ('tools/a4_flow_relationships.py','tools/a4_flow_price_inputs.py',
+                     'tests/a4_flow_relationships_smoke.py',
+                     'tools/a4_guarded_regression.py',
                      'tests/a4_guarded_regression_smoke.py',
                      'tools/a4_rtdsm_extension.py',
                      'tests/a4_rtdsm_extension_smoke.py',
@@ -8520,6 +8526,25 @@ class ManualTests(unittest.TestCase):
             original = target.read_bytes()
             try:
                 target.write_bytes(original+b'\n# changed guarded research code\n')
+                self.rejected(packet, scope, 'dependency_bytes_changed:'+name)
+            finally:
+                target.write_bytes(original)
+            omitted, verified = copy.deepcopy(packet), copy.deepcopy(scope)
+            del omitted['dependencies'][name]
+            del verified['dependencies'][name]
+            self.rebind_all(omitted, verified)
+            self.rejected(omitted, verified, 'missing_dependency')
+        self.assertEqual(self.validate(packet, scope)['status'], 'VALIDATED_PREPARE_ONLY')
+
+    def test_a6_flow_relationships_refuse_changed_and_rebound_omission(self):
+        packet, scope = self.packet('A6_INDEPENDENT_QA')
+        for name in ('tools/a4_flow_relationships.py','tools/a4_flow_price_inputs.py',
+                     'tests/a4_flow_relationships_smoke.py','docs/A4_FLOW_RELATIONSHIPS_V1.md'):
+            self.assertIn(name, packet['dependencies'])
+            target = self.root / name
+            original = target.read_bytes()
+            try:
+                target.write_bytes(original+b'\n# changed flow research code\n')
                 self.rejected(packet, scope, 'dependency_bytes_changed:'+name)
             finally:
                 target.write_bytes(original)

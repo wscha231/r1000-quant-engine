@@ -14,6 +14,7 @@ from tools import a4_primary_sources as p,a4_primary_macro_sources as e,a4_finan
 from tools import market_analysis_engine as market,collect_a4_primary_data as collector
 from tools import a4_macro_learning as learning,run_a4_research_cycle as cycle
 from tools import a4_rtdsm_sources as vintage, a4_rtdsm_extension as extension
+from tools import a4_flow_relationships as flow, a4_flow_price_inputs as flow_prices
 from tools.macro_history_sources import digest,encoded,exclusive
 from tools.macro_research_checkpoint import LocalTransport,RcloneTransport
 
@@ -33,6 +34,8 @@ LOADED_COLLECTOR_SHA256=digest(Path(collector.__file__).read_bytes().replace(b'\
 def index_identity():
     identity=market.implementation_identity()
     identity[Path(__file__).name]=digest(Path(__file__).read_bytes())
+    identity[Path(flow.__file__).name]=digest(Path(flow.__file__).read_bytes())
+    identity[Path(flow_prices.__file__).name]=digest(Path(flow_prices.__file__).read_bytes())
     identity[Path(vintage.__file__).name]=digest(Path(vintage.__file__).read_bytes())
     identity[Path(extension.__file__).name]=digest(Path(extension.__file__).read_bytes())
     identity[Path(collector.__file__).name]=digest(Path(collector.__file__).read_bytes().replace(b'\r\n',b'\n'))
@@ -431,13 +434,21 @@ def render_catalog(catalog):
         lines+=['',f"504-session preparation: dense maximum at the current input ceiling is "
             f"{capacity['dense_mature_nonoverlap_window_upper_bound']} mature windows before OOS training; "
             f"{capacity['required_nonoverlap_windows']} are required. This is arithmetic, not a backtest or an extended forecast release."]
+    context=catalog.get('flow_relationships',{})
+    lines+=['', 'Flow/benchmark research: '+context.get('status','NOT_CONFIGURED'),
+        'Private current-vintage descriptive relationships only; zero fits, no causal or predictive admission.']
+    if context.get('status')=='CURRENT_VINTAGE_DESCRIPTIVE_ONLY':
+        available=sum(r['pearson'] is not None for r in context['results'])
+        lines.append(f"Price target session: {context['price_target_session']}; available pairs: {available}/{len(context['results'])}.")
     return '\n'.join(lines)
 
 
 def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,probe_lake=False,learning_root=None,
-          learning_policy_sha256=None,code_sha=None,vintage_references=None,extension_vintage_references=None):
+          learning_policy_sha256=None,code_sha=None,vintage_references=None,extension_vintage_references=None,
+          flow_price_root=None,flow_policy_root=None,flow_policy_sha256=None):
     """Produce a hash-bound as-of view; old successes never hide newer failed attempts."""
     now=p.clock(cutoff);cutoff=now.isoformat()
+    flow_rows=[];flow_objects=[];flow_context=dict(status='NOT_CONFIGURED',model_fits=0)
     identity=index_identity();p.check(identity[Path(__file__).name]==LOADED_INDEX_SHA256,'DATA_CENTER_LOADED_CODE_CHANGED')
     p.check((code_sha is None and transport is None) or type(code_sha) is str and re.fullmatch('[a-f0-9]{40}',code_sha),
         'DATA_CENTER_PUBLICATION_CODE_PIN')
@@ -555,6 +566,7 @@ def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,prob
                 original_pair_remote_verified=remote is not None and source_transport.remote_verified is True,
                 series=summarise(records,feed,cutoff))
             item['retrospective_descriptions']=describe_weekly_history(records,feed,cutoff)
+            if flow_policy_sha256 is not None and feed in p.FEEDS:flow_rows.extend(records)
         except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
             item.update(status='BLOCKED',blocker='ORIGINAL_NORMALIZATION_CLOCK_OR_BUDGET_NOT_VERIFIED')
     inputs=root/'inputs';entries=[]
@@ -631,6 +643,50 @@ def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,prob
             required='Externally reviewed fixed trial and original inputs; existing forecast_release gate'),
         rights_blocked_sources=['ICI_ETF_MMF','ICE_CCC_HY','FINRA_MARGIN_DEBT'],
         request_sha256=digest(raw),provider_requests_executed=0,**SAFETY)
+    if flow_policy_sha256 is not None:
+        try:
+            price_root=Path(flow_price_root);policy_root=Path(flow_policy_root)
+            p.check(not any(path.is_symlink() for root in (price_root,policy_root) for path in (root,*root.parents)),'FLOW_INPUT_SYMLINK')
+            p.check(not any(path.is_symlink() for path in (policy_root/'flow-research-policy.json',price_root/'execution.json',price_root/'price-view.json',price_root/'dataframe-snapshot.json',price_root/'durable-completion.json')),'FLOW_LEAF_SYMLINK')
+            p.check(not any((price_root/name).exists() or (price_root/name).is_symlink()
+                for name in ('failure.json','failure-publication-blocked.json')),'FLOW_FAILED_ATTEMPT')
+            policy_raw=market.bounded(policy_root/'flow-research-policy.json',65536)
+            flow_prices.validate_policy(policy_raw,pin(flow_policy_sha256),cutoff)
+            execution_raw=market.bounded(price_root/'execution.json',128*1024);execution=p.f.strict_json(execution_raw)
+            p.check(execution.get('schema')=='a4-flow-test-price-execution-v1' and execution.get('status') in
+                ('REUSED_SAME_COMPLETED_SESSION','LOCAL_UNQUALIFIED_PRICE_VIEW','DURABLE_UNQUALIFIED_PRICE_VIEW'),'FLOW_PRICE_EXECUTION')
+            p.check(execution.get('policy_sha256')==flow_policy_sha256,'FLOW_EXECUTION_POLICY')
+            durable_raw=None
+            if execution['status']=='DURABLE_UNQUALIFIED_PRICE_VIEW' or transport is not None and transport.remote_verified is True:
+                p.check(source_transport is not None and source_transport.remote_verified is True,'FLOW_DURABLE_TRANSPORT_REQUIRED')
+                durable_raw=market.bounded(price_root/'durable-completion.json',65536);completion=p.f.strict_json(durable_raw)
+                p.check(completion.get('schema')=='a4-flow-price-durable-completion-v1'
+                    and completion.get('remote_readback_verified') is True and completion.get('execution_sha256')==digest(execution_raw)
+                    and completion.get('policy_sha256')==flow_policy_sha256
+                    and completion.get('view_sha256')==execution['view_sha256']
+                    and completion.get('snapshot_sha256')==execution['snapshot_sha256']
+                    and p.clock(completion['completed_at'])<=now,'FLOW_DURABLE_COMPLETION')
+                p.check(p.read_object(source_transport,p.PREFIX+'/reports/'+digest(execution_raw)+'.json',digest(execution_raw),128*1024)==execution_raw,
+                    'FLOW_DURABLE_EXECUTION_READBACK')
+            view_raw=market.bounded(price_root/'price-view.json',flow_prices.MAX_VIEW_BYTES)
+            p.check(digest(view_raw)==execution['view_sha256'],'FLOW_VIEW_PIN');view=p.f.strict_json(view_raw)
+            prices=flow_prices.price_series(view,policy_sha256=flow_policy_sha256,cutoff=cutoff,expected_session=market.current_session(cutoff))
+            if (price_root/'dataframe-snapshot.json').is_file():snapshot_raw=market.bounded(price_root/'dataframe-snapshot.json',flow_prices.MAX_VIEW_BYTES)
+            else:
+                p.check(source_transport is not None,'FLOW_SNAPSHOT_MISSING')
+                snapshot_raw=p.read_object(source_transport,p.PREFIX+'/objects/'+view['snapshot_sha256'],view['snapshot_sha256'],flow_prices.MAX_VIEW_BYTES)
+            flow_prices.verify_snapshot(view,snapshot_raw)
+            p.check(all(selected.get(feed,{}).get('status')=='VERIFIED_BYTES_ONLY' for feed in p.FEEDS),'FLOW_SELECTED_SOURCE_MISSING')
+            flow_context=flow.describe(flow_rows,prices,cutoff=cutoff)
+            flow_context.update(price_view_sha256=digest(view_raw),price_snapshot_sha256=view['snapshot_sha256'],
+                price_execution_sha256=digest(execution_raw),price_target_session=view['target_session'],
+                price_durable_completion_sha256=digest(durable_raw) if durable_raw is not None else None,
+                last_paired_source_measurement_date=max(flow_context['results'],key=lambda r:r['last'] or '')['last'],
+                price_source_quality='UNQUALIFIED_DATAFRAME_SNAPSHOT',raw_http_originals_available=False)
+            flow_objects=[policy_raw,snapshot_raw,view_raw,execution_raw]+([durable_raw] if durable_raw is not None else [])
+        except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
+            flow_context=dict(status='BLOCKED',blocker='FLOW_PRICE_POLICY_SOURCE_OR_REPLAY_REQUIRED',model_fits=0)
+    catalog['flow_relationships']=flow_context
     encoded_catalog=encoded(catalog);p.check(len(encoded_catalog)<=4*1024**2,'DATA_CENTER_CATALOG_SIZE');catalog_sha=digest(encoded_catalog)
     exclusive(root/'catalog.json',encoded_catalog);exclusive(root/'market_analysis.json',encoded(report))
     exclusive(root/'catalog.md',render_catalog(catalog).encode('utf-8'))
@@ -648,6 +704,7 @@ def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,prob
                     name=p.PREFIX+'/objects/'+spec['sha256'];transport.write(name,body)
                     p.check(p.read_object(transport,name,spec['sha256'],market.input_limit(spec))==body,'DATA_CENTER_NATIVE_READBACK')
                 publication=collector.publish_analysis(transport,raw,encoded(report),cutoff=cutoff)
+            for body in flow_objects:transport.write(p.PREFIX+'/objects/'+digest(body),body)
             name=p.PREFIX+'/catalogs/'+catalog_sha+'.json';transport.write(name,encoded_catalog)
             p.check(p.read_object(transport,name,catalog_sha,4*1024**2)==encoded_catalog,'DATA_CENTER_CATALOG_READBACK')
         except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
@@ -679,6 +736,7 @@ def main():
     parser.add_argument('--publish',action='store_true');parser.add_argument('--probe-lake-metadata',action='store_true')
     parser.add_argument('--code-sha',default=os.environ.get('GITHUB_SHA'))
     parser.add_argument('--learning-input-root');parser.add_argument('--learning-policy-sha256')
+    parser.add_argument('--flow-price-root');parser.add_argument('--flow-policy-root');parser.add_argument('--flow-policy-sha256')
     parser.add_argument('--vintage-generation-sha256',action='append',default=[])
     parser.add_argument('--vintage-archive-root',help='Existing local archive; omit to read the explicit vintage pins from Drive')
     parser.add_argument('--extension-vintage-generation-sha256',action='append',default=[])
@@ -701,12 +759,14 @@ def main():
             cutoff=args.cutoff,output_dir=args.output_dir,transport=reader if args.publish else None,source_transport=reader,
             probe_lake=args.probe_lake_metadata,
             learning_root=args.learning_input_root,learning_policy_sha256=args.learning_policy_sha256,code_sha=args.code_sha,
+            flow_price_root=args.flow_price_root,flow_policy_root=args.flow_policy_root,flow_policy_sha256=args.flow_policy_sha256,
             vintage_references=[dict(root=args.vintage_archive_root,generation_sha256=s) for s in args.vintage_generation_sha256],
             extension_vintage_references=[dict(root=args.extension_vintage_archive_root,generation_sha256=s,execution_sha256=x) for s,x in zip(args.extension_vintage_generation_sha256,args.extension_vintage_execution_sha256)])
         print(encoded(dict(status=receipt['status'],catalog_sha256=receipt['catalog_sha256'],
             current_diagnosis=catalog['current_diagnosis']['status'],historical_evaluation=catalog['historical_evaluation']['status'],
             future_view=catalog['future_view']['status'])).decode().strip())
-        return 0 if receipt['selected_core_verified'] else 2
+        return 0 if receipt['selected_core_verified'] and (args.flow_policy_sha256 is None or
+            catalog['flow_relationships']['status']=='CURRENT_VINTAGE_DESCRIPTIVE_ONLY') else 2
     except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
         if owned and attempt_root.is_dir() and not any(q.is_symlink() for q in (attempt_root,*attempt_root.parents)):
             if not (attempt_root/'failure.json').exists():
