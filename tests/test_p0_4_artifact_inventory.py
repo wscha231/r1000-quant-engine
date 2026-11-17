@@ -126,6 +126,8 @@ HISTORICAL_CODE_BLOBS = (
      "0fb93809acdaad0dc80489e61da3ff06dbf45b1b", 18826, "46f993d63302650fa024da22d0409c1a69827304fe38944806786ffb03c888e7"),
     ("0f34de9a2747059b7bb808cb070a86261e119f95", "tools/run287_crisis_policy.py",
      "9277043abe20f0ec2586fe3cd3796f36e35cca67", 21473, "16e17786fb21d2ebebee1132132773ae0ca7415b916a31f3d1fef99779008447"),
+    ("05a9cff99d1452ddb3d0de4c841ea79297173ed1", ".github/workflows/pr_validation.yml",
+     "428a67bb0e7a2e4801dbfd38b04945e18f0827b4", 5433, "c361ba5fc0b4351c3d96ce0de1d09fcf2e86754db67923c381593f25c9f48136"),
 )
 
 
@@ -139,10 +141,10 @@ def validate_frozen_code_blob(spec, raw):
     return raw
 
 
-@functools.lru_cache(maxsize=10)
+@functools.lru_cache(maxsize=11)
 def checked_frozen_code_blob(spec):
     ref, path, oid, _size, _sha256 = spec
-    # Only these ten fixed code/source bodies may use original checkout's
+    # Only these eleven fixed code/source bodies may use original checkout's
     # existing promisor transport. Never ask for runtime artifacts or history.
     if spec not in HISTORICAL_CODE_BLOBS:
         raise AssertionError("unlisted historical body")
@@ -155,7 +157,7 @@ def checked_frozen_code_blob(spec):
 
 
 def preflight_historical_code():
-    if len(HISTORICAL_CODE_BLOBS) != 10 or sum(s[3] for s in HISTORICAL_CODE_BLOBS) != 927000:
+    if len(HISTORICAL_CODE_BLOBS) != 11 or sum(s[3] for s in HISTORICAL_CODE_BLOBS) != 932433:
         raise AssertionError("historical code scope/budget changed")
     return {spec: checked_frozen_code_blob(spec) for spec in HISTORICAL_CODE_BLOBS}
 
@@ -282,12 +284,19 @@ def historical_inventory_repo():
                 raise AssertionError("historical fixture byte bound")
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
-        if (repo / runner).read_bytes() != frozen:
-            (repo / runner).write_bytes(frozen)
-            fixture_git("add", "--", runner)
+        # A historical positive must restore both authenticated CI files in
+        # this disposable fixture, never certify today's changed workflow.
+        restored = []
+        workflow = HISTORICAL_CODE_BLOBS[-1][1]
+        for relative, raw in ((runner, frozen), (workflow, historical_code[HISTORICAL_CODE_BLOBS[-1]])):
+            if (repo / relative).read_bytes() != raw:
+                (repo / relative).write_bytes(raw)
+                fixture_git("add", "--", relative)
+                restored.append(relative)
+        if restored:
             tree = fixture_git("write-tree").stdout.decode("ascii").strip()
             commit = fixture_git("commit-tree", tree, "-p", head, "-m",
-                                 "fixture: restore exact historical runner").stdout.decode("ascii").strip()
+                                 "fixture: restore exact historical CI inputs").stdout.decode("ascii").strip()
             fixture_git("update-ref", "HEAD", commit)
         inventory = repo / "docs/run287_p0_4_artifact_inventory"
         with mock.patch.multiple(sys.modules[__name__], ROOT=repo, INVENTORY=inventory,
@@ -332,6 +341,27 @@ def test_current_runner_delta_is_not_historical_evidence() -> None:
                 raise
         else:
             raise AssertionError("changed historical runner was accepted")
+
+
+def test_changed_workflow_is_not_historical_approval() -> None:
+    from tools import build_p0_4_artifact_inventory as builder
+
+    workflow = ".github/workflows/pr_validation.yml"
+    with historical_inventory_repo() as repo:
+        builder.verify_protected_publication_lineage(FROZEN_PROTECTED_PUBLICATION_COMMIT)
+        original = (repo / workflow).read_bytes()
+        (repo / workflow).write_bytes(original + b"\n# synthetic unreviewed workflow delta\n")
+        subprocess.run(["git", "add", "--", workflow], cwd=repo, check=True, capture_output=True)
+        tree = git("write-tree").strip()
+        commit = git("commit-tree", tree, "-p", "HEAD", "-m", "fixture: change historical workflow").strip()
+        subprocess.run(["git", "update-ref", "HEAD", commit], cwd=repo, check=True, capture_output=True)
+        try:
+            builder.verify_protected_publication_lineage(FROZEN_PROTECTED_PUBLICATION_COMMIT)
+        except builder.InventoryError as exc:
+            if str(exc) != "post_publication_protected_delta:" + workflow:
+                raise
+        else:
+            raise AssertionError("changed historical workflow was accepted")
 
 
 def tree_rows(prefix: str, *, ref: str | None = None) -> list[tuple[str, str, str, str]]:
@@ -2428,6 +2458,7 @@ def main() -> int:
     test_tracked_bundle_exists_and_has_expected_counts()
     test_historical_generator_reconstruction_refuses_changed_bytes()
     test_current_runner_delta_is_not_historical_evidence()
+    test_changed_workflow_is_not_historical_approval()
     with tempfile.TemporaryDirectory() as temp_dir:
         test_generator_is_byte_stable(Path(temp_dir))
     test_registries_and_parquet_cover_every_object_once()
@@ -2468,7 +2499,7 @@ def main() -> int:
         test_compound_aliases_and_wrong_paper_head_namespaces_fail_closed(temp_path)
         test_folder_child_manifests_are_pinned_and_bound(temp_path)
         test_invalid_or_incomplete_sources_fail_closed(temp_path)
-    print("P0-4 artifact inventory smoke: 40 passed")
+    print("P0-4 artifact inventory smoke: 41 passed")
     return 0
 
 
