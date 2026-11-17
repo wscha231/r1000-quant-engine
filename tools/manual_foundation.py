@@ -419,6 +419,8 @@ A6_FIXED_PROOF_INPUTS = (
 A6_FIXED_PROOF_PROGRAMS = (
     'tools/a4_flow_relationships.py',
     'tools/a4_flow_price_inputs.py',
+    'tools/a4_price_fallback.py',
+    'tests/a4_price_fallback_smoke.py',
     'tests/a4_flow_relationships_smoke.py',
     'tools/a4_guarded_regression.py',
     'tests/a4_guarded_regression_smoke.py',

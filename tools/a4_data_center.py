@@ -651,7 +651,7 @@ def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,prob
             p.check(not any((price_root/name).exists() or (price_root/name).is_symlink()
                 for name in ('failure.json','failure-publication-blocked.json')),'FLOW_FAILED_ATTEMPT')
             policy_raw=market.bounded(policy_root/'flow-research-policy.json',65536)
-            flow_prices.validate_policy(policy_raw,pin(flow_policy_sha256),cutoff)
+            flow_policy=flow_prices.validate_policy(policy_raw,pin(flow_policy_sha256),cutoff)
             execution_raw=market.bounded(price_root/'execution.json',128*1024);execution=p.f.strict_json(execution_raw)
             p.check(execution.get('schema')=='a4-flow-test-price-execution-v1' and execution.get('status') in
                 ('REUSED_SAME_COMPLETED_SESSION','LOCAL_UNQUALIFIED_PRICE_VIEW','DURABLE_UNQUALIFIED_PRICE_VIEW'),'FLOW_PRICE_EXECUTION')
@@ -671,10 +671,11 @@ def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,prob
             view_raw=market.bounded(price_root/'price-view.json',flow_prices.MAX_VIEW_BYTES)
             p.check(digest(view_raw)==execution['view_sha256'],'FLOW_VIEW_PIN');view=p.f.strict_json(view_raw)
             prices=flow_prices.price_series(view,policy_sha256=flow_policy_sha256,cutoff=cutoff,expected_session=market.current_session(cutoff))
-            if (price_root/'dataframe-snapshot.json').is_file():snapshot_raw=market.bounded(price_root/'dataframe-snapshot.json',flow_prices.MAX_VIEW_BYTES)
+            if (price_root/'dataframe-snapshot.json').is_file():snapshot_raw=market.bounded(price_root/'dataframe-snapshot.json',flow_prices.MAX_SNAPSHOT_BYTES)
             else:
                 p.check(source_transport is not None,'FLOW_SNAPSHOT_MISSING')
-                snapshot_raw=p.read_object(source_transport,p.PREFIX+'/objects/'+view['snapshot_sha256'],view['snapshot_sha256'],flow_prices.MAX_VIEW_BYTES)
+                snapshot_raw=p.read_object(source_transport,p.PREFIX+'/objects/'+view['snapshot_sha256'],view['snapshot_sha256'],flow_prices.MAX_SNAPSHOT_BYTES)
+            flow_prices.verify_policy_view(flow_policy,view)
             flow_prices.verify_snapshot(view,snapshot_raw)
             p.check(all(selected.get(feed,{}).get('status')=='VERIFIED_BYTES_ONLY' for feed in p.FEEDS),'FLOW_SELECTED_SOURCE_MISSING')
             flow_context=flow.describe(flow_rows,prices,cutoff=cutoff)
@@ -682,7 +683,9 @@ def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,prob
                 price_execution_sha256=digest(execution_raw),price_target_session=view['target_session'],
                 price_durable_completion_sha256=digest(durable_raw) if durable_raw is not None else None,
                 last_paired_source_measurement_date=max(flow_context['results'],key=lambda r:r['last'] or '')['last'],
-                price_source_quality='UNQUALIFIED_DATAFRAME_SNAPSHOT',raw_http_originals_available=False)
+                price_source_quality='UNQUALIFIED_DATAFRAME_SNAPSHOT',raw_http_originals_available=view['raw_http_originals_available'],
+                price_selected_provider=view.get('selected_provider','yfinance'),
+                price_provider_attempts=view.get('provider_attempts',[]))
             flow_objects=[policy_raw,snapshot_raw,view_raw,execution_raw]+([durable_raw] if durable_raw is not None else [])
         except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
             flow_context=dict(status='BLOCKED',blocker='FLOW_PRICE_POLICY_SOURCE_OR_REPLAY_REQUIRED',model_fits=0)

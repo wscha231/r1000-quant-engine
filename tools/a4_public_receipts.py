@@ -24,7 +24,7 @@ FILES = {
     'primary': ('a4_primary_collection/{attempt}', ('execution.json', 'publication_failed.json',
         'market_analysis.json', 'market_analysis.md')),
     'native': ('a4_native_preparation/{attempt}', ('native-preparation.json',)),
-    'flow': ('a4_flow_prices/{attempt}', ('session-consumed.json', 'dataframe-snapshot.json',
+    'flow': ('a4_flow_prices/{attempt}', ('session-consumed.json', 'dataframe-snapshot.json', 'provider-evidence.json',
         'price-view.json', 'execution.json', 'durable-completion.json', 'failure.json', 'failure-publication-blocked.json')),
     'data_center': ('a4_data_center/{attempt}', ('catalog.json', 'catalog.md', 'audit.json', 'execution.json',
         'publication_failed.json', 'failure.json', 'market_analysis.json', 'market_analysis.md')),
