@@ -165,9 +165,10 @@ def collect(policy_raw,expected_policy_sha256,*,cutoff,download=None,audit=None,
         clock=primary.now,audit=audit,adapters=adapters)
     view['producer_sha256']=producer_pins(2)
     need(len(encoded(snapshot))<=MAX_SNAPSHOT_BYTES and len(encoded(view))<=MAX_VIEW_BYTES,'SNAPSHOT_SIZE')
-    price_series(view,policy_sha256=expected_policy_sha256,cutoff=primary.now())
     verify_policy_view(policy,view)
     verify_snapshot(view,encoded(snapshot))
+    check_policy()
+    price_series(view,policy_sha256=expected_policy_sha256,cutoff=primary.now(),expected_session=session)
     return snapshot,view
 
 
@@ -198,11 +199,16 @@ def verify_snapshot(view,raw):
 
 def _finish(root,receipt,transport,policy_raw,policy_sha256):
     from tools.macro_history_sources import exclusive
+    def check():
+        policy=validate_policy(policy_raw,policy_sha256,primary.now())
+        if policy['schema']=='a4-flow-test-policy-v2':
+            need(receipt['target_session']==market.current_session(primary.now()),'SESSION_ROLLED')
+    if primary.f.strict_json(policy_raw)['schema']=='a4-flow-test-policy-v2':check()
     raw=encoded(receipt);exclusive(root/'execution.json',raw)
     if transport is not None:
-        validate_policy(policy_raw,policy_sha256,primary.now())
+        check()
         transport.write(primary.PREFIX+'/reports/'+digest(raw)+'.json',raw)
-        validate_policy(policy_raw,policy_sha256,primary.now())
+        check()
         if transport.remote_verified is True:
             exclusive(root/'durable-completion.json',encoded(dict(schema='a4-flow-price-durable-completion-v1',
                 execution_sha256=digest(raw),view_sha256=receipt['view_sha256'],

@@ -165,6 +165,47 @@ class FallbackTests(unittest.TestCase):
             self.collect({name:sparse for name in f.PROVIDERS},lambda e:audits.append(copy.deepcopy(e)))
         self.assertTrue(all(a['reason']=='HISTORY_COVERAGE' for a in audits[-1]['attempts']))
 
+    def test_missing_early_closes_or_pre_range_sentinel_do_not_prove_start(self):
+        def missing(*args):
+            frames=copy.deepcopy(self.frames)
+            for frame in frames.values():frame.loc[:'2017-12-31','Close']=float('nan')
+            return frames
+        def sentinel(*args):
+            return {s:pd.concat([frame.iloc[:1].set_axis(pd.to_datetime(['2015-12-31'])),
+                                 frame.loc['2018-01-01':]]) for s,frame in self.frames.items()}
+        for bad in (missing,sentinel):
+            self.calls=[]
+            snapshot,view=self.collect(dict(yfinance=bad,alpaca_sip=self.good('full-history'),twelve_data=self.good('forbidden')))
+            self.assertEqual(view['provider_attempts'][0]['reason'],'HISTORY_START')
+            self.assertEqual(view['selected_provider'],'alpaca_sip');self.assertEqual(self.calls,['full-history'])
+            p.verify_snapshot(view,p.encoded(snapshot))
+
+    def test_session_roll_during_normalization_or_evidence_replay_stops_chain(self):
+        original=p._collect_single;verify=p.verify_snapshot
+        def normalized(*args,**kwargs):
+            result=original(*args,**kwargs);p.market.current_session.return_value='2026-11-17';return result
+        def replayed(*args,**kwargs):
+            result=verify(*args,**kwargs);p.market.current_session.return_value='2026-11-17';return result
+        for name,implementation in (('_collect_single',normalized),('verify_snapshot',replayed)):
+            p.market.current_session.return_value=self.session;self.calls=[]
+            with patch.object(p,name,side_effect=implementation),self.assertRaises(f.IntegrityError):
+                self.collect({provider:self.good(provider) for provider in f.PROVIDERS})
+            self.assertEqual(self.calls,['yfinance'])
+
+    def test_session_roll_during_remote_receipt_never_writes_completion_marker(self):
+        raw,pin=self.raw();remote=MemoryArchive();write=remote.write
+        def rolls(path,body):
+            write(path,body)
+            if b'"schema":"a4-flow-test-price-execution-v1"' in body:
+                p.market.current_session.return_value='2026-11-17'
+        remote.write=rolls
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)/'attempt'
+            with self.assertRaisesRegex(ValueError,'SESSION_ROLLED'):
+                p.stage(raw,pin,cutoff=self.now,output_root=root,transport=remote,
+                        adapters={name:self.good(name) for name in f.PROVIDERS})
+            self.assertFalse((root/'durable-completion.json').exists());self.assertTrue((root/'failure.json').is_file())
+
     def test_twelve_uses_existing_http_and_replays_both_raw_bodies(self):
         from tools import twelve_private_capture as source
         self.policy['providers']=[self.descriptor('twelve_data'),self.descriptor('yfinance')]

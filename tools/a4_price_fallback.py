@@ -211,7 +211,9 @@ def collect(policy, *, session, build, check_policy, clock, audit=None, adapters
             attempt['structure'] = structure(frames)
             check_policy()
             snapshot, view = build(frames)
-            need(all(frame.index[0].date().isoformat() <= '2016-01-11' for frame in frames.values()), 'HISTORY_START')
+            check_policy()
+            need(all(next((day for day,value in rows if value is not None),'9999-12-31') <= '2016-01-11'
+                     for rows in view['targets'].values()), 'HISTORY_START')
             # A pair of endpoints is not a decade of history. This is a lower
             # coverage guard, not a complete exchange-calendar certification.
             need(all(sum(row[1] is not None for row in rows)>=2000 for rows in view['targets'].values()),'HISTORY_COVERAGE')
