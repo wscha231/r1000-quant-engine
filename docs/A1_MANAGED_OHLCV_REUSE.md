@@ -474,3 +474,28 @@ It covers actual provider ordering across mixed roles/windows, partial budgets,
 same-session reuse, pending weekly work, UNKNOWN vs research-empty holdings,
 one-character ticker tampering, V0, outside scope, empty responses, role expiry,
 calendar boundaries, journal/control changes and absence of budget resets.
+
+## Revision4: two peer-price tracking gaps
+
+[A0 accepted FN and AAOI tracking](https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6935720514)
+adds only those two names: 821 to 823 Source tracking targets. The scoped existing
+price lookup did not resolve their original/generation receipts; this does not
+prove global Drive absence. Preserve all prior 821 members and watch history.
+The 820 retained inventory remains immutable. Exact revision3 bytes are archived
+under policy-history SHA
+`242c8f001f7240c55c1730439d4a679e837fa5070b428cafd8780742f5a7b367`.
+
+Source tracking is not investment-candidate or portfolio admission. Preserve the
+existing preparation flag true and null execution authorization; a boolean is
+not dispatch authority and this revision does not activate collection. Reuse
+the managed preparation/refresh and Reader routes. Actual collection still
+requires deployed-code, rights, single-owner and bounded execution evidence.
+The old campaign ending 2026-10-14 is not a current-price fallback. Missing
+values remain UNKNOWN until original/normalized receipts, identity, sessions and
+RAW/SPLIT bases are verified; no Source/PIT/training/ER/A5 authority is created.
+
+An existing control bound to revision3/821 must not be reused as an823-target
+authorization. Resolve the current active control and synchronize the newly
+deployed policy/receipt/budget pins before actual collection. Preserve any
+active writer and fail closed on mismatched scope rather than expanding its
+authority. This preparation does not certify a scheduled update.

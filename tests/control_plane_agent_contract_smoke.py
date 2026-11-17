@@ -1523,7 +1523,8 @@ class ManagedOHLCVTests(unittest.TestCase):
     def test_shared_spy_revision_preserves_original_820_and_preparation_boundary(self):
         previous, previous_sha = self.m.load(ROOT / 'data_static/a1_ohlcv_managed_history' /
                                              (MANAGED_ACTIVATION_POLICY_SHA + '.json'))
-        policy, _ = self.m.load(ROOT / 'data_static/a1_ohlcv_managed_v1.json')
+        policy, _ = self.m.load(ROOT / 'data_static/a1_ohlcv_managed_history' /
+                                 '242c8f001f7240c55c1730439d4a679e837fa5070b428cafd8780742f5a7b367.json')
         before = self.m.encode(self.inventory)
         self.assertEqual((previous['revision'], policy['revision']), (2, 3))
         self.assertEqual(previous_sha, MANAGED_ACTIVATION_POLICY_SHA)
@@ -1557,6 +1558,35 @@ class ManagedOHLCVTests(unittest.TestCase):
         self.assertEqual(spy['management_state'], 'FOCUS')
         self.assertIsNone(spy['missing_interval'])  # Policy membership is not coverage proof.
         self.assertFalse(spy['source_identity_verified'])
+
+    def test_peer_tracking_revision_keeps_old_targets_and_no_capture_authority(self):
+        previous, previous_sha = self.m.load(ROOT / 'data_static/a1_ohlcv_managed_history' /
+            '242c8f001f7240c55c1730439d4a679e837fa5070b428cafd8780742f5a7b367.json')
+        policy, _ = self.m.load(ROOT / 'data_static/a1_ohlcv_managed_v1.json')
+        self.assertEqual((previous['revision'], policy['revision']), (3, 4))
+        self.assertEqual(policy['previous_policy_sha256'], previous_sha)
+        self.assertEqual(set(policy['active_tickers']) - set(previous['active_tickers']), {'FN', 'AAOI'})
+        self.assertEqual(set(previous['active_tickers']) - set(policy['active_tickers']), set())
+        self.assertEqual(policy['watch_tickers'], previous['watch_tickers'])
+        self.assertEqual(policy['automatic_capture_enabled'], previous['automatic_capture_enabled'])
+        self.assertIsNone(policy['execution_authorization'])
+        now = '2026-11-17T00:30:00Z'
+        with patch('urllib.request.urlopen', side_effect=AssertionError('provider')) as get:
+            report = self.m.prepare(self.inventory, policy, self.sha, self.gate(now),
+                previous=previous, previous_sha=previous_sha, now_utc=now)
+        get.assert_not_called()
+        self.assertEqual((report['tracked_count'], report['retained_inventory_count']), (823, 820))
+        self.assertEqual(report['added'], ['AAOI', 'FN'])
+        self.assertEqual((report['updates_stopped'], report['moved_to_watch']), ([], []))
+        self.assertEqual((report['provider_requests'], report['dispatches']), (0, 0))
+        self.assertFalse(report['collection_enabled'])
+        for name in ('FN', 'AAOI'):
+            row = next(r for r in report['requests'] if r['ticker'] == name)
+            self.assertEqual(row['next_action'], 'BACKFILL_REVIEW_REQUIRED')
+            self.assertIsNone(row['missing_interval'])
+            self.assertFalse(row['source_identity_verified'])
+        for key in ('source_admission', 'pit_verified', 'economic_authority'):
+            self.assertFalse(report[key])
 
     def test_close_buffer_cannot_be_forced(self):
         now = '2026-10-23T21:00:00Z'

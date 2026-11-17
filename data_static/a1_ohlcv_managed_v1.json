@@ -1,13 +1,14 @@
 {
   "schema": "a1-managed-ohlcv-policy-v1",
-  "revision": 3,
+  "revision": 4,
   "inventory_sha256": "2c2811fcd51d87773da0644600129798b0db84b0ef86f917c864695190d5d730",
   "baseline_inventory_sha256": "2c2811fcd51d87773da0644600129798b0db84b0ef86f917c864695190d5d730",
-  "previous_policy_sha256": "4eedd6c91df42b9d54786f08d0b2a56000e528df577c749de302edfec16f41f6",
+  "previous_policy_sha256": "242c8f001f7240c55c1730439d4a679e837fa5070b428cafd8780742f5a7b367",
   "active_tickers": [
     "A",
     "AA",
     "AAL",
+    "AAOI",
     "AAON",
     "AAPL",
     "ABBV",
@@ -352,6 +353,7 @@
     "FLEX",
     "FLNC",
     "FLY",
+    "FN",
     "FNV",
     "FOX",
     "FOXA",
@@ -829,14 +831,20 @@
   ],
   "changes": [
     {
-      "ticker": "SPY",
+      "ticker": "AAOI",
       "action": "START_UPDATE",
-      "event_id": "A0-SOURCE-SPY-START-UPDATE-20261030",
-      "a0_reference": "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6511494400"
+      "event_id": "A0-SOURCE-AAOI-START-UPDATE-20261117",
+      "a0_reference": "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6935720514"
+    },
+    {
+      "ticker": "FN",
+      "action": "START_UPDATE",
+      "event_id": "A0-SOURCE-FN-START-UPDATE-20261117",
+      "a0_reference": "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6935720514"
     }
   ],
   "control_reference": "https://github.com/wscha231/r1000-quant-engine/issues/448",
-  "user_scope_reference": "https://github.com/wscha231/r1000-quant-engine/issues/590#issuecomment-6378954941",
+  "user_scope_reference": "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6935720514",
   "refresh_delay_minutes": 120,
   "automatic_capture_enabled": true,
   "execution_authorization": null,
