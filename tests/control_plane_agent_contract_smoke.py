@@ -2317,6 +2317,213 @@ class ManagedExecutionTests(unittest.TestCase):
         self.assertEqual(values[1],{'AAPL':'MISSING_STABLE_PROVIDER_IDENTITY_PROOF'})
         self.assertEqual(opener.calls,0)
 
+    def first_identity_fixture(self):
+        self.control.update(max_runs=1, max_symbols_per_run=1, execution_tickers=['AAPL'],
+                            backfill_tickers=['AAPL'], not_before='2026-10-24T00:00:00Z')
+        drive, meter, opener = self.memory_capture()
+        sdk = dict(symbol='AAPL', id='00000000-0000-0000-0000-000000000001',
+                   exchange='NASDAQ', status='active', asset_class='us_equity')
+        ref = drive.write(self.control['evidence_folder_id'], self.r.encoded(sdk), '.json')
+        expected = dict(sdk, sdk_ref=ref, observed_at='2026-10-23T23:30:00Z')
+        self.control['first_capture_identity'] = dict(schema='a1-managed-first-capture-identity-v1',
+            expires_at='2026-10-24T03:00:00Z', assets={'AAPL':expected})
+        return drive, meter, opener
+
+    def first_identity_clock(self):
+        now = self.now
+        class FrozenDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return now
+        return patch.object(self.r.capture, 'datetime', FrozenDateTime)
+
+    def first_identity_collect(self, drive, meter, sink):
+        return self.r.collect_groups(drive, meter, self.control, dict(groups=[]), {'AAPL'}, {}, {},
+            '2026-10-23', 'fixture-api-key', 'fixture-api-secret', lambda:self.now, identity_evidence=sink)
+
+    def test_first_identity_profile_is_opt_in_exact_one_run_and_short_lived(self):
+        baseline = self.validate()
+        self.assertIsNone(self.r.first_capture_profile(self.control, self.now))
+        self.first_identity_fixture()
+        self.assertNotEqual(baseline, self.validate())
+        original = copy.deepcopy(self.control)
+        for field, value in [('max_runs',2), ('max_symbols_per_run',2), ('execution_tickers',None),
+                             ('execution_tickers',['AAPL','AAPL']), ('backfill_tickers',[]),
+                             ('cadence',{})]:
+            with self.subTest(field=field, value=value):
+                self.control = copy.deepcopy(original)
+                self.control[field] = value
+                with self.assertRaises(self.r.Refused):
+                    self.validate()
+        self.control = copy.deepcopy(original)
+        for value in ('2026-10-23T23:29:59Z', '2026-10-25T00:00:01Z'):
+            self.control['first_capture_identity']['expires_at'] = value
+            with self.assertRaisesRegex(self.r.Refused, 'MANAGED_FIRST_IDENTITY_WINDOW'):
+                self.validate()
+        self.control = copy.deepcopy(original)
+        self.control['first_capture_identity']['assets']['AAPL']['status'] = 'inactive'
+        with self.assertRaisesRegex(self.r.Refused, 'MANAGED_FIRST_IDENTITY_EXPECTATION'):
+            self.validate()
+        self.control = copy.deepcopy(original)
+        names = ['AAPL','AMZN','MSFT','NVDA']
+        template = self.control['first_capture_identity']['assets']['AAPL']
+        self.control.update(authorized_tickers=names,execution_tickers=names,backfill_tickers=names,
+                            max_symbols_per_run=4)
+        self.control['first_capture_identity']['assets'] = {
+            t:dict(template,symbol=t,id='00000000-0000-0000-0000-'+str(i+1).zfill(12))
+            for i,t in enumerate(names)}
+        self.validate()  # Shape only; all exact original bodies must still match before provider I/O.
+        self.control['first_capture_identity']['assets']['TSLA'] = dict(template,symbol='TSLA')
+        with self.assertRaisesRegex(self.r.Refused, 'MANAGED_FIRST_IDENTITY_SCOPE'):
+            self.validate()
+
+    def test_first_identity_actual_rest_two_snapshots_and_existing_raw_split_path(self):
+        drive, meter, opener = self.first_identity_fixture()
+        # Production keeps MIN_START=2016-01-04. Only this tiny synthetic capture
+        # moves its first session; real missing_windows is asserted first.
+        windows = self.r.missing_windows(['AAPL'], {}, '2026-10-23', {'AAPL'})[0]
+        self.assertEqual(list(windows), [('2016-01-04','2026-10-24')])
+        sink = []
+        with self.first_identity_clock(), patch.object(self.r.capture, 'MIN_START', '2026-10-23'), \
+                patch.object(self.r.capture.time, 'sleep', return_value=None):
+            values = self.first_identity_collect(drive, meter, sink)
+        self.assertEqual(values[0], {'AAPL':'2026-10-23'})
+        self.assertEqual((values[1], values[4], opener.calls, meter.used['provider_gets']), ({},2,4,4))
+        self.assertEqual([r['phase'] for r in sink], ['FIRST_CAPTURE_BOOTSTRAP','CAPTURE_RECHECK'])
+        self.assertTrue(all(r['readback_verified'] and not r['source_admission'] and not r['pit_verified']
+                            and r['persistence_state']=='ORIGINAL_READBACK_VERIFIED' for r in sink))
+        for record in sink:
+            raw = drive.objects[record['original_ref']['file_id']]
+            self.assertEqual(self.r.decode(raw)['class'], 'us_equity')
+            self.assertNotIn('asset_class', self.r.decode(raw))
+            self.assertEqual(self.r.digest(raw), record['response_sha256'])
+        sdk_ref = self.control['first_capture_identity']['assets']['AAPL']['sdk_ref']
+        self.assertEqual(self.r.decode(drive.objects[sdk_ref['file_id']])['asset_class'], 'us_equity')
+        self.assertGreater(meter.used['drive_requests'], 0)
+
+    def test_first_identity_sdk_original_and_expiry_refuse_before_provider(self):
+        drive, meter, opener = self.first_identity_fixture()
+        expected = self.control['first_capture_identity']['assets']['AAPL']
+        expected['sdk_ref'] = self.fixture_bindings['AAPL']  # REST cannot masquerade as SDK input.
+        with self.assertRaisesRegex(self.r.Refused, 'MANAGED_FIRST_IDENTITY_SDK_ORIGINAL'):
+            self.first_identity_collect(drive, meter, [])
+        self.assertEqual((opener.calls, meter.used['provider_gets']), (0,0))
+        drive, meter, opener = self.first_identity_fixture()
+        original_read, ticks = drive.read, [self.now]
+        sdk_id = self.control['first_capture_identity']['assets']['AAPL']['sdk_ref']['file_id']
+        def expired_after_read(fid, *args):
+            value = original_read(fid, *args)
+            if fid == sdk_id:
+                ticks[0] = self.r.campaign.utc(self.control['expires_at'])
+            return value
+        with patch.object(drive, 'read', side_effect=expired_after_read):
+            with self.assertRaisesRegex(self.r.Refused, 'MANAGED_FIRST_IDENTITY_WINDOW'):
+                self.r.collect_groups(drive,meter,self.control,dict(groups=[]),{'AAPL'},{},{},
+                    '2026-10-23','fixture-api-key','fixture-api-secret',lambda:ticks[0],identity_evidence=[])
+        self.assertEqual((opener.calls, meter.used['provider_gets']), (0,0))
+
+    def test_first_identity_mismatch_inactive_or_second_snapshot_change_hold_without_bars(self):
+        for mode in ('first_uuid','first_inactive','second_uuid','second_exchange'):
+            drive, meter, opener = self.first_identity_fixture()
+            original_open, sink = opener.open, []
+            def changed(request, **kwargs):
+                reply = original_open(request, **kwargs)
+                value = self.r.decode(reply.body)
+                if '/assets/' in request.full_url:
+                    if mode=='first_uuid' or (mode=='second_uuid' and opener.calls==2):
+                        value['id'] = '00000000-0000-0000-0000-000000000099'
+                    if mode=='first_inactive':
+                        value['status'] = 'inactive'
+                    if mode=='second_exchange' and opener.calls==2:
+                        value['exchange'] = 'NYSE'
+                    reply.body = self.r.encoded(value)
+                return reply
+            with self.subTest(mode=mode), self.first_identity_clock(), \
+                    patch.object(opener,'open',side_effect=changed):
+                values = self.first_identity_collect(drive, meter, sink)
+            self.assertEqual(values[0], {})
+            self.assertIn('AAPL', values[1])
+            self.assertEqual((values[3], values[4]), ([],0))
+            self.assertEqual(opener.calls, 1 if mode.startswith('first') else 2)
+            self.assertTrue(all(r['readback_verified'] for r in sink))
+
+    def test_first_identity_existing_or_incomplete_prefix_cannot_be_bypassed(self):
+        for result in ('coverage','incomplete','identity','archive'):
+            drive, meter, opener = self.first_identity_fixture()
+            bootstrap, sink = dict(groups=[]), []
+            if result=='identity':
+                bootstrap['asset_identity_refs'] = self.fixture_bindings
+            if result=='archive':
+                bootstrap['groups'] = [dict(symbols=['AAPL'],provider='twelve_data')]
+            kwargs = (dict(side_effect=self.r.IncompleteBootstrapCoverage({}, {'AAPL':'BASELINE_HOLD'}))
+                      if result=='incomplete' else dict(return_value={'AAPL':'2026-10-22'} if result=='coverage' else {}))
+            with self.subTest(result=result), patch.object(self.r, 'bootstrap_coverage', **kwargs):
+                values = self.r.collect_groups(drive,meter,self.control,bootstrap,{'AAPL'},{},{},
+                    '2026-10-23','fixture-api-key','fixture-api-secret',lambda:self.now,identity_evidence=sink)
+            self.assertIn('AAPL', values[1])
+            self.assertEqual((opener.calls, meter.used['provider_gets'], sink), (0,0,[]))
+
+    def test_first_identity_failed_readback_preserves_ref_in_blocked_journal(self):
+        drive, meter, opener = self.first_identity_fixture()
+        original_persist, original_read = self.r.capture.persist_object, drive.read
+        def persist(drive_arg, folder, raw, extension):
+            if self.r.decode(raw).get('class') == 'us_equity':
+                return drive_arg.write(folder, raw, extension)
+            return original_persist(drive_arg, folder, raw, extension)
+        def broken_read(fid, *args):
+            raw = original_read(fid, *args)
+            if self.r.decode(raw).get('class') == 'us_equity':
+                raise self.r.Refused('FIXTURE_IDENTITY_READBACK_FAILURE')
+            return raw
+        with self.first_identity_clock(), patch.object(self.r.capture,'persist_object',side_effect=persist), \
+                patch.object(drive,'read',side_effect=broken_read):
+            with self.assertRaisesRegex(self.r.Refused,'FIXTURE_IDENTITY_READBACK_FAILURE'):
+                self.r.execute(self.control,'a'*64,dict(active_tickers=['AAPL'],watch_tickers=[]),
+                    dict(groups=[]),[dict(id=1,head_sha='2'*40)],drive,meter,dict(run_id=1,head='2'*40),
+                    'fixture-api-key','fixture-api-secret',lambda:self.now,market_preflight=self.preflight())
+        rows = self.r.journal_rows(drive,self.control)
+        blocked = [v for _,v in rows if v['state']=='BLOCKED'][0]
+        record = blocked['first_capture_identity_evidence'][0]
+        self.assertEqual(record['persistence_state'],'WRITE_REF_RETURNED_UNVERIFIED')
+        self.assertIsNotNone(record['original_ref'])
+        self.assertFalse(record['readback_verified'])
+        self.assertEqual((opener.calls,meter.used['provider_gets']), (1,1))
+        with self.assertRaisesRegex(self.r.Refused,'PRIOR_FAILURE_REQUIRES_RECONCILIATION'):
+            self.r.restore_journal(rows,[dict(id=1,head_sha='2'*40),dict(id=2)],'a'*64,lambda *a:None)
+
+    def test_first_identity_planned_write_or_later_network_failure_preserves_journal(self):
+        for failure in ('planned_write','second_asset_request'):
+            drive, meter, opener = self.first_identity_fixture()
+            original_persist, original_open = self.r.capture.persist_object, opener.open
+            def persist(drive_arg, folder, raw, extension):
+                if failure=='planned_write' and self.r.decode(raw).get('class') == 'us_equity':
+                    raise self.r.Refused('FIXTURE_IDENTITY_WRITE_OUTCOME_UNKNOWN')
+                return original_persist(drive_arg, folder, raw, extension)
+            def request(req, **kwargs):
+                response = original_open(req, **kwargs)
+                if failure=='second_asset_request' and opener.calls==2:
+                    raise OSError('FIXTURE_IDENTITY_SECOND_REQUEST_FAILED')
+                return response
+            with self.subTest(failure=failure), self.first_identity_clock(), \
+                    patch.object(self.r.capture,'persist_object',side_effect=persist), \
+                    patch.object(opener,'open',side_effect=request):
+                with self.assertRaises(self.r.Refused):
+                    self.r.execute(self.control,'a'*64,dict(active_tickers=['AAPL'],watch_tickers=[]),
+                        dict(groups=[]),[dict(id=1,head_sha='2'*40)],drive,meter,dict(run_id=1,head='2'*40),
+                        'fixture-api-key','fixture-api-secret',lambda:self.now,market_preflight=self.preflight())
+            rows = self.r.journal_rows(drive,self.control)
+            terminal = [v for _,v in rows if v['state']=='BLOCKED'][0]
+            record = terminal['first_capture_identity_evidence'][0]
+            if failure=='planned_write':
+                self.assertEqual(record['persistence_state'],'WRITE_PLANNED')
+                self.assertIsNone(record['original_ref'])
+                self.assertFalse(record['readback_verified'])
+            else:
+                self.assertTrue(record['readback_verified'])
+                self.assertIsNotNone(record['original_ref'])
+            self.assertEqual((terminal['receipts'],terminal['coverage_updates']), ([],{}))
+            self.assertEqual(meter.used['provider_gets'],1 if failure=='planned_write' else 2)
+
     def test_changed_asset_id_is_held_without_bar_download(self):
         drive,meter,opener = self.memory_capture()
         raw = self.r.encoded(dict(symbol='AAPL',id='00000000-0000-0000-0000-000000000099',

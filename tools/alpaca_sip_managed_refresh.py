@@ -96,6 +96,79 @@ def execution_scope(control):
     return names
 
 
+def first_capture_profile(control, now):
+    """Optional one-run discovery expectation, never a REST original or right."""
+    if "first_capture_identity" not in control:
+        return None
+    profile = control["first_capture_identity"]
+    require(isinstance(profile, dict) and set(profile) == {"schema", "expires_at", "assets"}
+            and profile["schema"] == "a1-managed-first-capture-identity-v1", "MANAGED_FIRST_IDENTITY_PROFILE")
+    assets = profile["assets"]
+    require(isinstance(assets, dict) and 1 <= len(assets) <= capture.GROUP_SIZE,
+            "MANAGED_FIRST_IDENTITY_SCOPE")
+    scope = execution_scope(control)
+    require(control.get("max_runs") == 1 and type(control.get("max_runs")) is int
+            and scope == set(assets) and control.get("max_symbols_per_run") == len(assets)
+            and type(control.get("max_symbols_per_run")) is int
+            and isinstance(control.get("execution_tickers"), list)
+            and len(control["execution_tickers"]) == len(assets)
+            and isinstance(control.get("backfill_tickers"), list)
+            and len(control["backfill_tickers"]) == len(assets)
+            and set(control["backfill_tickers"]) == set(assets)
+            and "cadence" not in control, "MANAGED_FIRST_IDENTITY_SCOPE")
+    start, expiry = campaign.utc(control["not_before"]), campaign.utc(control["expires_at"])
+    profile_expiry = campaign.utc(profile["expires_at"])
+    ids = set()
+    for ticker, expected in assets.items():
+        require(isinstance(ticker, str) and capture.SYMBOL.fullmatch(ticker)
+                and isinstance(expected, dict) and set(expected) ==
+                {"sdk_ref", "observed_at", "symbol", "id", "exchange", "asset_class", "status"},
+                "MANAGED_FIRST_IDENTITY_EXPECTATION")
+        reference(expected["sdk_ref"], 65536)
+        require(expected["symbol"] == ticker and expected["asset_class"] == "us_equity"
+                and expected["status"] == "active" and isinstance(expected["exchange"], str)
+                and re.fullmatch(r"[A-Z0-9 -]{1,32}", expected["exchange"])
+                and isinstance(expected["id"], str) and re.fullmatch(
+                    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", expected["id"])
+                and expected["id"] not in ids, "MANAGED_FIRST_IDENTITY_EXPECTATION")
+        ids.add(expected["id"])
+        observed = campaign.utc(expected["observed_at"])
+        require(observed <= start <= now < expiry <= profile_expiry <= observed + timedelta(hours=24),
+                "MANAGED_FIRST_IDENTITY_WINDOW")
+    return assets
+
+
+def first_capture_guard(control, meter, clock):
+    assets = first_capture_profile(control, clock())
+    require(assets is not None and meter.deadline <= campaign.utc(control["expires_at"])
+            and clock() < meter.deadline, "MANAGED_FIRST_IDENTITY_DEADLINE")
+    meter.remaining_seconds()
+    return assets
+
+
+def retain_identity_original(drive, control, row, sink, phase, started, finished):
+    """Expose planned/returned/verified persistence separately, even on failure."""
+    record = dict(symbol=row["symbol"], phase=phase, http_status=row["http_status"],
+                  request_started_at=started.isoformat(), response_completed_at=finished.isoformat(),
+                  supplier_collected_at=row["collected_at_utc"], response_sha256=row["sha256"],
+                  persistence_state="NO_RESPONSE_BODY", original_ref=None, readback_verified=False,
+                  source_admission=False, pit_verified=False, learning_authority=False)
+    sink.append(record)
+    if row["response_utf8"] is None:
+        return record
+    raw = row["response_utf8"].encode("utf-8")
+    record.update(persistence_state="WRITE_PLANNED", bytes=len(raw),
+                  folder_id=control["evidence_folder_id"], content_addressed_name=digest(raw) + ".json")
+    ref = capture.persist_object(drive, control["evidence_folder_id"], raw, ".json")
+    record.update(persistence_state="WRITE_REF_RETURNED_UNVERIFIED", original_ref=dict(ref))
+    require(private_bytes(drive, control["evidence_folder_id"], ref, 65536) == raw,
+            "MANAGED_FIRST_IDENTITY_READBACK")
+    record.update(persistence_state="ORIGINAL_READBACK_VERIFIED", readback_verified=True)
+    require(started <= campaign.utc(row["collected_at_utc"]) <= finished,
+            "MANAGED_FIRST_IDENTITY_RESPONSE_CLOCK")
+    return record
+
+
 def validate_control(control, inventory_sha, policy_sha, now):
     require(isinstance(control, dict) and control.get("schema") == SCHEMA, "MANAGED_CONTROL")
     require(control.get("repository") == REPO
@@ -145,6 +218,7 @@ def validate_control(control, inventory_sha, policy_sha, now):
             and managed.symbols(control["backfill_tickers"]) <= set(control.get("authorized_tickers", []))
             and managed.symbols(control.get("authorized_tickers")), "MANAGED_TICKER_SCOPE")
     execution_scope(control)
+    first_capture_profile(control, now)
     if "cadence" in control:
         cadence = managed.cadence_contract(control["cadence"],
             not_before=control["not_before"], expires_at=control["expires_at"])
@@ -594,7 +668,16 @@ def select_candidates(tracked, coverage, held, session, limit, scheduling=None):
 
 
 def collect_groups(drive, meter, control, bootstrap, tracked, prior_coverage,
-                   prior_held, session, key, secret, clock=campaign.utc, *, scheduling=None):
+                   prior_held, session, key, secret, clock=campaign.utc, *, scheduling=None,
+                   identity_evidence=None):
+    first = first_capture_profile(control, clock())
+    if first is not None:
+        require(isinstance(identity_evidence, list) and not identity_evidence,
+                "MANAGED_FIRST_IDENTITY_EVIDENCE_SINK")
+        first_capture_guard(control, meter, clock)
+    def guarded_get(*args, **kwargs):
+        first_capture_guard(control, meter, clock)
+        return meter.perform(*args, **kwargs)
     # Oldest covered names first avoids starving the tail after a bounded run.
     candidates = select_candidates(tracked, prior_coverage, prior_held, session,
                                    control["max_symbols_per_run"], scheduling)
@@ -614,18 +697,61 @@ def collect_groups(drive, meter, control, bootstrap, tracked, prior_coverage,
     held.update(missing)
     identity_refs = bootstrap.get("asset_identity_refs", {})
     require(isinstance(identity_refs, dict), "MANAGED_IDENTITY_MAP")
+    initial = []
+    if first is not None:
+        # A discovery profile cannot erase a prior prefix, hold, identity or
+        # even an unverified archive membership to pretend this is a first run.
+        archive_names = {t for group in bootstrap["groups"] for t in group["symbols"]}
+        for t in set(first) & set(candidates):
+            if t in coverage or t in prior_held or t in identities or t in identity_refs or t in archive_names:
+                held[t] = "FIRST_CAPTURE_REQUIRES_EMPTY_PRIOR_STATE"
     for t in candidates:
         if t in held:
             continue
         ref = identity_refs.get(t)
         if ref is None:
             if t in identity_refs or t not in identities:
-                held[t] = "MISSING_STABLE_PROVIDER_IDENTITY_PROOF"
+                if first is not None and t in first:
+                    initial.append(t)
+                else:
+                    held[t] = "MISSING_STABLE_PROVIDER_IDENTITY_PROOF"
             continue
         original = private_bytes(drive, control["evidence_folder_id"], ref, 65536)
         standalone_id = capture.asset_record(original, t)["id"]
         require(t not in identities or identities[t] == standalone_id, "MANAGED_IDENTITY_CONFLICT")
         identities[t] = standalone_id
+    if initial:
+        # Verify every bound SDK original before any provider request. This
+        # normalized shape is intentionally distinct from REST's `class`.
+        for t in initial:
+            first_capture_guard(control, meter, clock)
+            sdk = decode(private_bytes(drive, control["evidence_folder_id"], first[t]["sdk_ref"], 65536))
+            require(isinstance(sdk, dict) and "class" not in sdk
+                    and all(sdk.get(k) == first[t][k] for k in
+                            ("symbol", "id", "exchange", "asset_class", "status")),
+                    "MANAGED_FIRST_IDENTITY_SDK_ORIGINAL")
+            first_capture_guard(control, meter, clock)
+
+        for t in initial:
+            meter.asset_symbols = (t,)
+            started = clock()
+            row = capture.precheck_assets([t], key, secret, guarded_get)[0]
+            record = retain_identity_original(drive, control, row, identity_evidence,
+                                              "FIRST_CAPTURE_BOOTSTRAP", started, clock())
+            record.update(expected_sdk_ref=dict(first[t]["sdk_ref"]),
+                          expected_sdk_observed_at=first[t]["observed_at"])
+            first_capture_guard(control, meter, clock)
+            if not capture.asset_supported(row):
+                held[t] = "INACTIVE_OR_UNSUPPORTED_ASSET"
+                record["identity_match"] = False
+                continue
+            actual = capture.asset_record(row["response_utf8"].encode(), t)
+            matched = actual["id"].lower() == first[t]["id"] and actual["exchange"] == first[t]["exchange"]
+            record["identity_match"] = matched
+            if not matched:
+                held[t] = "FIRST_CAPTURE_PROVIDER_IDENTITY_MISMATCH"
+            else:
+                identities[t] = actual["id"]
     reused = [t for t in reused if t not in held]
     updates, receipts, rows = {}, [], 0
     rank = {t: i for i, t in enumerate(candidates)}
@@ -642,7 +768,18 @@ def collect_groups(drive, meter, control, bootstrap, tracked, prior_coverage,
         for offset in range(0, len(names), capture.GROUP_SIZE):
             group = names[offset:offset + capture.GROUP_SIZE]
             meter.asset_symbols = tuple(group)  # each existing metered asset scope stays <=4
-            evidence = capture.precheck_assets(group, key, secret, meter.perform)
+            recheck_records = {}
+            if first is None:
+                evidence = capture.precheck_assets(group, key, secret, meter.perform)
+            else:
+                evidence = []
+                for t in group:
+                    started = clock()
+                    row = capture.precheck_assets([t], key, secret, guarded_get)[0]
+                    recheck_records[t] = retain_identity_original(drive, control, row, identity_evidence,
+                                                                  "CAPTURE_RECHECK", started, clock())
+                    first_capture_guard(control, meter, clock)
+                    evidence.append(row)
             eligible = []
             for row in evidence:
                 t = row["symbol"]
@@ -650,15 +787,20 @@ def collect_groups(drive, meter, control, bootstrap, tracked, prior_coverage,
                     held[t] = "INACTIVE_OR_UNSUPPORTED_ASSET"
                 elif capture.asset_record(row["response_utf8"].encode(), t)["id"] != identities[t]:
                     held[t] = "PROVIDER_SECURITY_ID_CHANGED"
+                elif first is not None and capture.asset_record(row["response_utf8"].encode(), t)["exchange"] != first[t]["exchange"]:
+                    held[t] = "PROVIDER_EXCHANGE_CHANGED"
                 else:
                     eligible.append(t)
+                if first is not None:
+                    recheck_records[t].update(identity_match=t in eligible,
+                                              hold_reason=held.get(t))
             if not eligible:
                 continue
             observed = clock().isoformat()
             objects, valid, no_data, count = capture.capture_one_group(
                 drive, control["private_data_folder_id"], eligible, start, end, key, secret,
                 control["inventory_sha256"], os.environ.get("GITHUB_SHA", ""),
-                get=meter.perform, scope=dict(task_key=control["task_key"],
+                get=meter.perform if first is None else guarded_get, scope=dict(task_key=control["task_key"],
                     namespace="managed-refresh-v1", input_sha256=control["inventory_sha256"]),
                 asset_evidence=[r for r in evidence if r["symbol"] in eligible])
             receipt = decode(private_bytes(drive, control["private_data_folder_id"], objects[-1], MAX_STATE))
@@ -731,6 +873,10 @@ def execute(control, control_sha, policy, bootstrap, history, drive, meter, cont
     # No provider request occurs until this durable reservation has read back.
     terminal = dict(base, parent_sha256=reserved["sha256"], state="BLOCKED",
                     coverage_updates={}, held={}, receipts=[], reason="MANAGED_INTERRUPTED")
+    identity_kwargs = {}
+    if "first_capture_identity" in control:
+        terminal["first_capture_identity_evidence"] = []
+        identity_kwargs["identity_evidence"] = terminal["first_capture_identity_evidence"]
     try:
         observed = clock()
         require(observed >= campaign.utc(market_preflight["checked_at_utc"]),
@@ -745,7 +891,7 @@ def execute(control, control_sha, policy, bootstrap, history, drive, meter, cont
         scheduling = managed.tier_schedule(roster, tracked, gate["session_date"]) if roster is not None else None
         if scheduling is None:
             values = collect_groups(drive, meter, control, bootstrap, tracked, coverage, old_held,
-                                    gate["session_date"], key, secret, clock)
+                                    gate["session_date"], key, secret, clock, **identity_kwargs)
         else:
             values = collect_groups(drive, meter, control, bootstrap, tracked, coverage, old_held,
                                     gate["session_date"], key, secret, clock, scheduling=scheduling)
@@ -787,6 +933,8 @@ def execute(control, control_sha, policy, bootstrap, history, drive, meter, cont
                 budget_basis="all slots fully reserved; no automatic refund",
                 supplier_expiry_inferred=False, source_admission=False, pit_verified=False,
                 economic_authority=False)
+    if identity_kwargs:
+        result["first_capture_identity_evidence"] = terminal["first_capture_identity_evidence"]
     if scheduling is not None:
         result.update(cadence_binding_sha256=binding, tier_progress=terminal["tier_progress"],
                       holdings_status=roster["holdings_status"],

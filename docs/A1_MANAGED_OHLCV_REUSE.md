@@ -499,3 +499,46 @@ authorization. Resolve the current active control and synchronize the newly
 deployed policy/receipt/budget pins before actual collection. Preserve any
 active writer and fail closed on mismatched scope rather than expanding its
 authority. This preparation does not certify a scheduled update.
+
+## Optional one-run first-capture identity expectation
+
+An absent `first_capture_identity` keeps the old stable-original requirement:
+missing identity proof holds the component before any provider request. A newly
+tracked security may instead use the explicit
+`a1-managed-first-capture-identity-v1` control profile, with exactly these fields:
+`schema`, `expires_at`, and an `assets` map keyed by the exact execution symbols.
+Each asset contains `sdk_ref` (the existing private file-id/hash/byte reference),
+`observed_at`, `symbol`, `id`, `exchange`, `asset_class`, and `status`.
+
+This is one run, one to four symbols, with `max_symbols_per_run` equal to that
+count and identical explicit execution/backfill sets. It is not a cadence mode.
+For every SDK observation, require
+`observed_at <= not_before <= now < control expiry <= profile expiry <= observed_at + 24h`.
+The live meter deadline remains no later than the control expiry, and clocks are
+checked again after private reads and before each provider call. The control's
+existing OWNER digest binds this entire profile. Rights, credential binding,
+opening costs, source-history fence, deployed-code pins, run history, durable
+reservation and NYSE/provider-window gates remain unchanged; a new namespace
+cannot reset costs or authorize a replay.
+
+The private SDK object must actually retain its normalized `asset_class` shape.
+It is not rewritten into a REST response with `class`. All SDK originals are
+hash/readback checked before provider access. Only a component with no prior
+coverage, held state, archive membership or original identity may bootstrap this
+way. An incomplete or unverified prefix remains held.
+
+The existing same-account `precheck_assets` first captures a real REST original,
+checks its UUID/exchange against the bound expectation, and preserves that
+original through existing content-addressed private storage and readback. The
+existing second precheck and RAW/SPLIT capture are then reused; a changed UUID,
+exchange, inactive asset or missing response prevents bars. Both identity stages
+are metered. Reserve the extra initial asset requests explicitly, together with
+all private persistence/readback costs and any allowed bar pagination.
+
+`first_capture_identity_evidence` distinguishes `WRITE_PLANNED`, a returned
+`original_ref` with `WRITE_REF_RETURNED_UNVERIFIED`, and
+`ORIGINAL_READBACK_VERIFIED`. Its response hashes, request/completion clocks and
+refs remain in a BLOCKED terminal checkpoint after a later failure. Unknown
+write outcomes need reconciliation, never a blind rerun. A verified current
+asset reference still grants no historical identity, corporate-action chain,
+Source/PIT/learning, ER, A5 or portfolio authority.
