@@ -35,8 +35,9 @@ extension is not inserted into the price/financial Reader or current risk list.
 
 Per-workbook limits remain8MiB raw,64MiB expanded XML,1,000,000 cells and24
 retained months per vintage. A32MiB normalized decoded ceiling is explicit.
-The first recipe proposes2015:M1 through2026:M10; actual coverage is unknown
-until original capture and replay. Its three workbooks are not yet collected.
+The first recipe selects2015:M1 through2026:M10. The scoped first capture
+and its actual coverage are recorded below; the recipe is not a standing
+execution or admission grant.
 The HTTP stream checks a180-second capture budget and a30-second socket bound;
 this is not a hard whole-process bound. The execution packet must separately
 bind the existing supervised CLI/owned-process timeout, including durable
@@ -72,3 +73,26 @@ and --extension-vintage-execution-sha256 values. An optional
 the existing approved Drive transport is used. Each selected generation
 requires the exact successful component execution and retained recipe object.
 The existing default workflows do not automatically enable this isolated mode.
+
+## First scoped capture, 2026-11-16
+
+PR #780 merged as commit `0739b2b9af6721105b16ca457ced3374efb9f18c` after 242/242
+registered programs passed. An externally issued, root/epoch/code/recipe-bound
+one-attempt grant then ran the existing supervised CLI once. The component
+execution `08a70786cb7458e9650b8e114dd9e9cad5ee35c85d099b65125a6a6d4e76488e`
+records 3 provider requests, 0 provider retries, 5,051,062 raw bytes, no failures
+and three hash-bound durable publications with transport body readback.
+The supervisor recorded exit 0, no timeout and 442.584 seconds; its owned lock
+was released and the grant remains permanently consumed. No repeat is allowed
+under that consumed grant.
+
+Each feed has 142 monthly vintages (2015:M1..2026:M10), each retaining 24 monthly
+observations, for 3,408 stored rows per feed. Those repeated vintage rows are
+not 3,408 independent economic months. The union of retained observation dates
+is 2013-01..2026-09. Root independently compared the local execution, archived
+execution, supervisor, success, consumed grant and generation metadata; that
+review did not download the originals from Drive again. The collector
+performed the recorded durable body readbacks. Exact publication instants,
+historical PIT, Source/training admission and qualified price inputs remain
+unverified. No model fit, current forecast or A3/A5 execution occurred in this
+capture. Existing scheduler and native risk gates remain unchanged.
