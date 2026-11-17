@@ -143,9 +143,99 @@ def require_fail_fast_keeps_failure_and_complete_success() -> None:
         check.assertIn("NOT_RUN: 1 tests", output.getvalue())
 
 
+def require_isolated_shards_cover_inventory_and_fail_closed() -> None:
+    """No dropped/duplicated programs, vacuous shards or filtered CI success."""
+    from collections import Counter
+    from contextlib import redirect_stderr, redirect_stdout
+    from io import StringIO
+    from unittest import TestCase
+    from unittest.mock import patch
+    import importlib.util
+    import sys
+    import yaml
+
+    spec = importlib.util.spec_from_file_location("validation_shard_fixture", ROOT / "tools/run_pr_validation.py")
+    validation = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(validation)
+    check = TestCase()
+    inventory = validation.DEFAULT_TESTS
+    for count in (1, 2, 4, len(inventory)):
+        shards = [validation.partition_tests(inventory, i, count) for i in range(count)]
+        flattened = [entry for shard in shards for entry in shard]
+        check.assertEqual(Counter(p for p, _ in flattened), Counter(p for p, _ in inventory))
+        check.assertEqual(dict(flattened), dict(inventory))  # Retain per-program args.
+        check.assertTrue(all(shards))
+        for shard in shards:
+            check.assertEqual([inventory.index(entry) for entry in shard],
+                              sorted(inventory.index(entry) for entry in shard))
+
+    for index, count in ((0, 0), (0, -1), (-1, 4), (4, 4), (0, len(inventory) + 1)):
+        with check.assertRaises(ValueError):
+            validation.partition_tests(inventory, index, count)
+    for invalid in ([], [("same.py", []), ("same.py", ["--other"])]):
+        with check.assertRaises(ValueError):
+            validation.partition_tests(invalid, 0, 1)
+
+    toy = [(f"case_{i}.py", [str(i)]) for i in range(9)]
+    for index in range(4):
+        with patch.object(validation, "DEFAULT_TESTS", toy), \
+             patch.object(sys, "argv", ["validation", "--shard-index", str(index), "--shard-count", "4"]), \
+             patch.object(validation, "run_one", return_value=(True, .01, "")) as run, \
+             redirect_stdout(StringIO()) as output:
+            check.assertEqual(validation.main(), 0)
+        check.assertEqual([(c.args[0], c.args[1]) for c in run.call_args_list], toy[index::4])
+        check.assertIn("inventory_sha256=", output.getvalue())
+        with patch.object(validation, "DEFAULT_TESTS", toy), \
+             patch.object(sys, "argv", ["validation", "--shard-index", str(index), "--shard-count", "4", "--fail-fast"]), \
+             patch.object(validation, "run_one", return_value=(False, .01, "failed")) as run, \
+             redirect_stdout(StringIO()) as output:
+            check.assertEqual(validation.main(), 1)
+        check.assertEqual(run.call_count, 1)
+        check.assertNotIn("all PR validation tests pass", output.getvalue())
+    for flags in (
+        ["--shard-index", "0"], ["--shard-count", "4"],
+        ["--shard-index", "4", "--shard-count", "4"],
+        ["--shard-index", "0", "--shard-count", "0"],
+        ["--shard-index", "0", "--shard-count", "4", "--only", "not_a_test"],
+        ["--shard-index", "0", "--shard-count", "4", "--include", "extra.py"],
+    ):
+        with patch.object(sys, "argv", ["validation", *flags]), \
+             patch.object(validation, "run_one") as run, \
+             redirect_stdout(StringIO()), redirect_stderr(StringIO()), \
+             check.assertRaises(SystemExit) as error:
+            validation.main()
+        check.assertEqual(error.exception.code, 2)
+        run.assert_not_called()
+
+    workflow = yaml.safe_load(read_required(".github/workflows/pr_validation.yml"))
+    jobs = workflow["jobs"]
+    shard = jobs["validation_shards"]
+    gate = jobs["validate"]
+    check.assertEqual(shard["strategy"], {"fail-fast": False, "matrix": {"shard": [0, 1, 2, 3]}})
+    check.assertEqual(shard["timeout-minutes"], 90)
+    check.assertNotIn("if", shard)
+    check.assertNotIn("continue-on-error", shard)
+    check.assertEqual(workflow["permissions"], {"contents": "read"})
+    steps = shard["steps"]
+    check.assertTrue(any(s.get("uses") == "actions/checkout@v4" for s in steps))
+    run = next(s for s in steps if s["name"] == "Run Tier-1 PR validation")
+    check.assertEqual(run["run"], "python tools/run_pr_validation.py --shard-index ${{ matrix.shard }} --shard-count 4")
+    check.assertNotIn("if", run)
+    check.assertNotIn("continue-on-error", run)
+    check.assertEqual(gate["if"], "${{ always() }}")
+    check.assertEqual(gate["needs"], ["validation_shards"])
+    check.assertNotIn("continue-on-error", gate)
+    step = gate["steps"][0]
+    check.assertEqual(step["env"], {"SHARD_RESULT": "${{ needs.validation_shards.result }}"})
+    check.assertEqual(step["run"], 'test "$SHARD_RESULT" = success')
+    check.assertNotIn("if", step)
+    check.assertNotIn("continue-on-error", step)
+
+
 def main() -> int:
     require_immediate_board_failure_details()
     require_fail_fast_keeps_failure_and_complete_success()
+    require_isolated_shards_cover_inventory_and_fail_closed()
     agents = read_required("AGENTS.md")
     standard = read_required("docs/RUN287_GITHUB_AGENT_OPERATING_STANDARD.md")
     template = read_required(".github/PULL_REQUEST_TEMPLATE.md")
