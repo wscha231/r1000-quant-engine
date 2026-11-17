@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """Tier-1 fast validation runner for code-level changes.
 
-Catches syntax errors, schema regressions, and smoke-test breakages in
-~12 minutes locally / under 80 minutes on the free CI runner. Designed so a
-developer can run one command before pushing, or have GitHub Actions
-(pr_validation.yml) run the same set on every push.
+Catches syntax errors, schema regressions, and smoke-test breakages. The full
+serial inventory can approach the CI job deadline; GitHub Actions partitions
+the same inventory across isolated checkouts without removing any programs.
+A developer can still run the serial set with one command before pushing.
 
 Validation tiers
 ================
-    Tier 0 (this script, local)         ~12 min  code-level smoke
-    Tier 1 (pr_validation.yml, CI)      <80 min  code-level smoke + leakage audit
+    Tier 0 (this script, local)         serial  code-level smoke
+    Tier 1 (pr_validation.yml, CI)     sharded  code-level smoke + leakage audit
     Tier 2 (alphaops_replay_sidecars_   10-30 min real-data sidecars rerun on
             manual.yml)                          prior full-rebuild artifacts
     Tier 3 (full_rebuild_manual.yml)    2-6 h    full data collection +
@@ -30,6 +30,8 @@ trimmed to the last 15 lines of stdout+stderr per failing test.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 import subprocess
 import sys
@@ -45,7 +47,7 @@ CHILD_ENV = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
 
 # Top-tier smoke tests that exercise the broker-ledger replay path,
 # weekly leader sidecar, broker position/execution policy, operating
-# target books, and the leakage audit. Each is fast (< 30 s).
+# target books, and the leakage audit. Some aggregate suites take many minutes.
 DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/a4_rtdsm_extension_smoke.py", []),
     ("tests/a4_rtdsm_sources_smoke.py", []),
@@ -296,6 +298,17 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
 ]
 
 
+def partition_tests(
+    tests: list[tuple[str, list[str]]], index: int, count: int,
+) -> list[tuple[str, list[str]]]:
+    """Partition the complete ordered inventory; never filter away a test."""
+    if not 1 <= count <= len(tests) or not 0 <= index < count:
+        raise ValueError("invalid shard index/count or empty inventory")
+    if len({path for path, _ in tests}) != len(tests):
+        raise ValueError("duplicate test paths in sharded inventory")
+    return tests[index::count]
+
+
 def run_one(rel_path: str, extra_args: list[str], quiet: bool) -> tuple[bool, float, str]:
     full = ROOT / rel_path
     if not full.exists():
@@ -341,9 +354,17 @@ def main() -> int:
         help="If supplied, restrict to these tests (matched by substring against the path).",
     )
     parser.add_argument("--quiet", action="store_true", help="Suppress per-test tail output on success.")
+    parser.add_argument("--shard-index", type=int, help="Zero-based isolated CI shard index.")
+    parser.add_argument("--shard-count", type=int, help="Number of isolated CI shards.")
     parser.add_argument("--fail-fast", action="store_true", default=os.environ.get("GITHUB_ACTIONS") == "true",
                         help="Stop with failure at the first failed test (default on GitHub Actions).")
     args = parser.parse_args()
+
+    sharded = args.shard_index is not None or args.shard_count is not None
+    if sharded and (args.shard_index is None or args.shard_count is None):
+        parser.error("--shard-index and --shard-count must be supplied together")
+    if sharded and (args.only or args.include):
+        parser.error("shards require the complete default inventory; no --only/--include")
 
     tests = list(DEFAULT_TESTS)
     for extra in args.include:
@@ -353,6 +374,20 @@ def main() -> int:
         tests.append((path, []))
     if args.only:
         tests = [(p, a) for (p, a) in tests if any(token in p for token in args.only)]
+    if sharded:
+        inventory_sha = hashlib.sha256(
+            json.dumps(tests, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        try:
+            shard = partition_tests(tests, args.shard_index, args.shard_count)
+        except ValueError as exc:
+            parser.error(str(exc))
+        print(
+            f"Shard {args.shard_index + 1}/{args.shard_count}: "
+            f"{len(shard)}/{len(tests)} files; inventory_sha256={inventory_sha}",
+            flush=True,
+        )
+        tests = shard
 
     print("=" * 72, flush=True)
     print(f"PR validation: {len(tests)} test files", flush=True)

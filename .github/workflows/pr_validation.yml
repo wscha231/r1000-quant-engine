@@ -1,6 +1,6 @@
 name: PR Validation (Fast)
 
-# Tier 1 validator: ~2-3 minute code-level smoke test runner.
+# Tier 1 validator: complete registered code-level smoke test inventory.
 # Runs automatically on pull requests (and manual dispatch) so code
 # changes get rapid feedback without waiting on a
 # manual full rebuild (Tier 3, 2-6 h).
@@ -24,8 +24,9 @@ name: PR Validation (Fast)
 #   * 84-month broker-ledger metric regeneration — use
 #     full_rebuild_manual.yml (Tier 3, ~2-6 h).
 #
-# Runtime target: < 80 minutes on the free GitHub runner, including
-# sparse checkout and dependency setup; keep a 90-minute fail-safe. Add new
+# Every registered program runs once across four isolated checkouts. Keep a
+# 90-minute fail-safe per shard and require every shard in the validate gate.
+# Runtime includes sparse checkout and dependency setup. Add new
 # critical smoke tests to tools/run_pr_validation.py's DEFAULT_TESTS so
 # both this workflow and the local runner stay in sync.
 
@@ -37,9 +38,14 @@ permissions:
   contents: read
 
 jobs:
-  validate:
+  validation_shards:
+    name: validate-shard (${{ matrix.shard }})
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
 
     steps:
       - name: Checkout
@@ -143,4 +149,17 @@ jobs:
           python tools/check_run287_artifact_hygiene.py --base-ref "$base_sha"
 
       - name: Run Tier-1 PR validation
-        run: python tools/run_pr_validation.py
+        run: python tools/run_pr_validation.py --shard-index ${{ matrix.shard }} --shard-count 4
+
+  # Preserve the required check name. A skipped/cancelled/failed shard must
+  # never become a successful required check through a skipped dependency.
+  validate:
+    if: ${{ always() }}
+    needs: [validation_shards]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every validation shard
+        env:
+          SHARD_RESULT: ${{ needs.validation_shards.result }}
+        run: test "$SHARD_RESULT" = success
