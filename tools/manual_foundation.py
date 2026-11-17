@@ -416,6 +416,8 @@ A6_FIXED_PROOF_INPUTS = (
     'docs/A4_CLOUD_RESEARCH_OPERATIONS.md',
 )
 A6_FIXED_PROOF_PROGRAMS = (
+    'tools/a4_guarded_regression.py',
+    'tests/a4_guarded_regression_smoke.py',
     'tools/a4_rtdsm_extension.py',
     'tests/a4_rtdsm_extension_smoke.py',
     'tests/a4_rtdsm_sources_smoke.py',

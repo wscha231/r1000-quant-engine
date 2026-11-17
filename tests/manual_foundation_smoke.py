@@ -8436,7 +8436,9 @@ class ManualTests(unittest.TestCase):
         programs.update({'tests/control_plane_agent_contract_smoke.py',
                          'tests/system_state_materializer_smoke.py',
                          'tests/manual_foundation_smoke.py', 'tools/run_pr_validation.py'})
-        self.assertEqual(len(registered_validation.DEFAULT_TESTS), 242)
+        self.assertEqual(len(registered_validation.DEFAULT_TESTS), 243)
+        self.assertEqual(registered_validation.DEFAULT_TESTS.count(
+            ('tests/a4_guarded_regression_smoke.py', [])), 1)
         self.assertEqual(registered_validation.DEFAULT_TESTS.count(
             ('tests/a4_regime_signals_smoke.py', [])), 1)
         self.assertEqual(registered_validation.DEFAULT_TESTS.count(
@@ -8445,7 +8447,9 @@ class ManualTests(unittest.TestCase):
             ('tests/alpaca_sip_managed_refresh_smoke.py', [])), 1)
         required = set(manual.required_dependencies('A6_INDEPENDENT_QA', self.root))
         self.assertTrue(programs.issubset(required), sorted(programs - required))
-        for name in ('tools/a4_rtdsm_extension.py',
+        for name in ('tools/a4_guarded_regression.py',
+                     'tests/a4_guarded_regression_smoke.py',
+                     'tools/a4_rtdsm_extension.py',
                      'tests/a4_rtdsm_extension_smoke.py',
                      'tests/a4_rtdsm_sources_smoke.py',
                      'tests/a4_regime_signals_smoke.py',
@@ -8506,6 +8510,25 @@ class ManualTests(unittest.TestCase):
         self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
         self.assertFalse(result['worker_invoked'])
         self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
+
+    def test_a6_guarded_regression_refuses_changed_and_rebound_omission(self):
+        packet, scope = self.packet('A6_INDEPENDENT_QA')
+        for name in ('tools/a4_guarded_regression.py',
+                     'tests/a4_guarded_regression_smoke.py'):
+            self.assertIn(name, packet['dependencies'])
+            target = self.root / name
+            original = target.read_bytes()
+            try:
+                target.write_bytes(original+b'\n# changed guarded research code\n')
+                self.rejected(packet, scope, 'dependency_bytes_changed:'+name)
+            finally:
+                target.write_bytes(original)
+            omitted, verified = copy.deepcopy(packet), copy.deepcopy(scope)
+            del omitted['dependencies'][name]
+            del verified['dependencies'][name]
+            self.rebind_all(omitted, verified)
+            self.rejected(omitted, verified, 'missing_dependency')
+        self.assertEqual(self.validate(packet, scope)['status'], 'VALIDATED_PREPARE_ONLY')
 
     def test_a6_regime_vintage_codec_refuses_changed_and_rebound_omission(self):
         # The regime/daily transform imports this pre-existing codec. Its source
