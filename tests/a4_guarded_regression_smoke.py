@@ -67,5 +67,18 @@ class GuardedRegression(unittest.TestCase):
             with self.assertRaises(ValueError):
                 guarded.predictions(np.array([[0.,bad],[1.,0.]]),np.ones(2),np.ones((1,2)))
 
+    def test_indexed_labels_and_cohort_must_match_exact_dates(self):
+        dates=pd.bdate_range('2000-01-03',periods=1100)
+        x=pd.DataFrame(self.rng.normal(size=(1100,2)),index=dates)
+        y=pd.Series(self.rng.normal(size=1100),index=dates)
+        complete=pd.Series(True,index=dates)
+        a,_,_=guarded.walk_forward(x,y,horizon=21,complete=complete)
+        b,_,_=guarded.walk_forward(x,y.to_numpy(),horizon=21,complete=complete.to_numpy())
+        np.testing.assert_array_equal(a,b)
+        with self.assertRaisesRegex(ValueError,'LABEL_INDEX'):
+            guarded.walk_forward(x,y.iloc[::-1],horizon=21,complete=complete)
+        with self.assertRaisesRegex(ValueError,'COHORT_INDEX'):
+            guarded.walk_forward(x,y,horizon=21,complete=complete.iloc[::-1])
+
 
 if __name__=='__main__':unittest.main()

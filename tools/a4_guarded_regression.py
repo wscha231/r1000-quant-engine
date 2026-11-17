@@ -86,6 +86,10 @@ def walk_forward(panel, labels, *, horizon, complete):
     daily.chronological_dates(panel.index)
     need(2<=len(panel)<=MAX_ROWS and 1<=len(panel.columns)<=MAX_COLUMNS, 'PANEL_BOUNDS')
     need(type(horizon) is int and horizon in daily.HORIZONS, 'HORIZON')
+    if isinstance(labels,pd.Series):
+        need(labels.index.equals(panel.index), 'LABEL_INDEX')
+    if isinstance(complete,pd.Series):
+        need(complete.index.equals(panel.index), 'COHORT_INDEX')
     x=panel.to_numpy(float);y=np.asarray(labels,dtype=float);mask=np.asarray(complete)
     need(y.shape==(len(panel),) and not np.isinf(y).any() and
          mask.shape==y.shape and mask.dtype==np.dtype(bool), 'LABELS_OR_COHORT')
