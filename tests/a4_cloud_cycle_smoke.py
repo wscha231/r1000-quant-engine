@@ -89,7 +89,7 @@ class CloudTests(unittest.TestCase):
     def test_hosted_public_uploads_are_metadata_only_and_legacy_stdout_stays_private(self):
         steps=self.hosted_steps()
         uploads=[step for step in steps if str(step.get('uses','')).startswith('actions/upload-artifact@')]
-        self.assertEqual(len(uploads),5)
+        self.assertEqual(len(uploads),6)
         for step in uploads:
             self.assertTrue(step['with']['path'].startswith('outputs/a4_public_receipts/'))
             self.assertTrue(step['with']['path'].endswith('.json'))

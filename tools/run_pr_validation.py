@@ -53,6 +53,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/a4_data_center_smoke.py", []),
     ("tests/a4_daily_multifactor_smoke.py", []),
     ("tests/a4_guarded_regression_smoke.py", []),
+    ("tests/a4_flow_relationships_smoke.py", []),
     ("tests/a4_regime_signals_smoke.py", []),
     ("tests/api_credentials_check_smoke.py", []),
     ("tests/smoke_test.py", []),

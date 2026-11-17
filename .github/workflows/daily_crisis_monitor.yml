@@ -138,12 +138,28 @@ jobs:
           python tools/collect_a4_primary_data.py --output-dir "$DEST" \
             --existing-input-root "${A4_NATIVE_INPUT_ROOT:-outputs/market_analysis_inputs}" --publish --include-economic-inputs "${financing[@]}"
 
+      - name: Prepare finite test benchmark research prices
+        id: a4_flow_prices
+        timeout-minutes: 12
+        if: vars.A4_FLOW_RESEARCH_POLICY_SHA256 != '' && steps.a4_primary_collect.outcome == 'success'
+        continue-on-error: true
+        env:
+          FLOW_POLICY_SHA256: ${{ vars.A4_FLOW_RESEARCH_POLICY_SHA256 }}
+        run: |
+          set -euo pipefail
+          DEST="outputs/a4_flow_prices/${{ github.run_id }}-${{ github.run_attempt }}"
+          echo "A4_FLOW_PRICE_ROOT=$DEST" >> "$GITHUB_ENV"
+          timeout --signal=TERM --kill-after=10s 12m python tools/a4_flow_price_inputs.py --execute --publish \
+            --policy-root outputs/market_analysis_inputs/flow_research \
+            --policy-sha256 "$FLOW_POLICY_SHA256" --output-dir "$DEST"
+
       - name: Build and verify unified A4 data center
         id: a4_data_center
         if: vars.A4_PRIMARY_COLLECTION_ENABLED == 'true' && steps.a4_primary_collect.outcome == 'success'
         continue-on-error: true
         env:
           A4_LEARNING_POLICY_SHA256: ${{ vars.A4_LEARNING_POLICY_SHA256 }}
+          A4_FLOW_RESEARCH_POLICY_SHA256: ${{ vars.A4_FLOW_RESEARCH_POLICY_SHA256 }}
         run: |
           set -euo pipefail
           DEST="outputs/a4_data_center/${{ github.run_id }}-${{ github.run_attempt }}"
@@ -162,10 +178,15 @@ jobs:
               transport=RcloneTransport(os.environ['MACRO_RESEARCH_REMOTE']),probe_lake=True,
               code_sha=os.environ['GITHUB_SHA'],
               learning_root='outputs/market_analysis_inputs',
-              learning_policy_sha256=os.environ.get('A4_LEARNING_POLICY_SHA256') or None)
+              learning_policy_sha256=os.environ.get('A4_LEARNING_POLICY_SHA256') or None,
+              flow_price_root=os.environ.get('A4_FLOW_PRICE_ROOT'),
+              flow_policy_root='outputs/market_analysis_inputs/flow_research',
+              flow_policy_sha256=os.environ.get('A4_FLOW_RESEARCH_POLICY_SHA256') or None)
           print({'status':receipt['status'],'catalog_sha256':receipt['catalog_sha256'],
               'current_diagnosis':catalog['current_diagnosis']['status'],
               'historical_evaluation':catalog['historical_evaluation']['status']})
+          if os.environ.get('A4_FLOW_RESEARCH_POLICY_SHA256') and catalog['flow_relationships']['status']!='CURRENT_VINTAGE_DESCRIPTIVE_ONLY':
+              raise SystemExit(2)
           if not receipt['selected_core_verified']:
               raise SystemExit(2)
           PY
@@ -267,6 +288,7 @@ jobs:
           A4_PUBLIC_DAILY: ${{ steps.daily_crisis.outcome }}
           A4_PUBLIC_CLOUD: ${{ steps.a4_cycle.outcome }}
           A4_PUBLIC_PRIMARY: ${{ steps.a4_primary_collect.outcome }}
+          A4_PUBLIC_FLOW: ${{ steps.a4_flow_prices.outcome }}
           A4_PUBLIC_NATIVE: ${{ steps.a4_native_prepare.outcome }}
           A4_PUBLIC_DATA_CENTER: ${{ steps.a4_data_center.outcome }}
           A4_PUBLIC_RESTORE: ${{ steps.a4_restore.outcome }}
@@ -305,6 +327,14 @@ jobs:
         with:
           name: a4-native-preparation-${{ github.run_id }}-${{ github.run_attempt }}
           path: outputs/a4_public_receipts/${{ github.run_id }}-${{ github.run_attempt }}/native.json
+          retention-days: 30
+
+      - name: Upload flow research hash metadata
+        if: always() && steps.a4_public_receipts.outcome == 'success' && vars.A4_FLOW_RESEARCH_POLICY_SHA256 != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: a4-flow-research-${{ github.run_id }}-${{ github.run_attempt }}
+          path: outputs/a4_public_receipts/${{ github.run_id }}-${{ github.run_attempt }}/flow.json
           retention-days: 30
 
       - name: Upload unified A4 data center evidence

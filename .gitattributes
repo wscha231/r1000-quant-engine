@@ -53,3 +53,6 @@ tools/collect_a4_primary_data.py text eol=lf
 tests/a4_rtdsm_extension_smoke.py text eol=lf
 tools/a4_guarded_regression.py text eol=lf
 tests/a4_guarded_regression_smoke.py text eol=lf
+tools/a4_flow_relationships.py text eol=lf
+tools/a4_flow_price_inputs.py text eol=lf
+tests/a4_flow_relationships_smoke.py text eol=lf
