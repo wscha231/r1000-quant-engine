@@ -83,6 +83,22 @@ class FlowTests(unittest.TestCase):
             self.assertEqual((a['pairs'],a['pearson'],a['spearman']),(b['pairs'],b['pearson'],b['spearman']))
             if a['first'] is not None:self.assertGreaterEqual(a['first'],'2019-01-01')
 
+class MemoryArchive:
+    """Synthetic transport only; the remote flag exercises custody checks."""
+    remote_verified=True
+    def __init__(self):self.objects={};self.fail_execution=False
+    def names(self,prefix):return [p.rsplit('/',1)[-1] for p in self.objects if p.startswith(prefix+'/')]
+    def read(self,path):
+        if path not in self.objects:raise ValueError('MISSING_SYNTHETIC_OBJECT')
+        return self.objects[path]
+    def write(self,path,raw):
+        from tools.macro_history_sources import digest
+        if self.fail_execution and b'"schema":"a4-flow-test-price-execution-v1"' in raw:
+            raise ValueError('SYNTHETIC_EXECUTION_READBACK_FAILURE')
+        if path in self.objects and self.objects[path]!=raw:raise ValueError('immutable')
+        self.objects[path]=raw
+        if self.read(path)!=raw:raise ValueError('synthetic_readback')
+
 class PriceTests(unittest.TestCase):
     def setUp(self):
         from tools import a4_flow_price_inputs as prices
@@ -193,6 +209,40 @@ class PriceTests(unittest.TestCase):
             reused=self.p.stage(raw,pin,cutoff=self.now,output_root=Path(temp)/'reuse',previous=view,
                 download=lambda *a:(_ for _ in ()).throw(AssertionError('RECOLLECTION')))
         self.assertEqual(reused,view)
+    def test_changed_same_session_policy_cannot_relabel_cached_view(self):
+        import tempfile
+        raw,pin=self.policy_bytes();_,view=self.p.collect(raw,pin,cutoff=self.now,download=self.download)
+        self.policy['expires_at']='2026-12-16T00:00:00Z';new_raw,new_pin=self.policy_bytes()
+        with tempfile.TemporaryDirectory() as temp,self.assertRaisesRegex(ValueError,'VIEW_SCOPE'):
+            self.p.stage(new_raw,new_pin,cutoff=self.now,output_root=Path(temp)/'changed',previous=view,download=self.download)
+        self.assertEqual(len(self.calls),1)
+
+    def test_real_local_execution_without_durable_claim_never_calls_provider(self):
+        import tempfile
+        raw,pin=self.policy_bytes()
+        with tempfile.TemporaryDirectory() as temp,patch.object(self.p.collector,'download_yfinance',side_effect=AssertionError('PROVIDER')):
+            with self.assertRaisesRegex(ValueError,'REAL_EXECUTION_REQUIRES_DURABLE_CLAIM'):
+                self.p.stage(raw,pin,cutoff=self.now,output_root=Path(temp)/'local')
+            argv=['flow','--execute','--policy-root',temp,'--policy-sha256',pin,'--output-dir',str(Path(temp)/'cli')]
+            with patch.object(sys,'argv',argv),self.assertRaisesRegex(ValueError,'REAL_EXECUTION_REQUIRES_DURABLE_CLAIM'):self.p.main()
+
+    def test_old_producer_cache_does_not_block_new_completed_session(self):
+        import tempfile
+        raw,pin=self.policy_bytes();_,view=self.p.collect(raw,pin,cutoff=self.now,download=self.download)
+        view['target_session']='2026-11-13';view['producer_sha256']={'old_producer':'0'*64}
+        remote=MemoryArchive();prefix=self.p.primary.PREFIX;view_raw=self.encoded(view);view_pin=self.digest(view_raw)
+        context=dict(status='CURRENT_VINTAGE_DESCRIPTIVE_ONLY',price_view_sha256=view_pin)
+        catalog=self.encoded(dict(flow_relationships=context));catalog_pin=self.digest(catalog)
+        receipt=self.encoded(dict(schema='a4-data-center-execution-v1',status='DURABLE_RESEARCH_INDEX_COMPLETE',
+            completed_at=self.now,catalog_sha256=catalog_pin));receipt_pin=self.digest(receipt)
+        remote.write(prefix+'/objects/'+view_pin,view_raw);remote.write(prefix+'/catalogs/'+catalog_pin+'.json',catalog)
+        remote.write(prefix+'/index-executions/'+receipt_pin+'.json',receipt)
+        self.assertIsNone(self.p.previous_view(remote,self.now,policy_sha256=pin))
+        with tempfile.TemporaryDirectory() as temp:
+            fresh=self.p.stage(raw,pin,cutoff=self.now,output_root=Path(temp)/'new',previous=view,download=self.download)
+            self.assertEqual(fresh['target_session'],self.session)
+        self.assertEqual(len(self.calls),2)
+
     def test_long_approval_window_never_makes_old_daily_prices_current(self):
         raw,pin=self.policy_bytes();_,view=self.p.collect(raw,pin,cutoff=self.now,download=self.download)
         self.p.price_series(view,policy_sha256=pin,cutoff=self.now,expected_session=self.session)
@@ -243,9 +293,50 @@ class PriceTests(unittest.TestCase):
             self.assertEqual(len(catalog['flow_relationships']['results']),448)
             self.assertFalse(catalog['training_admitted']);self.assertFalse(catalog['source_admitted'])
             self.assertEqual(catalog['current_diagnosis']['status'],'DATA_BLOCKED')
+            policy_changed={**self.policy,'expires_at':'2026-12-06T00:00:00Z'}
+            new_raw=self.encoded(policy_changed);new_pin=self.digest(new_raw)
+            (policy_root/'flow-research-policy.json').write_bytes(new_raw)
+            original_execution=(root/'prices/execution.json').read_bytes()
+            forged=self.p.primary.f.strict_json(original_execution);forged['policy_sha256']=new_pin
+            (root/'prices/execution.json').write_bytes(self.encoded(forged))
+            rejected,_=center.build([spec],cutoff=NOW,output_dir=root/'policy-relabel',flow_policy_root=policy_root,
+                flow_policy_sha256=new_pin,flow_price_root=root/'prices')
+            self.assertEqual(rejected['flow_relationships']['status'],'BLOCKED')
+            (policy_root/'flow-research-policy.json').write_bytes(raw)
+            (root/'prices/execution.json').write_bytes(original_execution)
             (root/'prices/price-view.json').write_bytes(b'changed')
             catalog,_=center.build([spec],cutoff=NOW,output_dir=root/'changed',flow_policy_root=policy_root,
                 flow_policy_sha256=pin,flow_price_root=root/'prices')
             self.assertEqual(catalog['flow_relationships']['status'],'BLOCKED')
+
+    def test_failed_final_receipt_and_missing_durable_marker_block_data_center(self):
+        import tempfile
+        from tools import a4_data_center as center
+        from tests.a4_data_center_smoke import capture
+        from tests.a4_primary_sources_smoke import NOW
+        self.clock.stop();self.clock=patch.object(self.p.primary,'now',return_value=NOW);self.clock.start()
+        self.market.stop();self.market=patch.object(self.p.market,'current_session',return_value='2026-11-06');self.market.start()
+        self.session='2026-11-06';self.policy.update(available_at='2026-11-07T00:00:00Z',expires_at='2026-12-07T00:00:00Z')
+        raw,pin=self.policy_bytes()
+        for failed in (False,True):
+            with self.subTest(failed=failed),tempfile.TemporaryDirectory() as tmp:
+                root=Path(tmp);remote=MemoryArchive();spec=capture(root/'macro',transport=remote)
+                policy_root=root/'policy';policy_root.mkdir();(policy_root/'flow-research-policy.json').write_bytes(raw)
+                remote.fail_execution=failed
+                if failed:
+                    with self.assertRaisesRegex(ValueError,'SYNTHETIC_EXECUTION_READBACK_FAILURE'):
+                        self.p.stage(raw,pin,cutoff=NOW,output_root=root/'prices',transport=remote,download=self.download)
+                    self.assertTrue((root/'prices/execution.json').exists())
+                    self.assertTrue((root/'prices/failure.json').exists())
+                    self.assertFalse((root/'prices/durable-completion.json').exists())
+                else:self.p.stage(raw,pin,cutoff=NOW,output_root=root/'prices',transport=remote,download=self.download)
+                catalog,_=center.build([spec],cutoff=NOW,output_dir=root/'index',source_transport=remote,
+                    flow_policy_root=policy_root,flow_policy_sha256=pin,flow_price_root=root/'prices')
+                self.assertEqual(catalog['flow_relationships']['status'],'BLOCKED' if failed else 'CURRENT_VINTAGE_DESCRIPTIVE_ONLY')
+                if failed:(root/'prices/failure.json').unlink()
+                else:(root/'prices/durable-completion.json').unlink()
+                catalog,_=center.build([spec],cutoff=NOW,output_dir=root/'missing-marker',source_transport=remote,
+                    flow_policy_root=policy_root,flow_policy_sha256=pin,flow_price_root=root/'prices')
+                self.assertEqual(catalog['flow_relationships']['status'],'BLOCKED')
 
 if __name__=='__main__':unittest.main()

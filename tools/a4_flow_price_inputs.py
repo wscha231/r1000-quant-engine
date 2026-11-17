@@ -136,6 +136,20 @@ def verify_snapshot(view,raw):
     return snapshot
 
 
+def _finish(root,receipt,transport,policy_raw,policy_sha256):
+    from tools.macro_history_sources import exclusive
+    raw=encoded(receipt);exclusive(root/'execution.json',raw)
+    if transport is not None:
+        validate_policy(policy_raw,policy_sha256,primary.now())
+        transport.write(primary.PREFIX+'/reports/'+digest(raw)+'.json',raw)
+        validate_policy(policy_raw,policy_sha256,primary.now())
+        if transport.remote_verified is True:
+            exclusive(root/'durable-completion.json',encoded(dict(schema='a4-flow-price-durable-completion-v1',
+                execution_sha256=digest(raw),view_sha256=receipt['view_sha256'],
+                snapshot_sha256=receipt['snapshot_sha256'],policy_sha256=policy_sha256,
+                completed_at=primary.now(),remote_readback_verified=True,source_admitted=False,training_admitted=False)))
+
+
 def stage(policy_raw,expected_policy_sha256,*,cutoff,output_root,transport=None,previous=None,download=None):
     """Single-writer session claim precedes one batch; same-session reuse is read-only.
 
@@ -145,17 +159,22 @@ def stage(policy_raw,expected_policy_sha256,*,cutoff,output_root,transport=None,
     """
     from tools.macro_history_sources import exclusive
     policy=validate_policy(policy_raw,expected_policy_sha256,cutoff)
+    need(download is not None or transport is not None and transport.remote_verified is True,'REAL_EXECUTION_REQUIRES_DURABLE_CLAIM')
     root=Path(output_root);need(not root.exists() and not any(p.is_symlink() for p in (root,*root.parents)),'ATTEMPT_EXISTS_OR_SYMLINK')
     root.mkdir(parents=True);session=market.current_session(cutoff)
     try:
         if previous is not None:
-            old_policy=previous.get('policy_sha256')
-            price_series(previous,policy_sha256=old_policy,cutoff=cutoff)
-            if previous.get('target_session')==session:
-                exclusive(root/'price-view.json',encoded(previous));exclusive(root/'execution.json',encoded(dict(
-                    schema='a4-flow-test-price-execution-v1',status='REUSED_SAME_COMPLETED_SESSION',
-                    target_session=session,view_sha256=digest(encoded(previous)),policy_sha256=expected_policy_sha256,
-                    provider_batch_calls=0,backend_HTTP_count='UNKNOWN',source_admitted=False,training_admitted=False)))
+            need(type(previous) is dict,'PREVIOUS_VIEW')
+            old_session=primary.day(previous['target_session'])
+            need(old_session<=primary.day(session),'FUTURE_PREVIOUS_VIEW')
+            if old_session==primary.day(session):
+                price_series(previous,policy_sha256=expected_policy_sha256,cutoff=cutoff,expected_session=session)
+                exclusive(root/'price-view.json',encoded(previous))
+                receipt=dict(schema='a4-flow-test-price-execution-v1',status='REUSED_SAME_COMPLETED_SESSION',
+                    target_session=session,view_sha256=digest(encoded(previous)),snapshot_sha256=previous['snapshot_sha256'],
+                    policy_sha256=expected_policy_sha256,provider_batch_calls=0,backend_HTTP_count='UNKNOWN',
+                    source_admitted=False,training_admitted=False)
+                _finish(root,receipt,transport,policy_raw,expected_policy_sha256)
                 return previous
         claim=dict(schema='a4-flow-price-session-claim-v1',purpose=PURPOSE,targets=list(TARGETS),target_session=session)
         claim_raw=encoded(claim);claim_pin=digest(claim_raw);claim_path=primary.PREFIX+'/reports/'+claim_pin+'.json'
@@ -175,10 +194,7 @@ def stage(policy_raw,expected_policy_sha256,*,cutoff,output_root,transport=None,
             snapshot_sha256=digest(snapshot_raw),view_sha256=digest(view_raw),provider_batch_calls=1,
             backend_HTTP_count='UNKNOWN',raw_http_originals_available=False,provider_currency_verified=False,
             source_admitted=False,training_admitted=False,model_fits=0,accepted_portfolio_changed=False)
-        raw=encoded(receipt);exclusive(root/'execution.json',raw)
-        if transport is not None:
-            validate_policy(policy_raw,expected_policy_sha256,primary.now());transport.write(primary.PREFIX+'/reports/'+digest(raw)+'.json',raw)
-            validate_policy(policy_raw,expected_policy_sha256,primary.now())
+        _finish(root,receipt,transport,policy_raw,expected_policy_sha256)
         return view
     except Exception as exc:
         failure_raw=encoded(dict(schema='a4-flow-test-price-failure-v1',status='BLOCKED',
@@ -197,7 +213,7 @@ def stage(policy_raw,expected_policy_sha256,*,cutoff,output_root,transport=None,
         raise
 
 
-def previous_view(transport,cutoff):
+def previous_view(transport,cutoff,*,policy_sha256):
     """Reuse only the newest completed data-center catalog, without older fallback."""
     names=transport.names(primary.PREFIX+'/index-executions')
     need(0<len(names)<=64,'INDEX_DISCOVERY_BOUND')
@@ -214,9 +230,14 @@ def previous_view(transport,cutoff):
     pin=newest['catalog_sha256'];catalog=primary.f.strict_json(primary.read_object(transport,primary.PREFIX+'/catalogs/'+pin+'.json',pin,4*1024**2))
     context=catalog.get('flow_relationships',{})
     if context.get('status') in (None,'NOT_CONFIGURED'):return None
+    current_session=market.current_session(cutoff)
+    if context.get('status')=='BLOCKED' and market.current_session(catalog['cutoff'])<current_session:return None
     need(context.get('status')=='CURRENT_VINTAGE_DESCRIPTIVE_ONLY','LATEST_FLOW_CONTEXT_BLOCKED')
     pin=context['price_view_sha256'];view=primary.f.strict_json(primary.read_object(transport,primary.PREFIX+'/objects/'+pin,pin,MAX_VIEW_BYTES))
-    price_series(view,policy_sha256=view['policy_sha256'],cutoff=cutoff)
+    old_session=primary.day(view['target_session']);current=primary.day(current_session)
+    need(old_session<=current,'FUTURE_PREVIOUS_VIEW')
+    if old_session<current:return None
+    price_series(view,policy_sha256=policy_sha256,cutoff=cutoff,expected_session=current_session)
     return view
 
 
@@ -271,13 +292,14 @@ def main():
     parser.add_argument('--policy-root',required=True);parser.add_argument('--policy-sha256',required=True)
     parser.add_argument('--output-dir',required=True);parser.add_argument('--execute',action='store_true')
     parser.add_argument('--publish',action='store_true');args=parser.parse_args()
+    need(not args.execute or args.publish,'REAL_EXECUTION_REQUIRES_DURABLE_CLAIM')
     policy=Path(args.policy_root)/'flow-research-policy.json'
     need(policy.is_file() and not any(p.is_symlink() for p in (policy,*policy.parents)),'POLICY_PATH')
     raw=market.bounded(policy,65536);cutoff=primary.now();validate_policy(raw,args.policy_sha256,cutoff)
     if not args.execute:
         print('{"status":"PREPARED_NO_PROVIDER_CALLS"}');return 0
     remote=bounded_transport(os.environ['MACRO_RESEARCH_REMOTE'],raw,args.policy_sha256) if args.publish else None
-    old=previous_view(remote,cutoff) if remote is not None else None
+    old=previous_view(remote,cutoff,policy_sha256=args.policy_sha256) if remote is not None else None
     view=stage(raw,args.policy_sha256,cutoff=cutoff,output_root=args.output_dir,transport=remote,previous=old)
     print(encoded(dict(status='TEST_PRICE_VIEW_AVAILABLE',source_admitted=False,training_admitted=False,
         transport_commands=remote.commands if remote is not None else 0,

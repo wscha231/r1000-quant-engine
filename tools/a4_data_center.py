@@ -647,16 +647,30 @@ def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,prob
         try:
             price_root=Path(flow_price_root);policy_root=Path(flow_policy_root)
             p.check(not any(path.is_symlink() for root in (price_root,policy_root) for path in (root,*root.parents)),'FLOW_INPUT_SYMLINK')
-            p.check(not any(path.is_symlink() for path in (policy_root/'flow-research-policy.json',price_root/'execution.json',price_root/'price-view.json',price_root/'dataframe-snapshot.json')),'FLOW_LEAF_SYMLINK')
+            p.check(not any(path.is_symlink() for path in (policy_root/'flow-research-policy.json',price_root/'execution.json',price_root/'price-view.json',price_root/'dataframe-snapshot.json',price_root/'durable-completion.json')),'FLOW_LEAF_SYMLINK')
+            p.check(not any((price_root/name).exists() or (price_root/name).is_symlink()
+                for name in ('failure.json','failure-publication-blocked.json')),'FLOW_FAILED_ATTEMPT')
             policy_raw=market.bounded(policy_root/'flow-research-policy.json',65536)
             flow_prices.validate_policy(policy_raw,pin(flow_policy_sha256),cutoff)
             execution_raw=market.bounded(price_root/'execution.json',128*1024);execution=p.f.strict_json(execution_raw)
             p.check(execution.get('schema')=='a4-flow-test-price-execution-v1' and execution.get('status') in
                 ('REUSED_SAME_COMPLETED_SESSION','LOCAL_UNQUALIFIED_PRICE_VIEW','DURABLE_UNQUALIFIED_PRICE_VIEW'),'FLOW_PRICE_EXECUTION')
             p.check(execution.get('policy_sha256')==flow_policy_sha256,'FLOW_EXECUTION_POLICY')
+            durable_raw=None
+            if execution['status']=='DURABLE_UNQUALIFIED_PRICE_VIEW' or transport is not None and transport.remote_verified is True:
+                p.check(source_transport is not None and source_transport.remote_verified is True,'FLOW_DURABLE_TRANSPORT_REQUIRED')
+                durable_raw=market.bounded(price_root/'durable-completion.json',65536);completion=p.f.strict_json(durable_raw)
+                p.check(completion.get('schema')=='a4-flow-price-durable-completion-v1'
+                    and completion.get('remote_readback_verified') is True and completion.get('execution_sha256')==digest(execution_raw)
+                    and completion.get('policy_sha256')==flow_policy_sha256
+                    and completion.get('view_sha256')==execution['view_sha256']
+                    and completion.get('snapshot_sha256')==execution['snapshot_sha256']
+                    and p.clock(completion['completed_at'])<=now,'FLOW_DURABLE_COMPLETION')
+                p.check(p.read_object(source_transport,p.PREFIX+'/reports/'+digest(execution_raw)+'.json',digest(execution_raw),128*1024)==execution_raw,
+                    'FLOW_DURABLE_EXECUTION_READBACK')
             view_raw=market.bounded(price_root/'price-view.json',flow_prices.MAX_VIEW_BYTES)
             p.check(digest(view_raw)==execution['view_sha256'],'FLOW_VIEW_PIN');view=p.f.strict_json(view_raw)
-            prices=flow_prices.price_series(view,policy_sha256=view['policy_sha256'],cutoff=cutoff,expected_session=market.current_session(cutoff))
+            prices=flow_prices.price_series(view,policy_sha256=flow_policy_sha256,cutoff=cutoff,expected_session=market.current_session(cutoff))
             if (price_root/'dataframe-snapshot.json').is_file():snapshot_raw=market.bounded(price_root/'dataframe-snapshot.json',flow_prices.MAX_VIEW_BYTES)
             else:
                 p.check(source_transport is not None,'FLOW_SNAPSHOT_MISSING')
@@ -666,9 +680,10 @@ def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,prob
             flow_context=flow.describe(flow_rows,prices,cutoff=cutoff)
             flow_context.update(price_view_sha256=digest(view_raw),price_snapshot_sha256=view['snapshot_sha256'],
                 price_execution_sha256=digest(execution_raw),price_target_session=view['target_session'],
+                price_durable_completion_sha256=digest(durable_raw) if durable_raw is not None else None,
                 last_paired_source_measurement_date=max(flow_context['results'],key=lambda r:r['last'] or '')['last'],
                 price_source_quality='UNQUALIFIED_DATAFRAME_SNAPSHOT',raw_http_originals_available=False)
-            flow_objects=[policy_raw,snapshot_raw,view_raw,execution_raw]
+            flow_objects=[policy_raw,snapshot_raw,view_raw,execution_raw]+([durable_raw] if durable_raw is not None else [])
         except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
             flow_context=dict(status='BLOCKED',blocker='FLOW_PRICE_POLICY_SOURCE_OR_REPLAY_REQUIRED',model_fits=0)
     catalog['flow_relationships']=flow_context

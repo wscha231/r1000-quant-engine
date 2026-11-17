@@ -74,9 +74,19 @@ receipts are also attempted in the same immutable reports namespace; failed
 publication leaves a local witness. Public artifacts retain only file hashes
 and byte counts, including failed attempts, never financial snapshot contents.
 An unchanged completed-session view may be reused only after the newest
-verified data-center catalog and exact view are read back. A blocked newest
-context cannot fall back to an earlier success. Completed snapshots and views
+verified data-center catalog and exact view are read back. The cached view must
+bind the currently approved policy, producer and completed session; a changed
+same-session policy is not relabelled. An older-session producer does not block
+a new authorized session capture. A blocked newest same-session context cannot
+fall back to an earlier success; an older session's failure stays recorded while
+a new session may start its own single consumed claim. Completed snapshots and views
 are stored under existing objects hashes, followed by a typed execution receipt.
+A durable-completion marker is created only after the typed execution receipt's
+write/readback and expiry recheck. The data center rejects any failure witness,
+requires that marker and independently rereads the typed remote execution before
+accepting durable price evidence. Actual CLI execution requires --publish;
+local-only provider execution cannot bypass the shared session claim. Injected
+synthetic downloaders remain test fixtures, without execution authority.
 All writes use the existing immutable copy/readback transport. Backend HTTP
 counts are UNKNOWN; one wrapper batch is not one backend HTTP request. Discovery,
 readbacks and uploads share caps of 128 transport commands and 32MiB counted
