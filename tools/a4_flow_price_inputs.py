@@ -6,6 +6,7 @@ inputs. This component grants no supplier, historical-PIT or learning rights.
 from __future__ import annotations
 from datetime import timedelta
 import math
+import re
 from pathlib import Path
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
@@ -46,6 +47,8 @@ def validate_policy(raw,expected_sha256,cutoff):
     need(policy.get('price_column')=='Close' and policy.get('currency_expectation')=='USD'
          and policy.get('source_quality')=='UNQUALIFIED_DATAFRAME_SNAPSHOT'
          and policy.get('supplier_training_permission_granted') is False,'PRICE_PURPOSE')
+    need(type(policy.get('research_folder_ID')) is str and re.fullmatch('[A-Za-z0-9_-]+',policy['research_folder_ID'])
+         and policy.get('provider_private_use_and_storage_rights')=='UNVERIFIED','CUSTODY_AND_RIGHTS')
     expected=producer_pins()
     need(policy.get('producer_sha256')==expected,'PRODUCER_IMPLEMENTATION')
     need(policy.get('model_fits_allowed')==0 and policy.get('portfolio_changes_allowed') is False,'NO_FIT_OR_PORTFOLIO')
@@ -56,7 +59,8 @@ def price_series(view,*,policy_sha256,cutoff,expected_session=None):
          and view.get('policy_sha256')==policy_sha256 and view.get('purpose')==PURPOSE,'VIEW_SCOPE')
     need(primary.clock(view['available_at'])<=primary.clock(cutoff),'FUTURE_VIEW')
     need(view.get('basis')=='VENDOR_CLOSE_CURRENT_VINTAGE_UNQUALIFIED'
-         and view.get('raw_http_originals_available') is False and view.get('provider_currency_verified') is False,'VIEW_EVIDENCE')
+         and view.get('raw_http_originals_available') is False and view.get('provider_currency_verified') is False
+         and view.get('provider_private_use_and_storage_rights')=='UNVERIFIED','VIEW_EVIDENCE')
     need(view.get('producer_sha256')==producer_pins(),'VIEW_PRODUCER')
     if expected_session is not None:need(view.get('target_session')==expected_session,'SESSION_NOT_CURRENT')
     series={}
@@ -102,12 +106,12 @@ def collect(policy_raw,expected_policy_sha256,*,cutoff,download=None):
         closes[target]=[[d.date().isoformat(),None if pd.isna(v) else float(v)] for d,v in frame['Close'].items()]
     snapshot=dict(schema='a4-collector-dataframe-snapshot-v1',purpose=PURPOSE,collection_started_at=begin,
         collection_completed_at=completed,provider='EXISTING_YFINANCE_COLLECTOR',frames=snapshots,
-        raw_http_originals_available=False,source_admitted=False,training_admitted=False)
+        raw_http_originals_available=False,provider_private_use_and_storage_rights='UNVERIFIED',source_admitted=False,training_admitted=False)
     snapshot_raw=encoded(snapshot);need(len(snapshot_raw)<=MAX_VIEW_BYTES,'SNAPSHOT_SIZE')
     view=dict(schema='a4-flow-test-price-view-v1',purpose=PURPOSE,policy_sha256=expected_policy_sha256,
         available_at=completed,target_session=target_session,targets=closes,snapshot_sha256=digest(snapshot_raw),producer_sha256=producer_pins(),
         basis='VENDOR_CLOSE_CURRENT_VINTAGE_UNQUALIFIED',currency_owner_expectation='USD',provider_currency_verified=False,
-        raw_http_originals_available=False,source_admitted=False,training_admitted=False,historical_pit_certified=False,
+        raw_http_originals_available=False,provider_private_use_and_storage_rights='UNVERIFIED',source_admitted=False,training_admitted=False,historical_pit_certified=False,
         model_fits=0,portfolio_changed=False,collector_batch_calls=1,collector_python_retries=0,backend_HTTP_count='UNKNOWN')
     need(len(encoded(view))<=MAX_VIEW_BYTES,'VIEW_SIZE');price_series(view,policy_sha256=expected_policy_sha256,cutoff=completed)
     return snapshot,view
@@ -119,6 +123,7 @@ def verify_snapshot(view,raw):
     snapshot=primary.f.strict_json(raw)
     need(snapshot.get('schema')=='a4-collector-dataframe-snapshot-v1' and snapshot.get('purpose')==PURPOSE
          and snapshot.get('raw_http_originals_available') is False
+         and snapshot.get('provider_private_use_and_storage_rights')=='UNVERIFIED'
          and snapshot.get('collection_completed_at')==view['available_at'],'SNAPSHOT_EVIDENCE')
     need(type(snapshot.get('frames')) is dict and set(snapshot['frames'])==set(TARGETS),'SNAPSHOT_TARGETS')
     for target,frame in snapshot['frames'].items():
@@ -222,13 +227,31 @@ def bounded_transport(remote,policy_raw,expected_policy_sha256):
     per-command timeout/retry semantics remain; a soft budget cannot extend them.
     """
     import time
+    policy=validate_policy(policy_raw,expected_policy_sha256,primary.now())
+    need(remote in ('gdrive:research/macro_technical_evidence/v1/scheduled',
+        'gdrive:r1000_top30_institutional/research/macro_technical_evidence/v1/scheduled'),'TRANSPORT_REMOTE')
     from tools.macro_research_checkpoint import RcloneTransport
     class Bounded(RcloneTransport):
         def __init__(self):
             self.commands=0;self.read_bytes=0;self.upload_bytes=0
             self.deadline=time.monotonic()+MAX_TRANSPORT_SECONDS
             super().__init__(remote)
+            need(self.folder_id==policy['research_folder_ID'],'TRANSPORT_FOLDER_ID')
         def call(self,*args):
+            need(args and args[0] in ('lsjson','cat','copyto'),'TRANSPORT_OPERATION')
+            if getattr(self,'folder_id',None) is None:
+                need(args==('lsjson',remote.rsplit('/',1)[0],'--dirs-only'),'TRANSPORT_ROOT_DISCOVERY')
+            else:
+                need(self.folder_id==policy['research_folder_ID'],'TRANSPORT_FOLDER_ID')
+                destination=str(args[2] if args[0]=='copyto' else args[1])
+                prefix='gdrive:'+primary.PREFIX+'/'
+                need(destination.startswith(prefix),'TRANSPORT_NAMESPACE')
+                suffix=destination[len(prefix):]
+                if args[0]=='lsjson':
+                    need(suffix in ('reports','index-executions') and args[2:]==('--files-only',),'TRANSPORT_LIST_SCOPE')
+                else:
+                    pattern=r'(objects/[a-f0-9]{64}|reports/[a-f0-9]{64}\.json)' if args[0]=='copyto' else r'((reports|index-executions|catalogs)/[a-f0-9]{64}\.json|objects/[a-f0-9]{64})'
+                    need(re.fullmatch(pattern,suffix),'TRANSPORT_OBJECT_SCOPE')
             validate_policy(policy_raw,expected_policy_sha256,primary.now())
             need(time.monotonic()<self.deadline and self.commands<MAX_TRANSPORT_COMMANDS,'TRANSPORT_BUDGET')
             size=Path(args[1]).stat().st_size if args[0]=='copyto' else 0

@@ -45,7 +45,7 @@ Default OFF: A4_FLOW_RESEARCH_POLICY_SHA256 must independently bind the exact
 private flow-research-policy.json restored from outputs/market_analysis_inputs/
 flow_research. Its schema is a4-flow-test-policy-v1, purpose
 PRIVATE_CURRENT_VINTAGE_FLOW_ASSOCIATION. It fixes SPY/QQQ only, 2016-01-01
-history, Close, USD as OWNER expectation, producer hashes, one batch per attempt,
+history, Close, USD as OWNER expectation, producer hashes, the existing resolved research folder ID, one batch per attempt,
 one consumed attempt per completed US session, zero fits and no portfolio changes.
 The actual collector's currency is not independently verified by this wrapper.
 The legacy collector pin uses LF-canonical text, matching the existing data-
@@ -60,7 +60,11 @@ originals. Preserve exact deterministic returned-frame snapshots, normalized
 Close views and explicit raw_http_originals_available=false,
 provider_currency_verified=false, source/training/PIT admission=false.
 This policy does not create supplier permission, Source qualification or
-training rights. No new provider endpoint, FRED/ICI/ICE/FINRA route, shared legacy
+training rights. Provider private-use/Drive-storage rights remain explicitly
+UNVERIFIED in this limited test, without a new supplier approval claim. The
+transport accepts only the existing scheduled research locators, checks its
+resolved folder against the external policy and refuses implicit mkdir or
+unrelated object operations. No new provider endpoint, FRED/ICI/ICE/FINRA route, shared legacy
 cache, target book, 80-ticker cohort or managed-price control is changed.
 
 A content-addressed session claim is written/read back in the existing private

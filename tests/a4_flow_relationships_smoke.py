@@ -94,7 +94,8 @@ class PriceTests(unittest.TestCase):
         self.policy=dict(schema='a4-flow-test-policy-v1',purpose=prices.PURPOSE,available_at='2026-11-17T00:00:00Z',expires_at='2026-12-17T00:00:00Z',
             targets=['SPY','QQQ'],price_start='2016-01-01',maximum_batch_calls_per_attempt=1,maximum_attempts_per_session=1,
             price_column='Close',currency_expectation='USD',source_quality='UNQUALIFIED_DATAFRAME_SNAPSHOT',
-            supplier_training_permission_granted=False,producer_sha256=prices.producer_pins(),model_fits_allowed=0,portfolio_changes_allowed=False)
+            supplier_training_permission_granted=False,research_folder_ID='test-folder',
+            provider_private_use_and_storage_rights='UNVERIFIED',producer_sha256=prices.producer_pins(),model_fits_allowed=0,portfolio_changes_allowed=False)
         self.calls=[]
     def tearDown(self):self.market.stop();self.clock.stop()
     def policy_bytes(self):
@@ -154,18 +155,36 @@ class PriceTests(unittest.TestCase):
             remote=self.p.bounded_transport('gdrive:r1000_top30_institutional/research/macro_technical_evidence/v1/scheduled',raw,pin)
             self.assertEqual(remote.commands,1)
             with patch.object(self.p,'MAX_TRANSPORT_COMMANDS',2):
-                remote.call('cat','unused')
-                with self.assertRaisesRegex(ValueError,'TRANSPORT_BUDGET'):remote.call('cat','unused')
+                remote.call('cat','gdrive:'+self.p.primary.PREFIX+'/objects/'+'a'*64)
+                with self.assertRaisesRegex(ValueError,'TRANSPORT_BUDGET'):remote.call('cat','gdrive:'+self.p.primary.PREFIX+'/objects/'+'a'*64)
             self.assertEqual(len(calls),2)
             with patch.object(self.p,'MAX_TRANSPORT_BYTES',remote.read_bytes+1),self.assertRaisesRegex(ValueError,'TRANSPORT_BYTE_BUDGET'):
-                remote.call('cat','unused')
+                remote.call('cat','gdrive:'+self.p.primary.PREFIX+'/objects/'+'a'*64)
             before=len(calls)
+            with self.assertRaisesRegex(ValueError,'TRANSPORT_OPERATION'):remote.call('mkdir','unused')
+            with self.assertRaisesRegex(ValueError,'TRANSPORT_NAMESPACE'):remote.call('cat','gdrive:unrelated/objects/'+'a'*64)
+            self.assertEqual(len(calls),before)
             with patch.object(self.p.primary,'now',return_value='2026-12-18T00:00:00Z'),self.assertRaisesRegex(ValueError,'POLICY_CLOCK'):
-                remote.call('cat','unused')
+                remote.call('cat','gdrive:'+self.p.primary.PREFIX+'/objects/'+'a'*64)
             self.assertEqual(len(calls),before)
             remote.deadline=-1
-            with self.assertRaisesRegex(ValueError,'TRANSPORT_BUDGET'):remote.call('cat','unused')
+            with self.assertRaisesRegex(ValueError,'TRANSPORT_BUDGET'):remote.call('cat','gdrive:'+self.p.primary.PREFIX+'/objects/'+'a'*64)
             self.assertEqual(len(calls),before)
+
+    def test_wrong_folder_remote_or_missing_namespace_never_creates_archive(self):
+        from tools.macro_research_checkpoint import RcloneTransport
+        raw,pin=self.policy_bytes();calls=[]
+        def listing(transport,*args):
+            calls.append(args);return self.encoded([dict(Name='scheduled',IsDir=True,ID='different-folder')])
+        remote='gdrive:r1000_top30_institutional/research/macro_technical_evidence/v1/scheduled'
+        with patch.object(RcloneTransport,'call',listing):
+            with self.assertRaisesRegex(ValueError,'TRANSPORT_FOLDER_ID'):self.p.bounded_transport(remote,raw,pin)
+            self.assertEqual(len(calls),1)
+            with self.assertRaisesRegex(ValueError,'TRANSPORT_REMOTE'):self.p.bounded_transport('gdrive:unrelated',raw,pin)
+            self.assertEqual(len(calls),1)
+        with patch.object(RcloneTransport,'call',return_value=b'[]') as fake:
+            with self.assertRaisesRegex(ValueError,'TRANSPORT_OPERATION'):self.p.bounded_transport(remote,raw,pin)
+            self.assertEqual(fake.call_count,1)  # Discovery only; mkdir refused before delegation.
 
     def test_same_session_cache_reuses_without_collection(self):
         import tempfile
