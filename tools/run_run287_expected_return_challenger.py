@@ -1343,6 +1343,182 @@ def expected_nyse_label_ends(
     return dates.map(mapping)
 
 
+def project_price63_next_close_labels(candidates: list[dict], price_sets: list[dict],
+                                     *, training_cutoff: str) -> dict[str, Any]:
+    """Project supplied close observations into realized 63-interval labels.
+
+    This explicit H1 API never authenticates Source/PIT, fits a model, issues ER,
+    or changes the immutable V1 contract. Hashes below are supplied references,
+    not a substitute for the public Reader's independent training admission.
+    Missing/immature observations retain their candidate and UNKNOWN outcome.
+    """
+    def need(condition, reason):
+        if not condition:
+            raise ValueError("price63_h1:" + reason)
+
+    def stamp(value):
+        need(type(value) is str and len(value) <= 40, "clock_format")
+        return _v2_h1_aware_stamp(value)
+
+    def identity(value):
+        return (type(value) is str and len(value) <= 200
+                and V2_H1_ID_RE.fullmatch(value) is not None)
+
+    def digest(value):
+        return type(value) is str and SHA256_RE.fullmatch(value) is not None
+
+    cutoff = stamp(training_cutoff)
+    need(cutoff <= _v2_h1_observed_at(), "future_training_cutoff")
+    need(type(candidates) is list and 0 < len(candidates) <= 512, "candidate_budget")
+    need(type(price_sets) is list and len(price_sets) <= 64, "price_set_budget")
+    kinds = {"SPLIT_ADJUSTED_CLOSE": "PRICE_RETURN",
+             "DIVIDEND_REINVESTED_TOTAL_RETURN_INDEX": "TOTAL_RETURN",
+             "PROVIDER_ADJUSTED_CLOSE_PROXY": "PROVIDER_CLOSE_PROXY_RETURN"}
+    set_fields = {"security_id", "issuer_id", "generation_sha256", "row_set_sha256",
+                  "price_basis", "return_kind", "currency", "bars"}
+    candidate_fields = {"security_id", "benchmark_security_id", "benchmark_identity", "feature_session",
+                        "decision_at", "feature_available_at", "feature_sha256", "selection_status"}
+    sources, total_bars, supplied_days = {}, 0, set()
+    # Validate complete supplied structures before any outcome is projected.
+    for source in price_sets:
+        need(type(source) is dict and set(source) == set_fields, "price_set_fields")
+        security = source["security_id"]
+        need(identity(security) and identity(source["issuer_id"]), "security_identity")
+        need(security not in sources, "duplicate_security")
+        need(digest(source["generation_sha256"]) and digest(source["row_set_sha256"]), "source_hash")
+        need(type(source["price_basis"]) is str and source["price_basis"] in kinds
+             and source["return_kind"] == kinds[source["price_basis"]],
+             "basis_return_kind")
+        need(type(source["currency"]) is str and re.fullmatch(r"[A-Z]{3}", source["currency"]) is not None,
+             "currency")
+        bars = source["bars"]
+        need(type(bars) is list and len(bars) <= 10000, "bar_budget")
+        total_bars += len(bars)
+        need(total_bars <= 50000, "total_bar_budget")
+        indexed, previous = {}, None
+        for bar in bars:
+            need(type(bar) is dict and set(bar) == {"session", "close", "available_at", "row_sha256"},
+                 "bar_fields")
+            need(type(bar["session"]) is str and V2_H1_DAY_RE.fullmatch(bar["session"]) is not None,
+                 "bar_session_format")
+            day = pd.Timestamp(bar["session"])
+            need(day.strftime("%Y-%m-%d") == bar["session"], "bar_session_format")
+            supplied_days.add(day)
+            need(previous is None or day > previous, "bar_grid_order_or_duplicate")
+            need(digest(bar["row_sha256"]), "bar_hash")
+            # Values remain untrusted until used; a missing close is UNKNOWN,
+            # not zero or a reason to delete this security from the denominator.
+            value = bar["close"]
+            try:
+                valid_close = value is None or (type(value) in (int, float)
+                                                and math.isfinite(value) and value > 0)
+            except OverflowError:
+                valid_close = False
+            need(valid_close, "nonpositive_or_nonfinite_close")
+            available = None if bar["available_at"] is None else stamp(bar["available_at"])
+            indexed[day] = (bar, available)
+            previous = day
+        sources[security] = (source, indexed)
+
+    if supplied_days:
+        first_day, last_day = min(supplied_days), max(supplied_days)
+        need((last_day - first_day).days <= 10000, "calendar_span_budget")
+        valid_days = set(NYSE.valid_days(start_date=first_day, end_date=last_day).tz_localize(None).normalize())
+        need(supplied_days <= valid_days, "non_nyse_price_session")
+
+    prepared, seen, close_times = [], set(), {}
+    for candidate in candidates:
+        need(type(candidate) is dict and set(candidate) == candidate_fields, "candidate_fields")
+        security, benchmark = candidate["security_id"], candidate["benchmark_security_id"]
+        need(identity(security) and identity(benchmark) and security != benchmark, "candidate_identity")
+        need(candidate["benchmark_identity"] == "SPY", "benchmark_identity")
+        need(digest(candidate["feature_sha256"]), "feature_hash")
+        need(type(candidate["selection_status"]) is str and candidate["selection_status"]
+             in ("SELECTED", "NOT_SELECTED", "UNKNOWN"), "selection_status")
+        day = _v2_h1_nyse_day(candidate["feature_session"])
+        decision, feature_available = stamp(candidate["decision_at"]), stamp(candidate["feature_available_at"])
+        need(feature_available <= decision <= cutoff, "feature_availability_or_decision")
+        need(_v2_h1_last_completed_nyse_session(decision) == day, "feature_not_completed_decision_session")
+        feature_close = pd.Timestamp(NYSE.schedule(start_date=day, end_date=day)["market_close"].iloc[0])
+        need(feature_available >= feature_close, "feature_available_before_nyse_close")
+        key = (security, day)
+        need(key not in seen, "duplicate_candidate")
+        seen.add(key)
+        end = expected_nyse_label_ends(pd.Series([day]), 63).iloc[0]
+        need(pd.notna(end), "exact_end_unavailable")
+        schedule = NYSE.schedule(start_date=day + pd.Timedelta(days=1), end_date=end)
+        grid = pd.DatetimeIndex(schedule.index).tz_localize(None).normalize()
+        need(len(grid) == 64 and grid[-1] == end, "exact_grid_unavailable")
+        for session, close in zip(grid, schedule["market_close"]):
+            close_times[session] = pd.Timestamp(close).tz_convert("UTC")
+        prepared.append((candidate, decision, grid))
+
+    records = []
+    for candidate, decision, grid in prepared:
+        security, benchmark = candidate["security_id"], candidate["benchmark_security_id"]
+        reasons, used, returns, source_refs = [], [], {}, {}
+        pair = [sources.get(name) for name in (security, benchmark)]
+        if any(item is None for item in pair):
+            reasons.append("PRICE_SOURCE_MISSING")
+        else:
+            first, second = pair[0][0], pair[1][0]
+            if any(first[name] != second[name] for name in ("price_basis", "return_kind", "currency")):
+                reasons.append("STOCK_BENCHMARK_BASIS_OR_CURRENCY_MISMATCH")
+        latest_available, complete_observations = None, 0
+        for role, security_id in (("stock", security), ("benchmark", benchmark)):
+            item = sources.get(security_id)
+            if item is None:
+                used.extend(dict(role=role, session=session.date().isoformat(), observation=None) for session in grid)
+                continue
+            source, indexed = item
+            source_refs[role] = {name: source[name] for name in set_fields - {"bars"}}
+            prices = []
+            for session in grid:
+                found = indexed.get(session)
+                if found is None:
+                    reasons.append(role.upper() + "_REQUIRED_SESSION_MISSING")
+                    used.append(dict(role=role, session=session.date().isoformat(), observation=None))
+                    continue
+                bar, available = found
+                used.append(dict(role=role, **bar))
+                if bar["close"] is None or available is None:
+                    reasons.append(role.upper() + "_OBSERVATION_UNKNOWN")
+                    continue
+                if available < close_times[session]:
+                    reasons.append(role.upper() + "_AVAILABLE_BEFORE_NYSE_CLOSE")
+                    continue
+                latest_available = max(latest_available or available, available)
+                prices.append(bar["close"])
+                complete_observations += 1
+            if len(prices) == 64:
+                value = prices[-1] / prices[0] - 1.0
+                if math.isfinite(value):
+                    returns[role] = value
+                else:
+                    reasons.append(role.upper() + "_RETURN_NONFINITE")
+        if latest_available is None or latest_available >= cutoff:
+            reasons.append("LABEL_NOT_MATURE_STRICTLY_BEFORE_TRAINING_CUTOFF")
+        reasons = sorted(set(reasons))
+        ready = not reasons and set(returns) == {"stock", "benchmark"}
+        records.append(dict(**candidate, entry_session=grid[0].date().isoformat(),
+            exit_session=grid[-1].date().isoformat(), horizon_nyse_intervals=63,
+            status="SUPPLIED_REALIZED_LABEL_CONSISTENT" if ready else "UNKNOWN_BLOCKED_LABEL",
+            blockers=reasons, source_refs=source_refs, used_grid=used,
+            used_grid_sha256=canonical_sha256(used),
+            label_available_at=(latest_available.isoformat()
+                                if complete_observations == 128 and latest_available is not None else None),
+            realized_stock_return=returns.get("stock") if ready else None,
+            realized_benchmark_return=returns.get("benchmark") if ready else None,
+            realized_excess_return=returns["stock"] - returns["benchmark"] if ready else None,
+            source_pit_authenticated=False, training_authorized=False, A5_eligible_input=False))
+    return dict(schema_version="run287-price63-next-close-supplied-label-v1",
+                scope="H1_REALIZED_LABEL_PROJECTION_NOT_SOURCE_OR_TRAINING_ADMISSION",
+                training_cutoff=cutoff.isoformat(), denominator_rows=len(records),
+                consistent_rows=sum(row["status"] == "SUPPLIED_REALIZED_LABEL_CONSISTENT" for row in records),
+                model_fit_allowed=False, validated_er_available=False, A5_eligible_input=False,
+                records=records)
+
+
 def prepare_frame(frame: pd.DataFrame, contract: Mapping[str, Any]) -> pd.DataFrame:
     blockers = input_readiness(frame, contract)
     if blockers:

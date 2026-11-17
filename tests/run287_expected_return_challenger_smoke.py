@@ -1792,7 +1792,156 @@ def test_calendar_exposure_direct_script_outside_repository():
                         "direct CLI artifact readback")
 
 
+def _price63_fixture():
+    feature_day = pd.Timestamp("2024-11-27")
+    end = MOD.expected_nyse_label_ends(pd.Series([feature_day]), 63).iloc[0]
+    schedule = MOD.NYSE.schedule(start_date="2024-11-28", end_date=end)
+    candidate = dict(security_id="sec:stock", benchmark_security_id="sec:spy", benchmark_identity="SPY",
+                     feature_session="2024-11-27", decision_at="2024-11-27T21:05:00Z",
+                     feature_available_at="2024-11-27T21:01:00Z", feature_sha256="f" * 64,
+                     selection_status="SELECTED")
+    sources = []
+    for k, security in enumerate(("sec:stock", "sec:spy")):
+        bars = [dict(session=day.date().isoformat(), close=100.0 + i * (2 - k),
+                     available_at=(pd.Timestamp(close) + pd.Timedelta(minutes=1)).isoformat(),
+                     row_sha256=MOD.canonical_sha256([security, day.date().isoformat(), i]))
+                for i, (day, close) in enumerate(zip(schedule.index, schedule["market_close"]))]
+        sources.append(dict(security_id=security, issuer_id="issuer:" + str(k),
+                            generation_sha256=str(k + 1) * 64, row_set_sha256=str(k + 3) * 64,
+                            price_basis="SPLIT_ADJUSTED_CLOSE", return_kind="PRICE_RETURN",
+                            currency="USD", bars=bars))
+    return candidate, sources
+
+
+def _price63_project(candidates, sources, cutoff="2025-04-01T00:00:00Z"):
+    return MOD.project_price63_next_close_labels(candidates, sources, training_cutoff=cutoff)
+
+
+def _price63_reject(candidates, sources, expected):
+    try:
+        _price63_project(candidates, sources)
+    except (ValueError, TypeError) as exc:
+        _calendar_check(expected in str(exc), "wrong price63 refusal:" + str(exc))
+    else:
+        raise AssertionError("price63 malformed input accepted:" + expected)
+
+
+def test_price63_next_close_exact_grid_and_no_admission():
+    candidate, sources = _price63_fixture()
+    before = MOD.canonical_bytes([candidate, sources])
+    with patch.object(MOD, "fit_regression_pair", side_effect=AssertionError("fit used")), \
+            patch.object(MOD, "replay_pre_fit_price_source", side_effect=AssertionError("Reader used")):
+        result = _price63_project([candidate], sources)
+    row = result["records"][0]
+    _calendar_check(result["consistent_rows"] == 1 and row["entry_session"] == "2024-11-29", "next session")
+    _calendar_check(len(row["used_grid"]) == 128 and row["horizon_nyse_intervals"] == 63, "64 closes per asset")
+    _calendar_check(abs(row["realized_stock_return"] - 1.26) < 1e-12, "close-to-close return")
+    _calendar_check(abs(row["realized_benchmark_return"] - .63) < 1e-12, "SPY same grid")
+    _calendar_check(sources[0]["bars"][0]["available_at"] == "2024-11-29T18:01:00+00:00", "actual early close")
+    _calendar_check(result["model_fit_allowed"] is False and result["validated_er_available"] is False
+                    and row["training_authorized"] is False and row["A5_eligible_input"] is False,
+                    "H1 only")
+    _calendar_check(before == MOD.canonical_bytes([candidate, sources]), "inputs mutated")
+    _calendar_check(MOD.HORIZONS == (21, 63, 126)
+                    and MOD.canonical_sha256(contract()) == MOD.EXPECTED_CONTRACT_SHA256, "V1 unchanged")
+
+
+def test_price63_missing_immature_and_unselected_denominator():
+    candidate, sources = _price63_fixture()
+    second = dict(candidate, security_id="sec:missing", selection_status="NOT_SELECTED")
+    held = _price63_project([candidate, second], sources)
+    _calendar_check(held["denominator_rows"] == 2 and held["consistent_rows"] == 1, "full denominator")
+    _calendar_check(held["records"][1]["realized_stock_return"] is None
+                    and held["records"][1]["selection_status"] == "NOT_SELECTED", "unknown candidate retained")
+    for edit in ("missing_session", "unknown_close", "unknown_clock", "before_close"):
+        changed = copy.deepcopy(sources)
+        if edit == "missing_session":
+            del changed[0]["bars"][17]
+        elif edit == "unknown_close":
+            changed[0]["bars"][17]["close"] = None
+        elif edit == "unknown_clock":
+            changed[0]["bars"][17]["available_at"] = None
+        else:
+            changed[0]["bars"][0]["available_at"] = "2024-11-29T17:59:00Z"
+        row = _price63_project([candidate], changed)["records"][0]
+        _calendar_check(row["realized_stock_return"] is None and row["label_available_at"] is None,
+                        "gap must not use a later available bar:" + edit)
+    exact_available = sources[0]["bars"][-1]["available_at"]
+    row = _price63_project([candidate], sources, cutoff=exact_available)["records"][0]
+    _calendar_check("LABEL_NOT_MATURE_STRICTLY_BEFORE_TRAINING_CUTOFF" in row["blockers"]
+                    and row["realized_excess_return"] is None, "strict maturity equality")
+    changed = copy.deepcopy(sources)
+    changed[0]["bars"][17]["available_at"] = "2025-04-02T00:00:00Z"
+    row = _price63_project([candidate], changed)["records"][0]
+    _calendar_check("LABEL_NOT_MATURE_STRICTLY_BEFORE_TRAINING_CUTOFF" in row["blockers"]
+                    and row["realized_excess_return"] is None, "late interior observation maturity")
+
+
+def test_price63_identity_basis_and_bar_boundary_refusals():
+    candidate, sources = _price63_fixture()
+    for field, value in (("currency", "EUR"), ("price_basis", "DIVIDEND_REINVESTED_TOTAL_RETURN_INDEX")):
+        changed = copy.deepcopy(sources)
+        changed[1][field] = value
+        if field == "price_basis":
+            changed[1]["return_kind"] = "TOTAL_RETURN"
+        row = _price63_project([candidate], changed)["records"][0]
+        _calendar_check("STOCK_BENCHMARK_BASIS_OR_CURRENCY_MISMATCH" in row["blockers"], "pair mismatch")
+    changed = copy.deepcopy(sources)
+    for source in changed:
+        source["price_basis"] = "DIVIDEND_REINVESTED_TOTAL_RETURN_INDEX"
+        source["return_kind"] = "TOTAL_RETURN"
+    row = _price63_project([candidate], changed)["records"][0]
+    _calendar_check(row["source_refs"]["stock"]["return_kind"] == "TOTAL_RETURN", "TR explicit")
+    changed[0]["return_kind"] = "PRICE_RETURN"
+    _price63_reject([candidate], changed, "basis_return_kind")
+    for value in (0, -1, float("nan"), float("inf"), True, 10**400):
+        changed = copy.deepcopy(sources)
+        changed[0]["bars"][0]["close"] = value
+        _price63_reject([candidate], changed, "nonpositive_or_nonfinite_close")
+    changed = copy.deepcopy(sources)
+    changed[0]["bars"][1] = copy.deepcopy(changed[0]["bars"][0])
+    _price63_reject([candidate], changed, "bar_grid_order_or_duplicate")
+    changed = copy.deepcopy(sources)
+    changed[0]["bars"].reverse()
+    _price63_reject([candidate], changed, "bar_grid_order_or_duplicate")
+    changed = copy.deepcopy(sources)
+    changed[0]["bars"][0]["session"] = "2024-11-28"
+    _price63_reject([candidate], changed, "non_nyse_price_session")
+    _price63_reject([dict(candidate, benchmark_identity="QQQ")], sources, "benchmark_identity")
+    _price63_reject([dict(candidate, feature_available_at="2024-11-27T21:06:00Z")], sources,
+                    "feature_availability_or_decision")
+    _price63_reject([dict(candidate, feature_available_at="2024-11-27T20:59:00Z")], sources,
+                    "feature_available_before_nyse_close")
+    _price63_reject([dict(candidate, feature_sha256="")], sources, "feature_hash")
+    _price63_reject([candidate, candidate], sources, "duplicate_candidate")
+    _price63_reject([candidate], sources * 2, "duplicate_security")
+    _price63_reject([candidate] * 513, [], "candidate_budget")
+
+
+def test_price63_future_append_preserves_completed_outcome():
+    candidate, sources = _price63_fixture()
+    old = _price63_project([candidate], sources)["records"][0]
+    changed = copy.deepcopy(sources)
+    end = pd.Timestamp(old["exit_session"])
+    future = MOD.NYSE.schedule(start_date=end + pd.Timedelta(days=1), end_date=end + pd.Timedelta(days=15))
+    for source in changed:
+        source["generation_sha256"] = "e" * 64  # New supplied generations stay visible in provenance.
+        source["bars"] += [dict(session=day.date().isoformat(), close=1000000.0,
+                                 available_at=(pd.Timestamp(close) + pd.Timedelta(minutes=1)).isoformat(),
+                                 row_sha256="a" * 64)
+                           for day, close in zip(future.index, future["market_close"])]
+    new = _price63_project([candidate], changed)["records"][0]
+    for field in ("entry_session", "exit_session", "used_grid", "used_grid_sha256", "label_available_at",
+                  "realized_stock_return", "realized_benchmark_return", "realized_excess_return", "status"):
+        _calendar_check(old[field] == new[field], "future row changed past completed label:" + field)
+    _calendar_check(old["source_refs"] != new["source_refs"], "new generation provenance hidden")
+
+
 def main() -> int:
+    test_price63_next_close_exact_grid_and_no_admission()
+    test_price63_missing_immature_and_unselected_denominator()
+    test_price63_identity_basis_and_bar_boundary_refusals()
+    test_price63_future_append_preserves_completed_outcome()
     test_calendar_exposure_direct_script_outside_repository()
     test_calendar_exposure_native_clock_is_not_252_or_a_label()
     test_calendar_exposure_leap_dst_and_actual_early_close()
