@@ -1519,6 +1519,292 @@ def project_price63_next_close_labels(candidates: list[dict], price_sets: list[d
                 records=records)
 
 
+# PRICE_ONLY_63_V1 is opt-in through the functions below, never the V1 CLI.
+# Literal bytes + digest prevent a caller from silently changing this research arm.
+PRICE63_H2_PROFILE_JSON = r'''{"currency":"USD","downside_target":"REALIZED_STOCK_RETURN_LE_ZERO","entry_rule":"NEXT_NYSE_CLOSE","experiment_family":"RUN287_PRICE_ONLY_63_V1_FIXED_R86","feature_clock_policy":{"actual_artifact_clocks":"CREATED_LE_AVAILABLE_LE_OBSERVED_LE_TRAINING_CUTOFF_LE_RUNTIME_OBSERVED","historical_input_available_at":"H1_FEATURE_AVAILABLE_AT_STRICTLY_CAUSAL_SUPPLIED_FIELD_NOT_SOURCE_PIT","modes":["ORIGINAL_ASOF","RECONSTRUCTED_ASOF"],"reconstructed_asof":"EXACT_HISTORICAL_DECISION_RECONSTRUCTION_NOT_HISTORICAL_ARTIFACT_EXISTENCE"},"feature_definitions":{"realized_vol_20s":"sample_std(ddof=1,20 split_close simple daily returns)*sqrt(252)","return_120s":"split_close[t]/split_close[t-120]-1","return_20s":"split_close[t]/split_close[t-20]-1","return_60s":"split_close[t]/split_close[t-60]-1"},"financial_inputs_required":false,"formal_training_admission_issued":false,"horizon_nyse_intervals":63,"internal_validation":{"calibration_produced":false,"comparisons":["EXCESS_MSE_VS_MATURE_TRAIN_ONLY_MEAN","DOWNSIDE_BRIER_VS_MATURE_TRAIN_ONLY_FREQUENCY"],"formal_validation_produced":false,"outcome_selected_windows_allowed":false,"rule":"EXPANDING_WALK_FORWARD_EVERY_DECLARED_DECISION_IN_SUPPLIED_COHORT"},"missing_policy":"RETAIN_UNKNOWN_NO_IMPUTATION","model":{"logistic_c":0.1,"long_history_weight":0.7,"minimum_training_decision_dates":4,"minimum_training_rows":200,"parameter_search_allowed":false,"random_seed":2870805,"recent_history_months":36,"recent_history_weight":0.3,"ridge_alpha":10},"price_basis":"SPLIT_ADJUSTED_CLOSE","profile_id":"PRICE_ONLY_63_V1","purge_and_windows":{"embargo_applies_to":"TRAIN_FEATURE_SESSION_AT_OR_BEFORE_63RD_PRIOR_NYSE_SESSION","embargo_nyse_sessions":63,"label_available_strictly_before_decision":true,"label_exit_session_strictly_before_test_session":true},"schema_version":"run287-price-only-63-profile-v1","scope":"PRIVATE_GROSS_RESEARCH_PROTOTYPE_ONLY","target":"REALIZED_STOCK_RETURN_MINUS_SPY_SAME_64_CLOSE_GRID"}'''
+PRICE63_H2_PROFILE_SHA256 = "d810126b3dc65ddda9fd1935ebf5782179fddaf1d54fa06a554fcbb7c0e4c567"
+PRICE63_H2_CANDIDATE_FIELDS = (
+    "security_id", "benchmark_security_id", "benchmark_identity", "feature_session",
+    "decision_at", "feature_available_at", "feature_sha256", "selection_status",
+)
+
+
+def price63_h2_profile() -> dict[str, Any]:
+    return validate_price63_h2_profile(json.loads(PRICE63_H2_PROFILE_JSON))
+
+
+def validate_price63_h2_profile(profile: Mapping[str, Any]) -> dict[str, Any]:
+    try:
+        valid = isinstance(profile, Mapping) and canonical_sha256(dict(profile)) == PRICE63_H2_PROFILE_SHA256
+    except (TypeError, ValueError, OverflowError):
+        valid = False
+    if not valid:
+        raise ValueError("price63_h2:immutable_profile")
+    # Return an isolated copy, not a mutable module-global contract.
+    return json.loads(PRICE63_H2_PROFILE_JSON)
+
+
+def bind_price63_h2_inputs(feature_rows: list[dict], price_sets: list[dict], *,
+                          training_cutoff: str, profile: Mapping[str, Any]) -> dict[str, Any]:
+    """Bind supplied feature values to the H1 projector; authenticate no Source.
+
+    feature_sha256 hashes this supplied values map. The artifact ref retains
+    actual immutable bytes and availability; feature_reconstruction separates
+    real artifact clocks from supplied historical input availability in H1.
+    RECONSTRUCTED_ASOF does not assert the artifact existed at that past time.
+    Original price/source refs and actual Source availability are not rewritten;
+    formal training still needs independent original-source admission/replay.
+    """
+    fixed = validate_price63_h2_profile(profile)
+    names = list(fixed["feature_definitions"])
+    cutoff = _v2_h1_aware_stamp(training_cutoff)
+    observed = _v2_h1_observed_at()
+    if cutoff > observed:
+        raise ValueError("price63_h2:future_training_cutoff")
+    if type(feature_rows) is not list or not 0 < len(feature_rows) <= 512:
+        raise ValueError("price63_h2:feature_row_budget")
+    candidates, values = [], []
+    for row in feature_rows:
+        if type(row) is not dict or set(row) != set(PRICE63_H2_CANDIDATE_FIELDS) | {
+                "features", "feature_artifact_ref", "feature_reconstruction"}:
+            raise ValueError("price63_h2:feature_row_fields")
+        features, ref = row["features"], row["feature_artifact_ref"]
+        if type(features) is not dict or set(features) != set(names):
+            raise ValueError("price63_h2:feature_names")
+        for value in features.values():
+            try:
+                finite = value is None or (type(value) in (int, float) and math.isfinite(value))
+            except OverflowError:
+                finite = False
+            if not finite:
+                raise ValueError("price63_h2:nonfinite_feature")
+        if row["feature_sha256"] != canonical_sha256(features):
+            raise ValueError("price63_h2:feature_values_hash")
+        if (type(ref) is not dict or set(ref) != {"artifact_id", "sha256", "available_at"}
+                or type(ref["artifact_id"]) is not str or not 0 < len(ref["artifact_id"]) <= 512
+                or type(ref["sha256"]) is not str or SHA256_RE.fullmatch(ref["sha256"]) is None):
+            raise ValueError("price63_h2:feature_artifact_ref")
+        lineage = row["feature_reconstruction"]
+        if (type(lineage) is not dict or set(lineage) != {"mode", "reconstructed_asof",
+                "artifact_created_at", "artifact_observed_at"}
+                or lineage["mode"] not in ("ORIGINAL_ASOF", "RECONSTRUCTED_ASOF")):
+            raise ValueError("price63_h2:feature_reconstruction_schema")
+        created = _v2_h1_aware_stamp(lineage["artifact_created_at"])
+        artifact_available = _v2_h1_aware_stamp(ref["available_at"])
+        artifact_observed = _v2_h1_aware_stamp(lineage["artifact_observed_at"])
+        if not created <= artifact_available <= artifact_observed <= cutoff <= observed:
+            raise ValueError("price63_h2:actual_feature_artifact_clock")
+        historical_decision = _v2_h1_aware_stamp(row["decision_at"])
+        if lineage["mode"] == "RECONSTRUCTED_ASOF":
+            if _v2_h1_aware_stamp(lineage["reconstructed_asof"]) != historical_decision:
+                raise ValueError("price63_h2:reconstruction_asof_mismatch")
+        elif lineage["reconstructed_asof"] is not None or artifact_available > historical_decision:
+            raise ValueError("price63_h2:original_feature_not_available_asof")
+        candidates.append({name: row[name] for name in PRICE63_H2_CANDIDATE_FIELDS})
+        values.append(json.loads(canonical_bytes({"features": features, "feature_artifact_ref": ref,
+                                                    "feature_reconstruction": lineage})))
+    # Reproject actual supplied observations: caller-supplied label values are
+    # not accepted, and the exact original H1 availability/grid checks remain.
+    labels = project_price63_next_close_labels(candidates, price_sets, training_cutoff=training_cutoff)
+    records = []
+    for label, value in zip(labels["records"], values):
+        record = dict(label, **value)
+        reasons = list(label["blockers"])
+        if any(value["features"][name] is None for name in names):
+            reasons.append("PRICE_FEATURE_UNKNOWN")
+        for ref in label["source_refs"].values():
+            if ref["price_basis"] != fixed["price_basis"] or ref["currency"] != fixed["currency"]:
+                reasons.append("PROFILE_PRICE_BASIS_OR_CURRENCY")
+        record["input_blockers"] = sorted(set(reasons))
+        records.append(record)
+    return dict(schema_version="run287-price63-h2-bound-inputs-v1",
+                profile_sha256=PRICE63_H2_PROFILE_SHA256,
+                input_sha256=canonical_sha256(dict(feature_rows=feature_rows, price_sets=price_sets,
+                                                   training_cutoff=training_cutoff)),
+                training_cutoff=labels["training_cutoff"], denominator_rows=len(records), records=records,
+                source_pit_authenticated=False, training_authorized=False, u0_admission_issued=False,
+                financial_admission_issued=False, validated_er_available=False, A5_eligible_input=False)
+
+
+def project_price63_h2_predictions(feature_rows: list[dict], price_sets: list[dict], *,
+                                    training_cutoff: str, profile: Mapping[str, Any],
+                                    fit_guard=None) -> dict[str, Any]:
+    """I/O-free, gross research orchestration, not a formal training entrypoint.
+
+    The external owner must authenticate a separate finite research fit scope.
+    A callback here is only a boundary hook, never public Reader/U0 admission.
+    Each kernel has at most two fits. The owner must separately account for
+    actual fits/failures, enforce process limits, and retain experiment history.
+    No label on a prediction's own row is read by its prediction calculation.
+    """
+    fixed = validate_price63_h2_profile(profile)
+    bound = bind_price63_h2_inputs(feature_rows, price_sets, training_cutoff=training_cutoff, profile=fixed)
+    if not callable(fit_guard):
+        raise ValueError("price63_h2:external_fit_guard_required")
+    names = list(fixed["feature_definitions"])
+    frame_rows, output = [], []
+    for index, row in enumerate(bound["records"]):
+        features_complete = all(row["features"][name] is not None for name in names)
+        profile_compatible = (set(row["source_refs"]) == {"stock", "benchmark"}
+                              and "PROFILE_PRICE_BASIS_OR_CURRENCY" not in row["input_blockers"])
+        frame_rows.append(dict(row_index=index, feature_date=pd.Timestamp(row["feature_session"]),
+            decision_at=_v2_h1_aware_stamp(row["decision_at"]),
+            exit_session=pd.Timestamp(row["exit_session"]),
+            label_available_at=(None if row["label_available_at"] is None else
+                                _v2_h1_aware_stamp(row["label_available_at"])),
+            features_complete=features_complete, profile_compatible=profile_compatible,
+            label_ready=row["status"] == "SUPPLIED_REALIZED_LABEL_CONSISTENT",
+            y_excess=row["realized_excess_return"],
+            y_downside=(None if row["realized_stock_return"] is None else
+                        int(row["realized_stock_return"] <= 0)), **row["features"]))
+        output.append(dict(security_id=row["security_id"], benchmark_security_id=row["benchmark_security_id"],
+            feature_session=row["feature_session"], decision_at=row["decision_at"],
+            entry_session=row["entry_session"], exit_session=row["exit_session"],
+            selection_status=row["selection_status"], feature_sha256=row["feature_sha256"],
+            feature_artifact_ref=row["feature_artifact_ref"],
+            feature_reconstruction=row["feature_reconstruction"], used_grid_sha256=row["used_grid_sha256"],
+            source_refs=row["source_refs"], input_blockers=row["input_blockers"],
+            status="UNKNOWN_PRICE_FEATURE" if not features_complete else "UNKNOWN_TRAINING_HISTORY",
+            predicted_gross_excess_return=None, uncalibrated_downside_probability=None))
+    frame = pd.DataFrame(frame_rows)
+    frame["label_available_at"] = pd.to_datetime(frame["label_available_at"], utc=True)
+    dates = sorted(frame["feature_date"].unique())
+    cutoffs = nyse_embargo_cutoffs([pd.Timestamp(day) for day in dates], 63)
+    audits, kernel_calls, kernel_completed_calls = [], 0, 0
+
+    def training_binding(part, target):
+        rows = []
+        for index in part["row_index"]:
+            row = bound["records"][int(index)]
+            rows.append(dict(row_index=int(index), security_id=row["security_id"],
+                feature_session=row["feature_session"], decision_at=row["decision_at"],
+                feature_available_at=row["feature_available_at"], features=row["features"],
+                feature_sha256=row["feature_sha256"], feature_artifact_ref=row["feature_artifact_ref"],
+            feature_reconstruction=row["feature_reconstruction"],
+                source_refs=row["source_refs"], used_grid_sha256=row["used_grid_sha256"],
+                label_available_at=row["label_available_at"], target_column=target,
+                target_value=(row["realized_excess_return"] if target == "y_excess" else
+                              int(row["realized_stock_return"] <= 0))))
+        return dict(input_sha256=bound["input_sha256"], target_column=target, rows=len(rows),
+                    decision_sessions=int(part["feature_date"].nunique()),
+                    row_indices=[int(index) for index in part["row_index"]],
+                    feature_and_label_rows_sha256=canonical_sha256(rows))
+
+    def guard(event, decision_at=None, kind=None, fit_upper_bound=0, **details):
+        # The owner must durably retain BEFORE_KERNEL reservations, completed
+        # receipts and failures. This hook neither measures estimator fits nor
+        # authenticates Source/U0. Isolate callback bytes from the local audit.
+        payload = dict(event=event, profile_sha256=PRICE63_H2_PROFILE_SHA256,
+                       experiment_family=fixed["experiment_family"], input_sha256=bound["input_sha256"],
+                       decision_at=decision_at, kernel=kind, fit_upper_bound=fit_upper_bound, **details)
+        if fit_guard(json.loads(canonical_bytes(payload))) is not True:
+            raise ValueError("price63_h2:external_fit_scope_refused")
+
+    guard("BEFORE_ANY_FIT")
+    for decision_at, group in frame.groupby("decision_at", sort=True):
+        day = pd.Timestamp(group["feature_date"].iloc[0])
+        cutoff = cutoffs.get(day)
+        test = group[group["features_complete"] & group["profile_compatible"]].copy()
+        eligible = frame.iloc[0:0].copy()
+        if cutoff is not None:
+            eligible = frame[frame["features_complete"] & frame["profile_compatible"] & frame["label_ready"]
+                & frame["feature_date"].le(cutoff) & frame["exit_session"].lt(day)
+                & frame["label_available_at"].notna() & frame["label_available_at"].lt(decision_at)].copy()
+        recent = eligible[eligible["feature_date"].ge(
+            day - pd.DateOffset(months=fixed["model"]["recent_history_months"]))].copy()
+        ready = (not test.empty and all(len(part) >= fixed["model"]["minimum_training_rows"]
+            and part["feature_date"].nunique() >= fixed["model"]["minimum_training_decision_dates"]
+            and part["y_downside"].nunique() == 2 for part in (eligible, recent)))
+        audit = dict(decision_at=decision_at.isoformat(), feature_session=day.date().isoformat(),
+            embargo_cutoff=None if cutoff is None else cutoff.date().isoformat(),
+            training_rows=len(eligible), recent_training_rows=len(recent), prediction_rows=0,
+            training_indices_sha256=canonical_sha256(eligible["row_index"].tolist()),
+            max_training_label_available_at=(None if eligible.empty else
+                                             eligible["label_available_at"].max().isoformat()),
+            status="INSUFFICIENT_MATURE_TRAINING_OR_TWO_CLASSES", kernels={})
+        if ready:
+            for kernel, target, helper in (("ridge_excess_pair", "y_excess", fit_regression_pair),
+                                            ("logistic_downside_pair", "y_downside", fit_classifier_pair)):
+                bindings = dict(train=training_binding(eligible, target),
+                                recent=training_binding(recent, target))
+                test_binding = dict(row_indices=[int(index) for index in test["row_index"]],
+                    feature_rows_sha256=canonical_sha256([dict(
+                        security_id=bound["records"][int(index)]["security_id"],
+                        feature_session=bound["records"][int(index)]["feature_session"],
+                        feature_sha256=bound["records"][int(index)]["feature_sha256"],
+                        feature_artifact_ref=bound["records"][int(index)]["feature_artifact_ref"],
+                        feature_reconstruction=bound["records"][int(index)]["feature_reconstruction"])
+                        for index in test["row_index"]]))
+                guard("BEFORE_KERNEL", decision_at.isoformat(), kernel, 2,
+                      status="RESERVED_BEFORE_KERNEL", training_bindings=bindings,
+                      prediction_binding=test_binding)
+                kernel_calls += 1
+                model_metadata = None
+                kernel_stage = "ESTIMATOR_PAIR"
+                try:
+                    fitted = helper(eligible, recent, test, names, target, fixed)
+                    kernel_stage = "RETURN_VALIDATION"
+                    if fitted is None:
+                        raise ValueError("price63_h2:kernel_readiness_inconsistent")
+                    if not isinstance(fitted, tuple) or len(fitted) != 3 or type(fitted[2]) is not dict:
+                        raise ValueError("price63_h2:kernel_metadata_required")
+                    # Preserve all returned scaler/coefficients/fit provenance;
+                    # reject non-JSON/nonfinite metadata rather than erase it.
+                    model_metadata = json.loads(json.dumps(fitted[2], allow_nan=False, sort_keys=True))
+                    predicted, disagreement = np.asarray(fitted[0], dtype=float), np.asarray(fitted[1], dtype=float)
+                    if (predicted.shape != (len(test),) or disagreement.shape != (len(test),)
+                            or not np.isfinite(predicted).all() or not np.isfinite(disagreement).all()):
+                        raise ValueError("price63_h2:nonfinite_or_misaligned_prediction")
+                    if target == "y_downside" and not ((predicted >= 0) & (predicted <= 1)).all():
+                        raise ValueError("price63_h2:probability_bounds")
+                    receipt = dict(kernel=kernel, status="COMPLETED_UNVALIDATED_RESEARCH_KERNEL",
+                        training_bindings=bindings, prediction_binding=test_binding,
+                        model_metadata=model_metadata, model_metadata_sha256=canonical_sha256(model_metadata),
+                        prediction_values_sha256=canonical_sha256(predicted.tolist()),
+                        pair_disagreement=disagreement.tolist(), estimator_fit_attempt_upper_bound=2,
+                        actual_estimator_fit_attempts=None, actual_estimator_fit_completions=None)
+                    audit["kernels"][kernel] = receipt
+                    kernel_completed_calls += 1
+                    # Full private receipt, not just its hash: the owner can
+                    # preserve parameters even if later output serialization fails.
+                    kernel_stage = "AFTER_KERNEL_OWNER_HOOK"
+                    guard("AFTER_KERNEL", decision_at.isoformat(), kernel,
+                          completed_kernel_receipt=receipt, completed_kernel_sha256=canonical_sha256(receipt))
+                except Exception as exc:
+                    guard("KERNEL_FAILED", decision_at.isoformat(), kernel,
+                          failure_class=type(exc).__name__, failure_stage=kernel_stage,
+                          kernel_return_preserved=kernel in audit["kernels"], training_bindings=bindings,
+                          prediction_binding=test_binding, retained_model_metadata=model_metadata,
+                          completed_kernel_receipt=audit["kernels"].get(kernel),
+                          actual_estimator_fit_attempts=None, actual_estimator_fit_completions=None,
+                          reservation_retained=True)
+                    raise
+                field = ("predicted_gross_excess_return" if target == "y_excess" else
+                         "uncalibrated_downside_probability")
+                for index, value in zip(test["row_index"], predicted):
+                    output[index][field] = float(value)
+            for index in test["row_index"]:
+                output[index]["status"] = "GROSS_RESEARCH_PREDICTION_UNVALIDATED"
+            audit.update(prediction_rows=len(test), status="GROSS_RESEARCH_PREDICTION_UNVALIDATED")
+        for index in group[~group["profile_compatible"]]["row_index"]:
+            output[index]["status"] = "UNKNOWN_PROFILE_PRICE_BASIS"
+        audits.append(audit)
+    guard("BEFORE_RETURN")
+    return dict(schema_version="run287-price63-h2-gross-research-v1", profile=fixed,
+                profile_sha256=PRICE63_H2_PROFILE_SHA256, experiment_family=fixed["experiment_family"],
+                input_sha256=bound["input_sha256"], training_cutoff=bound["training_cutoff"],
+                denominator_rows=len(output), prediction_rows=sum(
+                    row["status"] == "GROSS_RESEARCH_PREDICTION_UNVALIDATED" for row in output),
+                kernel_calls=kernel_calls, kernel_completed_calls=kernel_completed_calls,
+                fit_attempt_upper_bound=2 * kernel_calls, actual_estimator_fit_attempts=None,
+                actual_estimator_fit_completions=None, fit_counts_require_external_owner_wrapper=True,
+                records=output, audit=audits, gross_only=True, unvalidated=True,
+                calibration_produced=False, formal_validation_produced=False, net_costs_applied=False,
+                source_pit_authenticated=False, training_authorized=False, u0_admission_issued=False,
+                financial_admission_issued=False, formal_A3_complete=False, validated_er_available=False,
+                A5_eligible_input=False, accepted_registry_written=False, fullrun_executed=False)
+
+
 def prepare_frame(frame: pd.DataFrame, contract: Mapping[str, Any]) -> pd.DataFrame:
     blockers = input_readiness(frame, contract)
     if blockers:

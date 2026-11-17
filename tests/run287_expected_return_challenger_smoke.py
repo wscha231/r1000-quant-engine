@@ -1937,7 +1937,282 @@ def test_price63_future_append_preserves_completed_outcome():
     _calendar_check(old["source_refs"] != new["source_refs"], "new generation provenance hidden")
 
 
+def _price63_h2_feature_row(candidate, value=0.1):
+    features = {name: value for name in MOD.price63_h2_profile()["feature_definitions"]}
+    return dict(candidate, feature_sha256=MOD.canonical_sha256(features), features=features,
+                feature_artifact_ref=dict(artifact_id="synthetic:price-feature", sha256="b" * 64,
+                                          available_at=candidate["feature_available_at"]),
+                feature_reconstruction=dict(mode="ORIGINAL_ASOF", reconstructed_asof=None,
+                    artifact_created_at=candidate["feature_available_at"],
+                    artifact_observed_at=candidate["feature_available_at"]))
+
+
+def test_price63_h2_immutable_profile_binding_and_no_admission():
+    profile = MOD.price63_h2_profile()
+    before_v1 = MOD.canonical_sha256(contract())
+    changed = copy.deepcopy(profile)
+    changed["model"]["ridge_alpha"] = 1
+    try:
+        MOD.validate_price63_h2_profile(changed)
+    except ValueError as exc:
+        _calendar_check("immutable_profile" in str(exc), "wrong profile refusal")
+    else:
+        raise AssertionError("mutable H2 profile accepted")
+    candidate, sources = _price63_fixture()
+    row = _price63_h2_feature_row(candidate)
+    second = _price63_h2_feature_row(dict(candidate, security_id="sec:missing", selection_status="UNKNOWN"))
+    second["features"]["return_20s"] = None
+    second["feature_sha256"] = MOD.canonical_sha256(second["features"])
+    before = MOD.canonical_bytes([row, second, sources])
+    with patch.object(MOD, "fit_regression_pair", side_effect=AssertionError("fit used")),             patch.object(MOD, "replay_pre_fit_price_source", side_effect=AssertionError("Reader used")):
+        bound = MOD.bind_price63_h2_inputs([row, second], sources,
+                    training_cutoff="2025-04-01T00:00:00Z", profile=profile)
+    _calendar_check(bound["denominator_rows"] == 2 and len(bound["records"]) == 2, "UNKNOWN denominator")
+    _calendar_check(bound["records"][0]["realized_excess_return"] is not None, "H1 label replay")
+    _calendar_check(bound["records"][1]["features"]["return_20s"] is None, "missing feature imputed")
+    _calendar_check(bound["records"][1]["selection_status"] == "UNKNOWN", "selection status lost")
+    _calendar_check(before == MOD.canonical_bytes([row, second, sources]), "caller input mutated")
+    _calendar_check(not bound["training_authorized"] and not bound["u0_admission_issued"]
+                    and not bound["validated_er_available"] and not bound["A5_eligible_input"], "admission issued")
+    bad = copy.deepcopy(row)
+    bad["features"]["return_20s"] += 1
+    try:
+        MOD.bind_price63_h2_inputs([bad], sources, training_cutoff="2025-04-01T00:00:00Z", profile=profile)
+    except ValueError as exc:
+        _calendar_check("feature_values_hash" in str(exc), "wrong values refusal")
+    else:
+        raise AssertionError("changed feature values accepted")
+    _calendar_check(MOD.HORIZONS == (21, 63, 126) and before_v1 == MOD.EXPECTED_CONTRACT_SHA256, "V1 changed")
+
+
+def test_price63_h2_guard_unknown_and_class_history_hold_without_fit():
+    candidate, sources = _price63_fixture()
+    row = _price63_h2_feature_row(candidate)
+    args = dict(training_cutoff="2025-04-01T00:00:00Z", profile=MOD.price63_h2_profile())
+    with patch.object(MOD, "fit_regression_pair", side_effect=AssertionError("fit used")),             patch.object(MOD, "fit_classifier_pair", side_effect=AssertionError("fit used")),             patch.object(MOD, "replay_pre_fit_price_source", side_effect=AssertionError("Reader used")):
+        try:
+            MOD.project_price63_h2_predictions([row], sources, **args)
+        except ValueError as exc:
+            _calendar_check("external_fit_guard_required" in str(exc), "missing external scope accepted")
+        else:
+            raise AssertionError("missing scope hook accepted")
+        try:
+            MOD.project_price63_h2_predictions([row], sources, fit_guard=lambda _: False, **args)
+        except ValueError as exc:
+            _calendar_check("external_fit_scope_refused" in str(exc), "scope refusal ignored")
+        else:
+            raise AssertionError("refused scope accepted")
+        events = []
+        result = MOD.project_price63_h2_predictions([row], sources,
+                    fit_guard=lambda event: events.append(event) or True, **args)
+    _calendar_check(result["kernel_calls"] == 0 and result["records"][0]["predicted_gross_excess_return"] is None,
+                    "insufficient history fitted or zero-filled")
+    _calendar_check([event["event"] for event in events] == ["BEFORE_ANY_FIT", "BEFORE_RETURN"], "scope boundaries")
+    _calendar_check(result["denominator_rows"] == 1 and result["unvalidated"] and result["gross_only"]
+                    and not result["calibration_produced"] and not result["formal_validation_produced"], "gross scope")
+
+
+def _price63_h2_history_fixture():
+    schedule = MOD.NYSE.schedule(start_date="2020-01-02", end_date="2021-08-31")
+    sources = []
+    for k, security in enumerate(("sec:stock", "sec:spy")):
+        bars = [dict(session=day.date().isoformat(), close=float(100 + 15 * np.sin(i / (7 + k)) + .02 * i),
+                     available_at=(pd.Timestamp(close) + pd.Timedelta(minutes=1)).isoformat(),
+                     row_sha256=MOD.canonical_sha256([security, day.date().isoformat(), i]))
+                for i, (day, close) in enumerate(zip(schedule.index, schedule["market_close"]))]
+        sources.append(dict(security_id=security, issuer_id="issuer:" + str(k), generation_sha256=str(k+1)*64,
+                            row_set_sha256=str(k+3)*64, price_basis="SPLIT_ADJUSTED_CLOSE",
+                            return_kind="PRICE_RETURN", currency="USD", bars=bars))
+    rows = []
+    for i, (day, close) in enumerate(zip(schedule.index[:285], schedule["market_close"].iloc[:285])):
+        candidate = dict(security_id="sec:stock", benchmark_security_id="sec:spy", benchmark_identity="SPY",
+                         feature_session=day.date().isoformat(),
+                         decision_at=(pd.Timestamp(close)+pd.Timedelta(minutes=5)).isoformat(),
+                         feature_available_at=(pd.Timestamp(close)+pd.Timedelta(minutes=1)).isoformat(),
+                         selection_status=("NOT_SELECTED" if i % 2 else "UNKNOWN"))
+        rows.append(_price63_h2_feature_row(candidate, value=float(i / 100)))
+    return rows, sources
+
+
+def test_price63_h2_causal_orchestration_with_stubbed_kernels():
+    rows, sources = _price63_h2_history_fixture()
+    seen, events = [], []
+    def fake_kernel(train, recent, test, names, target, profile):
+        decision = test["decision_at"].iloc[0]
+        day = test["feature_date"].iloc[0]
+        cutoff = MOD.nyse_embargo_cutoffs([day], 63)[day]
+        _calendar_check(train["feature_date"].le(cutoff).all() and train["exit_session"].lt(day).all(), "purge/63 embargo")
+        _calendar_check(train["label_available_at"].lt(decision).all(), "label not strictly mature")
+        _calendar_check(train["feature_date"].max() < test["feature_date"].min(), "future train feature")
+        seen.append((target, train["row_index"].tolist(), names))
+        value = float(train[target].mean())
+        metadata = dict(synthetic_stub_only=True, target=target,
+            long_history=dict(training_rows=len(train), scaler_mean={name: 0.0 for name in names},
+                              coefficients={name: 0.0 for name in names}),
+            recent_36_month=dict(training_rows=len(recent), scaler_scale={name: 1.0 for name in names}))
+        return np.full(len(test), value), np.zeros(len(test)), metadata
+    args = dict(training_cutoff="2022-01-01T00:00:00Z", profile=MOD.price63_h2_profile(), fit_guard=lambda event: events.append(event) or True)
+    with patch.object(MOD, "fit_regression_pair", side_effect=fake_kernel),             patch.object(MOD, "fit_classifier_pair", side_effect=fake_kernel),             patch.object(MOD, "replay_pre_fit_price_source", side_effect=AssertionError("Reader used")):
+        prefix = MOD.project_price63_h2_predictions(rows[:-1], sources, **args)
+        first = MOD.project_price63_h2_predictions(rows, sources, **args)
+        changed = copy.deepcopy(rows)
+        changed[-1]["features"] = {name: 1000000.0 for name in changed[-1]["features"]}
+        changed[-1]["feature_sha256"] = MOD.canonical_sha256(changed[-1]["features"])
+        second = MOD.project_price63_h2_predictions(changed, sources, **args)
+    _calendar_check(first["prediction_rows"] > 0 and len(seen) > 0, "stubbed prediction path not exercised")
+    _calendar_check(first["denominator_rows"] == len(rows) and len(first["records"]) == len(rows), "unselected cohort lost")
+    for old, new in zip(prefix["records"], first["records"][:-1]):
+        _calendar_check(old["predicted_gross_excess_return"] == new["predicted_gross_excess_return"]
+                        and old["uncalibrated_downside_probability"] == new["uncalibrated_downside_probability"],
+                        "future appended feature row changed a historical prediction")
+    for old, new in zip(first["records"][:-1], second["records"][:-1]):
+        _calendar_check(old["predicted_gross_excess_return"] == new["predicted_gross_excess_return"], "future feature changed old prediction")
+    _calendar_check(first["fit_attempt_upper_bound"] == 2 * first["kernel_calls"], "kernel upper bound")
+    completed = [event for event in events if event["event"] == "AFTER_KERNEL"
+                 and event["input_sha256"] == first["input_sha256"]]
+    _calendar_check(len(completed) == first["kernel_completed_calls"] == first["kernel_calls"], "completed hook count")
+    for event in completed:
+        receipt = event["completed_kernel_receipt"]
+        _calendar_check(event["completed_kernel_sha256"] == MOD.canonical_sha256(receipt), "completed receipt hash")
+        _calendar_check(receipt["model_metadata"]["synthetic_stub_only"] is True
+                        and receipt["model_metadata_sha256"] == MOD.canonical_sha256(receipt["model_metadata"]),
+                        "returned model metadata erased")
+        _calendar_check(receipt["training_bindings"]["train"]["rows"] >= 200
+                        and receipt["training_bindings"]["recent"]["rows"] >= 200
+                        and receipt["training_bindings"]["train"]["feature_and_label_rows_sha256"],
+                        "train/recent model binding absent")
+        audit = next(item for item in first["audit"] if item["decision_at"] == event["decision_at"])
+        _calendar_check(audit["kernels"][event["kernel"]] == receipt, "successful model receipt lost from audit")
+    _calendar_check(first["actual_estimator_fit_attempts"] is None
+                    and first["actual_estimator_fit_completions"] is None, "upper bound mislabeled actual fit count")
+    _calendar_check(not first["training_authorized"] and not first["validated_er_available"]
+                    and not first["A5_eligible_input"] and not first["formal_A3_complete"], "formal promotion")
+
+
+def test_price63_h2_train_only_standardization():
+    train = np.array([[1., 10.], [3., 14.], [5., 18.]])
+    test = np.array([[1000000., -1000000.]])
+    scaled_train, _, scaler = MOD._standardize_fit(train, test)
+    _calendar_check(np.allclose(scaler.mean_, train.mean(axis=0)), "test distribution entered scaler")
+    _calendar_check(np.allclose(scaled_train.mean(axis=0), [0., 0.]), "train-only centering")
+
+
+def test_price63_h2_failure_preserves_before_kernel_reservation_hook():
+    rows, sources = _price63_h2_history_fixture()
+    events = []
+    def owner_hook(event):
+        events.append(event)  # Synthetic stand-in for an owner's durable private log.
+        return True
+    with patch.object(MOD, "fit_regression_pair", side_effect=RuntimeError("synthetic kernel failure")),             patch.object(MOD, "fit_classifier_pair", side_effect=AssertionError("later kernel used")):
+        try:
+            MOD.project_price63_h2_predictions(rows, sources, training_cutoff="2022-01-01T00:00:00Z",
+                                              profile=MOD.price63_h2_profile(), fit_guard=owner_hook)
+        except RuntimeError as exc:
+            _calendar_check(str(exc) == "synthetic kernel failure", "original kernel failure hidden")
+        else:
+            raise AssertionError("kernel failure became success")
+    before = [event for event in events if event["event"] == "BEFORE_KERNEL"]
+    failures = [event for event in events if event["event"] == "KERNEL_FAILED"]
+    _calendar_check(len(before) == len(failures) == 1 and before[0]["status"] == "RESERVED_BEFORE_KERNEL",
+                    "failed kernel reservation lost")
+    _calendar_check(failures[0]["reservation_retained"] is True and failures[0]["failure_class"] == "RuntimeError"
+                    and failures[0]["actual_estimator_fit_attempts"] is None, "failed fit count fabricated")
+    _calendar_check(before[0]["training_bindings"] == failures[0]["training_bindings"]
+                    and before[0]["prediction_binding"] == failures[0]["prediction_binding"], "failure input binding changed")
+    _calendar_check(not any(event["event"] in ("AFTER_KERNEL", "BEFORE_RETURN") for event in events),
+                    "failed kernel claimed completion")
+    events.clear()
+    def refuse_after(event):
+        events.append(event)
+        return event["event"] != "AFTER_KERNEL"
+    def returned_kernel(train, recent, test, names, target, profile):
+        return np.zeros(len(test)), np.zeros(len(test)), {"synthetic_stub_only": True, "coefficients": [1.0]}
+    with patch.object(MOD, "fit_regression_pair", side_effect=returned_kernel):
+        try:
+            MOD.project_price63_h2_predictions(rows, sources, training_cutoff="2022-01-01T00:00:00Z",
+                                              profile=MOD.price63_h2_profile(), fit_guard=refuse_after)
+        except ValueError as exc:
+            _calendar_check("external_fit_scope_refused" in str(exc), "after-kernel owner refusal hidden")
+        else:
+            raise AssertionError("owner persistence refusal became success")
+    failed = next(event for event in events if event["event"] == "KERNEL_FAILED")
+    _calendar_check(failed["failure_stage"] == "AFTER_KERNEL_OWNER_HOOK" and failed["kernel_return_preserved"],
+                    "completed kernel confused with estimator failure")
+    _calendar_check(failed["completed_kernel_receipt"]["model_metadata"]["coefficients"] == [1.0],
+                    "model lost after owner persistence refusal")
+
+
+def _price63_h2_reconstruction_fixture():
+    candidate, sources = _price63_fixture()
+    row = _price63_h2_feature_row(candidate)
+    row["feature_artifact_ref"]["available_at"] = "2026-01-02T00:01:00Z"
+    row["feature_reconstruction"] = dict(mode="RECONSTRUCTED_ASOF",
+        reconstructed_asof=candidate["decision_at"], artifact_created_at="2026-01-02T00:00:00Z",
+        artifact_observed_at="2026-01-02T00:02:00Z")
+    return candidate, row, sources
+
+
+def test_price63_h2_reconstruction_keeps_actual_later_artifact_clock():
+    candidate, row, sources = _price63_h2_reconstruction_fixture()
+    before = MOD.canonical_bytes([row, sources])
+    with patch.object(MOD, "fit_regression_pair", side_effect=AssertionError("fit used")),             patch.object(MOD, "replay_pre_fit_price_source", side_effect=AssertionError("Reader used")):
+        result = MOD.bind_price63_h2_inputs([row], sources, training_cutoff="2026-02-01T00:00:00Z",
+                                           profile=MOD.price63_h2_profile())
+    bound = result["records"][0]
+    _calendar_check(bound["feature_available_at"] == candidate["feature_available_at"], "historical input clock changed")
+    _calendar_check(bound["feature_artifact_ref"]["available_at"] == "2026-01-02T00:01:00Z"
+                    and bound["feature_reconstruction"] == row["feature_reconstruction"], "actual artifact backdated")
+    _calendar_check(MOD._v2_h1_aware_stamp(bound["feature_artifact_ref"]["available_at"])
+                    > MOD._v2_h1_aware_stamp(bound["decision_at"]), "later reconstruction not exercised")
+    _calendar_check(before == MOD.canonical_bytes([row, sources]), "original/reference clocks mutated")
+    _calendar_check(not result["source_pit_authenticated"] and not result["training_authorized"]
+                    and not result["validated_er_available"] and not result["A5_eligible_input"], "reconstruction admitted")
+
+
+def test_price63_h2_future_artifact_after_training_cutoff_refused():
+    _, row, sources = _price63_h2_reconstruction_fixture()
+    row["feature_artifact_ref"]["available_at"] = "2026-02-02T00:00:00Z"
+    row["feature_reconstruction"]["artifact_observed_at"] = "2026-02-02T00:01:00Z"
+    try:
+        MOD.bind_price63_h2_inputs([row], sources, training_cutoff="2026-02-01T00:00:00Z",
+                                   profile=MOD.price63_h2_profile())
+    except ValueError as exc:
+        _calendar_check("actual_feature_artifact_clock" in str(exc), "future artifact wrong refusal")
+    else:
+        raise AssertionError("artifact after actual training cutoff accepted")
+
+
+def test_price63_h2_reconstruction_cannot_relax_historical_input_clock():
+    candidate, row, sources = _price63_h2_reconstruction_fixture()
+    row["feature_available_at"] = "2024-11-27T21:06:00Z"  # Decision is21:05Z.
+    try:
+        MOD.bind_price63_h2_inputs([row], sources, training_cutoff="2026-02-01T00:00:00Z",
+                                   profile=MOD.price63_h2_profile())
+    except ValueError as exc:
+        _calendar_check("feature_availability_or_decision" in str(exc), "future input wrong refusal")
+    else:
+        raise AssertionError("future historical input accepted via reconstruction")
+    row["feature_available_at"] = candidate["feature_available_at"]
+    row["feature_reconstruction"]["mode"] = "ORIGINAL_ASOF"
+    row["feature_reconstruction"]["reconstructed_asof"] = None
+    try:
+        MOD.bind_price63_h2_inputs([row], sources, training_cutoff="2026-02-01T00:00:00Z",
+                                   profile=MOD.price63_h2_profile())
+    except ValueError as exc:
+        _calendar_check("original_feature_not_available_asof" in str(exc), "original false label wrong refusal")
+    else:
+        raise AssertionError("current reconstruction relabeled as historical original")
+
+
 def main() -> int:
+    test_price63_h2_immutable_profile_binding_and_no_admission()
+    test_price63_h2_guard_unknown_and_class_history_hold_without_fit()
+    test_price63_h2_causal_orchestration_with_stubbed_kernels()
+    test_price63_h2_train_only_standardization()
+    test_price63_h2_failure_preserves_before_kernel_reservation_hook()
+    test_price63_h2_reconstruction_keeps_actual_later_artifact_clock()
+    test_price63_h2_future_artifact_after_training_cutoff_refused()
+    test_price63_h2_reconstruction_cannot_relax_historical_input_clock()
     test_price63_next_close_exact_grid_and_no_admission()
     test_price63_missing_immature_and_unselected_denominator()
     test_price63_identity_basis_and_bar_boundary_refusals()
