@@ -149,6 +149,40 @@ readback plus bounded legacy metadata reads without raising object/request caps.
 An index with a blocked core can still retain its diagnostic metadata, but its
 CLI/workflow step fails and cannot start the dependent research cycle.
 
+## S&P 500 and Nasdaq-100 observed direction
+
+The optional `index_direction` view uses two keyless FRED graph CSV downloads
+on the existing Daily Crisis Monitor schedule. It reports the expected latest
+completed XNYS session, each series' last close and lag in sessions, and the
+latest common date. It compares realized price-index returns at 1, 5, 10, 21,
+63, 126, 252 and 504 sessions. A missing exchange session within a lookback
+leaves the horizon incomplete. Holidays are excluded by the exchange calendar.
+The view is separate from the native risk classification, ETF realized returns,
+historical PIT evidence and forecast or training inputs.
+
+Set `A4_INDEX_DIRECTION_POLICY_SHA256` only after documenting permission for
+scheduled keyless FRED CSV access and private Drive retention of both data and
+reports. The existing private restore tree must contain `index_direction/policy.json`
+and three matching permission documents named `fred-permission.txt`,
+`sp500-permission.txt` and `nasdaq100-permission.txt`. The externally pinned
+`a4-fred-index-access-v1` policy has these fields:
+
+- `available_at` and `expires_at` are aware timestamps.
+- `purpose` is `PRIVATE_DESCRIPTIVE_RESEARCH`.
+- `permissions` contains `KEYLESS_SCHEDULED_FRED_CSV` followed by
+  `PRIVATE_DRIVE_RAW_AND_REPORT`.
+- `evidence_sha256` maps `fred`, `sp500` and `nasdaq100` to the hashes of the
+  corresponding permission documents.
+
+With the variable absent there are zero additional provider requests. With a
+valid policy the workflow makes at most one request for each series. The data
+center replays the exact CSVs, verifies the capture clock, and archives
+content-addressed originals and the report with readback. A delayed series
+stays visible, and an unavailable series leaves the joint comparison empty.
+The public run log has status and dates only. The existing private catalog and
+execution receipt attest storage. FRED series notes and the existing disabled
+FRED standing scope require separate use-specific permission evidence.
+
 ## Evidence needed to open each remaining gate
 
 | Use | Existing owner route | Required evidence |

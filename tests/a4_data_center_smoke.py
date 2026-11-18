@@ -27,6 +27,85 @@ def capture(root,*,now=NOW,fetcher=fetch,transport=None,native=None):
 
 
 class DataCenterTests(unittest.TestCase):
+    def test_fred_index_direction_respects_common_sessions_and_preserves_gaps(self):
+        from tools import a4_index_direction as index
+
+        cutoff='2026-11-18T04:11:00Z'
+        sp=b'observation_date,SP500\n2026-11-12,100\n2026-11-13,102\n2026-11-16,101\n2026-11-17,.\n'
+        nd=b'DATE,NASDAQ100\n2026-11-12,200\n2026-11-13,202\n2026-11-16,203\n2026-11-17,210\n'
+        paired={'SP500':(sp,cutoff),'NASDAQ100':(nd,cutoff)}
+        result=index.describe(paired,cutoff=cutoff)
+        self.assertEqual(result['status'],'DELAYED_COMMON_SESSION')
+        self.assertEqual(result['expected_session'],'2026-11-17')
+        self.assertEqual(result['common_session'],'2026-11-16')
+        self.assertEqual(result['series']['SP500']['lag_sessions'],1)
+        self.assertEqual(result['series']['NASDAQ100']['lag_sessions'],0)
+        self.assertEqual(result['horizons'][0]['direction'],'MIXED')
+        self.assertEqual(result['horizons'][0]['from_session'],'2026-11-13')
+        self.assertAlmostEqual(result['horizons'][0]['price_returns']['NASDAQ100'],203/202-1)
+        gap=dict(paired,SP500=(sp.replace(b'2026-11-13,102\n',b''),cutoff))
+        self.assertEqual(index.describe(gap,cutoff=cutoff)['horizons'][0]['status'],'INCOMPLETE_WINDOW')
+        absent=index.describe(dict(paired,NASDAQ100=None),cutoff=cutoff)
+        self.assertEqual(absent['status'],'NO_COMMON_SESSION')
+        self.assertFalse(absent['horizons'])
+        with self.assertRaisesRegex(ValueError,'INDEX_CAPTURE_CLOCK'):
+            index.describe(dict(paired,SP500=(sp,'2026-11-18T04:12:00Z')),cutoff=cutoff)
+        with self.assertRaisesRegex(ValueError,'duplicate_or_future_observation'):
+            index.describe(dict(paired,SP500=(sp+b'2026-11-18,105\n',cutoff)),cutoff=cutoff)
+
+    def test_fred_index_hosted_capture_and_private_catalog_require_bound_permission(self):
+        from tools import a4_index_direction as index
+        import yaml
+        workflow=yaml.safe_load((Path(d.__file__).parents[1]/'.github/workflows/daily_crisis_monitor.yml').read_text())
+        step=next(item for item in workflow['jobs']['monitor']['steps'] if item.get('id')=='a4_data_center')
+        self.assertIn('A4_INDEX_DIRECTION_POLICY_SHA256',step['env'])
+        self.assertIn('a4_index_direction.collect_approved(index_root,index_policy)',step['run'])
+        rows={}
+        session=d.market.current_session(NOW)
+        for i, series in enumerate(index.SERIES):
+            rows[series]=f'DATE,{series}\n{session},{100+i}\n'.encode()
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            access=root/'permissions'
+            access.mkdir()
+            evidence={}
+            for name in ('fred','sp500','nasdaq100'):
+                raw=f'synthetic test permission {name}'.encode()
+                (access/(name+'-permission.txt')).write_bytes(raw)
+                evidence[name]=digest(raw)
+            body=encoded(dict(schema=index.POLICY,available_at='2026-10-01T00:00:00Z',
+                expires_at='2026-12-01T00:00:00Z',purpose='PRIVATE_DESCRIPTIVE_RESEARCH',
+                permissions=['KEYLESS_SCHEDULED_FRED_CSV','PRIVATE_DRIVE_RAW_AND_REPORT'],
+                evidence_sha256=evidence))
+            (access/'policy.json').write_bytes(body)
+
+            def fake_get(url):
+                self.assertNotIn('api_key',url)
+                return next(content for series,content in rows.items() if 'id='+series+'&' in url)
+
+            with patch.object(index.fred,'utc_now',return_value=NOW), patch.object(index.fred,'request_bytes',side_effect=fake_get) as fetch_index:
+                with self.assertRaisesRegex(ValueError,'INDEX_POLICY_HASH'):
+                    index.collect_approved(access,'0'*64)
+                fetch_index.assert_not_called()
+                inputs=index.collect_approved(access,digest(body))
+                self.assertEqual(fetch_index.call_count,2)
+
+            transport=LocalTransport(root/'private')
+            spec=capture(root/'capture')
+            with patch.object(p,'now',return_value=NOW):
+                catalog,receipt=d.build([spec],cutoff=NOW,output_dir=root/'view',transport=transport,
+                    code_sha='a'*40,index_captures=inputs,index_policy_root=access,index_policy_sha256=digest(body))
+            self.assertEqual(catalog['index_direction']['status'],'CURRENT_COMMON_SESSION')
+            self.assertEqual(catalog['current_diagnosis']['status'],'DATA_BLOCKED')
+            self.assertFalse(catalog['index_direction']['training_admitted'])
+            self.assertEqual(transport.read(p.PREFIX+'/catalogs/'+receipt['catalog_sha256']+'.json'),encoded(catalog))
+            for raw in [body,*rows.values()]:
+                self.assertEqual(transport.read(p.PREFIX+'/objects/'+digest(raw)),raw)
+            (access/'sp500-permission.txt').write_bytes(b'changed')
+            refused,_=d.build([spec],cutoff=NOW,output_dir=root/'refused',index_captures=inputs,
+                index_policy_root=access,index_policy_sha256=digest(body))
+            self.assertEqual(refused['index_direction']['status'],'BLOCKED')
+
     def test_existing_core_originals_are_joined_without_admission_or_provider_calls(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);spec=capture(root/'capture')
