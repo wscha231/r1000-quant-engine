@@ -16,6 +16,7 @@ LOOKBACK_DAYS = 820
 MAX_CSV = 256 * 1024
 GRAPH_CSV = 'https://fred.stlouisfed.org/graph/fredgraph.csv'
 POLICY = 'a4-fred-index-access-v1'
+VERIFICATION = 'a4-fred-index-publication-verification-v1'
 
 
 def require(condition, code):

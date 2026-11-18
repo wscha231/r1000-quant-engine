@@ -103,12 +103,20 @@ Under the existing `shared-research-v1/macro-primary` namespace:
 - `catalogs/<sha256>.json`: immutable as-of catalog;
 - `reports/<sha256>.json`: reconstructed request/report using existing publisher;
 - `index-executions/<sha256>.json`: receipt published after object readbacks.
+- `index-verifications/<execution sha256>.json`: verification for a receipt
+  with `index_direction_verification_required`.
 
 Every local attempt has catalog JSON/Markdown, request/report, audit and
 execution receipt. A failed publication/readback leaves a separate
 `publication_failed.json`; a local COMPLETE-looking receipt cannot certify
 durability without the matching remote readback. No mutable latest pointer is
 an authority. Use exact snapshot/execution pins for historical queries.
+For the FRED direction view, the catalog and candidate receipt can remain after
+an interrupted transfer. Accept the direction view only with the matching
+`a4-fred-index-publication-verification-v1` record. It binds the receipt hash,
+the expected XNYS session and the time after receipt readback when both the
+permission window and session were rechecked. The verification is as of that
+time. Compare the expected session to the latest completed session at use time.
 The publisher records its exact repository code SHA separately from the
 reusable catalog identity. Source/locator fingerprints are checked before and
 after construction; changing them during replay refuses publication. The

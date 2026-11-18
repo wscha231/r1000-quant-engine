@@ -728,6 +728,22 @@ def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,prob
     exclusive(root/'catalog.md',render_catalog(catalog).encode('utf-8'))
     exclusive(root/'market_analysis.md',market.render_report(report).encode('utf-8'))
     exclusive(root/'audit.json',encoded(dict(schema='a4-data-center-audit-v1',excluded_attempts=audit,provider_requests_executed=0)))
+
+    def index_boundary():
+        checked_at=p.now()
+        if index_objects:
+            index_direction.read_policy(index_policy_root,index_policy_sha256,checked_at)
+            p.check(p.clock(checked_at)>=now and market.current_session(checked_at)==observed['expected_session'],
+                'DATA_CENTER_INDEX_SESSION_OR_CLOCK_CHANGED')
+        return checked_at
+
+    def write_verified(name,body,limit,error):
+        if index_objects:index_boundary()
+        transport.write(name,body)
+        if index_objects:index_boundary()
+        p.check(p.read_object(transport,name,digest(body),limit)==body,error)
+        return index_boundary() if index_objects else None
+
     publication=[]
     if transport is not None:
         try:
@@ -741,17 +757,10 @@ def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,prob
                     p.check(p.read_object(transport,name,spec['sha256'],market.input_limit(spec))==body,'DATA_CENTER_NATIVE_READBACK')
                 publication=collector.publish_analysis(transport,raw,encoded(report),cutoff=cutoff)
             for body in flow_objects:transport.write(p.PREFIX+'/objects/'+digest(body),body)
-            if index_objects:
-                index_direction.read_policy(index_policy_root,index_policy_sha256,p.now())
-                p.check(market.current_session(p.now())==catalog['index_direction']['expected_session'],
-                    'DATA_CENTER_INDEX_SESSION_ROLLED')
-                for body in index_objects:
-                    name=p.PREFIX+'/objects/'+digest(body)
-                    transport.write(name,body)
-                    p.check(p.read_object(transport,name,digest(body),index_direction.MAX_CSV)==body,
-                        'DATA_CENTER_INDEX_READBACK')
-            name=p.PREFIX+'/catalogs/'+catalog_sha+'.json';transport.write(name,encoded_catalog)
-            p.check(p.read_object(transport,name,catalog_sha,4*1024**2)==encoded_catalog,'DATA_CENTER_CATALOG_READBACK')
+            for body in index_objects:
+                write_verified(p.PREFIX+'/objects/'+digest(body),body,index_direction.MAX_CSV,'DATA_CENTER_INDEX_READBACK')
+            write_verified(p.PREFIX+'/catalogs/'+catalog_sha+'.json',encoded_catalog,4*1024**2,'DATA_CENTER_CATALOG_READBACK')
+            completed_at=index_boundary()
         except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
             exclusive(root/'publication_failed.json',encoded(dict(stage='CATALOG_OR_REPORT',status='BLOCKED')))
             raise ValueError('DATA_CENTER_PUBLICATION_FAILED') from None
@@ -760,12 +769,23 @@ def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,prob
         selected_core_verified=core,
         status='DURABLE_RESEARCH_INDEX_COMPLETE' if transport is not None and transport.remote_verified is True else 'LOCAL_RESEARCH_INDEX_COMPLETE',
         source_executions=[r['execution_sha256'] for r in catalog['attempts']],analysis_publication=publication,
-        completed_at=p.now(),provider_requests_executed=0,model_fit_performed=False,**SAFETY)
-    body=encoded(receipt);exclusive(root/'execution.json',body)
+        completed_at=completed_at if transport is not None else p.now(),provider_requests_executed=0,model_fit_performed=False,**SAFETY)
+    if transport is not None and index_objects:
+        receipt['index_direction_verification_required']=True
+    body=encoded(receipt)
+    if not receipt.get('index_direction_verification_required'):exclusive(root/'execution.json',body)
     if transport is not None:
         try:
-            name=p.PREFIX+'/index-executions/'+digest(body)+'.json';transport.write(name,body)
-            p.check(p.read_object(transport,name,digest(body),128*1024)==body,'DATA_CENTER_EXECUTION_READBACK')
+            execution_sha=digest(body)
+            verified_at=write_verified(p.PREFIX+'/index-executions/'+execution_sha+'.json',body,128*1024,
+                'DATA_CENTER_EXECUTION_READBACK')
+            if verified_at is not None:
+                # A clock rollover during receipt copy/readback must leave the candidate unverified in Drive.
+                proof=encoded(dict(schema=index_direction.VERIFICATION,execution_sha256=execution_sha,
+                    session=observed['expected_session'],verified_at=verified_at))
+                write_verified(p.PREFIX+'/index-verifications/'+execution_sha+'.json',proof,4096,
+                    'DATA_CENTER_INDEX_VERIFICATION_READBACK')
+                exclusive(root/'execution.json',body)
         except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
             exclusive(root/'publication_failed.json',encoded(dict(stage='EXECUTION_RECEIPT',status='BLOCKED',execution_sha256=digest(body))))
             raise ValueError('DATA_CENTER_EXECUTION_READBACK_FAILED') from None

@@ -10,6 +10,7 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from tools import a4_data_center as d,a4_primary_sources as p,collect_a4_primary_data as c
+from tools import a4_index_direction as index
 from tools.macro_history_sources import encoded,digest
 from tools.macro_research_checkpoint import LocalTransport
 from tests.a4_primary_sources_smoke import NOW,archive,nyfed,retained_credit_input
@@ -26,10 +27,24 @@ def capture(root,*,now=NOW,fetcher=fetch,transport=None,native=None):
     return dict(root=str(root),execution_sha256=digest((root/'execution.json').read_bytes()))
 
 
+def index_fixture(access,expires_at='2026-12-01T00:00:00Z'):
+    access.mkdir()
+    evidence={}
+    for name in ('fred','sp500','nasdaq100'):
+        raw=f'synthetic test permission {name}'.encode()
+        (access/(name+'-permission.txt')).write_bytes(raw)
+        evidence[name]=digest(raw)
+    policy=encoded(dict(schema=index.POLICY,available_at='2026-10-01T00:00:00Z',
+        expires_at=expires_at,purpose='PRIVATE_DESCRIPTIVE_RESEARCH',
+        permissions=['KEYLESS_SCHEDULED_FRED_CSV','PRIVATE_DRIVE_RAW_AND_REPORT'],evidence_sha256=evidence))
+    (access/'policy.json').write_bytes(policy)
+    session=d.market.current_session(NOW)
+    rows={series:f'DATE,{series}\n{session},{100+i}\n'.encode() for i,series in enumerate(index.SERIES)}
+    return policy,rows
+
+
 class DataCenterTests(unittest.TestCase):
     def test_fred_index_direction_respects_common_sessions_and_preserves_gaps(self):
-        from tools import a4_index_direction as index
-
         cutoff='2026-11-18T04:11:00Z'
         sp=b'observation_date,SP500\n2026-11-12,100\n2026-11-13,102\n2026-11-16,101\n2026-11-17,.\n'
         nd=b'DATE,NASDAQ100\n2026-11-12,200\n2026-11-13,202\n2026-11-16,203\n2026-11-17,210\n'
@@ -54,30 +69,15 @@ class DataCenterTests(unittest.TestCase):
             index.describe(dict(paired,SP500=(sp+b'2026-11-18,105\n',cutoff)),cutoff=cutoff)
 
     def test_fred_index_hosted_capture_and_private_catalog_require_bound_permission(self):
-        from tools import a4_index_direction as index
         import yaml
         workflow=yaml.safe_load((Path(d.__file__).parents[1]/'.github/workflows/daily_crisis_monitor.yml').read_text())
         step=next(item for item in workflow['jobs']['monitor']['steps'] if item.get('id')=='a4_data_center')
         self.assertIn('A4_INDEX_DIRECTION_POLICY_SHA256',step['env'])
         self.assertIn('a4_index_direction.collect_approved(index_root,index_policy)',step['run'])
-        rows={}
-        session=d.market.current_session(NOW)
-        for i, series in enumerate(index.SERIES):
-            rows[series]=f'DATE,{series}\n{session},{100+i}\n'.encode()
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)
             access=root/'permissions'
-            access.mkdir()
-            evidence={}
-            for name in ('fred','sp500','nasdaq100'):
-                raw=f'synthetic test permission {name}'.encode()
-                (access/(name+'-permission.txt')).write_bytes(raw)
-                evidence[name]=digest(raw)
-            body=encoded(dict(schema=index.POLICY,available_at='2026-10-01T00:00:00Z',
-                expires_at='2026-12-01T00:00:00Z',purpose='PRIVATE_DESCRIPTIVE_RESEARCH',
-                permissions=['KEYLESS_SCHEDULED_FRED_CSV','PRIVATE_DRIVE_RAW_AND_REPORT'],
-                evidence_sha256=evidence))
-            (access/'policy.json').write_bytes(body)
+            body,rows=index_fixture(access)
 
             def fake_get(url):
                 self.assertNotIn('api_key',url)
@@ -99,6 +99,10 @@ class DataCenterTests(unittest.TestCase):
             self.assertEqual(catalog['current_diagnosis']['status'],'DATA_BLOCKED')
             self.assertFalse(catalog['index_direction']['training_admitted'])
             self.assertEqual(transport.read(p.PREFIX+'/catalogs/'+receipt['catalog_sha256']+'.json'),encoded(catalog))
+            execution_sha=digest(encoded(receipt))
+            proof=json.loads(transport.read(p.PREFIX+'/index-verifications/'+execution_sha+'.json'))
+            self.assertEqual(proof,dict(schema=index.VERIFICATION,execution_sha256=execution_sha,
+                session=catalog['index_direction']['expected_session'],verified_at=NOW))
             for raw in [body,*rows.values()]:
                 self.assertEqual(transport.read(p.PREFIX+'/objects/'+digest(raw)),raw)
             modified=d.index_identity()
@@ -111,6 +115,53 @@ class DataCenterTests(unittest.TestCase):
             refused,_=d.build([spec],cutoff=NOW,output_dir=root/'refused',index_captures=inputs,
                 index_policy_root=access,index_policy_sha256=digest(body))
             self.assertEqual(refused['index_direction']['status'],'BLOCKED')
+
+    def test_fred_index_publication_stops_at_rights_and_session_boundaries(self):
+        expired='2026-11-07T10:00:01+00:00'
+        new_session='2026-11-09T21:16:00+00:00'
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            spec=capture(root/'capture')
+            for boundary,when in (('policy_write',expired),('policy_write',new_session),
+                                  ('catalog_read',new_session),('execution_read',new_session)):
+                with self.subTest(boundary=boundary,when=when):
+                    attempt=root/(boundary+'-'+when[:10])
+                    attempt.mkdir()
+                    access=attempt/'permissions'
+                    policy,rows=index_fixture(access,expires_at=expired if when==expired else '2026-12-01T00:00:00Z')
+                    inputs={series:(raw,NOW) for series,raw in rows.items()}
+                    instant=NOW
+
+                    class Rollover(LocalTransport):
+                        remote_verified=True
+
+                        def write(self,path,raw):
+                            nonlocal instant
+                            super().write(path,raw)
+                            if boundary=='policy_write' and raw==policy:
+                                instant=when
+
+                        def read(self,path):
+                            nonlocal instant
+                            raw=super().read(path)
+                            if (boundary=='catalog_read' and '/catalogs/' in path or
+                                boundary=='execution_read' and '/index-executions/' in path):
+                                instant=when
+                            return raw
+
+                    remote=Rollover(attempt/'remote')
+                    with patch.object(p,'now',side_effect=lambda:instant),self.assertRaisesRegex(ValueError,
+                        'DATA_CENTER_(PUBLICATION_FAILED|EXECUTION_READBACK_FAILED)'):
+                        d.build([spec],cutoff=NOW,output_dir=attempt/'view',transport=remote,code_sha='a'*40,
+                            index_captures=inputs,index_policy_root=access,index_policy_sha256=digest(policy))
+                    if boundary=='policy_write':
+                        self.assertEqual(remote.names(p.PREFIX+'/objects'),[digest(policy)])
+                        self.assertFalse(remote.names(p.PREFIX+'/catalogs'))
+                    self.assertEqual(len(remote.names(p.PREFIX+'/index-executions')),int(boundary=='execution_read'))
+                    self.assertFalse(remote.names(p.PREFIX+'/index-verifications'))
+                    self.assertFalse((attempt/'view/execution.json').exists())
+                    failure=json.loads((attempt/'view/publication_failed.json').read_bytes())
+                    self.assertEqual(failure['stage'],'EXECUTION_RECEIPT' if boundary=='execution_read' else 'CATALOG_OR_REPORT')
 
     def test_existing_core_originals_are_joined_without_admission_or_provider_calls(self):
         with tempfile.TemporaryDirectory() as tmp:
