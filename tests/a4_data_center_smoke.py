@@ -112,6 +112,8 @@ class DataCenterTests(unittest.TestCase):
         workflow=yaml.load(raw,Loader=yaml.BaseLoader)
         self.assertEqual(workflow['on']['schedule'],[{'cron':'47 9 * * 2-6'}])
         self.assertEqual(workflow['permissions'],{'contents':'read'})
+        checkout=workflow['jobs']['direction']['steps'][0]
+        self.assertEqual(checkout['with']['sparse-checkout'].split(),['tools','docs'])
         self.assertIn('tools.a4_firstrate_sample_direction',raw)
         for forbidden in ('upload-artifact','rclone','secrets.','run_a4_research_cycle','a5_'):
             self.assertNotIn(forbidden,raw)
