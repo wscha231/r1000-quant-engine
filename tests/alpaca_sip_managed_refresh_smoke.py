@@ -1,7 +1,7 @@
 """Synthetic component isolation; no credentials, provider or Drive transport."""
 from contextlib import ExitStack
 from copy import deepcopy
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 import gzip
 import io
 import json
@@ -209,6 +209,65 @@ class ComponentHoldTests(unittest.TestCase):
             runtime.bootstrap_coverage(self.drive, self.control, dict(groups=[group]), {"AAPL", "MSFT"})
         self.assertEqual(caught.exception.coverage, {"AAPL": FULL[-1]})
         self.assertEqual(caught.exception.held, {"MSFT": HELD})
+
+    def benchmark_window(self):
+        end = "2026-10-24"
+        sessions = sorted(runtime.expected_sessions("2026-09-01", end))[-22:]
+        sdk = asset("QQQ")
+        sdk["asset_class"] = sdk.pop("class")
+        observed = "2026-10-24T00:20:00Z"
+        ref = self.drive.seed(self.control["evidence_folder_id"], runtime.encoded(sdk))
+        self.control.update(not_before=observed, max_runs=1, max_symbols_per_run=2,
+                            authorized_tickers=["AAPL", "QQQ"], execution_tickers=["AAPL", "QQQ"],
+                            backfill_tickers=["QQQ"], first_capture_identity={
+                                "schema": "a1-managed-first-capture-identity-v1",
+                                "expires_at": self.control["expires_at"],
+                                "assets": {"QQQ": dict(sdk, sdk_ref=ref, observed_at=observed)},
+                                "benchmark_window": {"start": sessions[0], "end": end},
+                            })
+        return sessions
+
+    def test_transient_benchmark_has_exact_window_and_uses_existing_tail(self):
+        sessions = self.benchmark_window()
+        baseline = self.baseline({"AAPL": FULL[:1]}, end=FULL[1])
+        observed = self.now
+
+        class FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return observed.astimezone(tz)
+
+        with patch.object(cap, "datetime", FixedDateTime):
+            self.control["authorized_tickers"].append("MSFT")
+            self.control["authorized_tickers"].sort()
+            result = self.execute([baseline], tracked=("AAPL", "MSFT"))
+        self.assertEqual(result["session"], sessions[-1])
+        self.assertEqual(result["session_coverage"], dict(policy_tracked=2, execution_scoped=2,
+            current=2, held=0, pending=0, outside_scope=1, all_tracked_same_session=False))
+        terminal = next(r for sha, r in runtime.journal_rows(self.drive, self.control)
+                        if sha == result["checkpoint_sha256"])
+        self.assertEqual(terminal["coverage_updates"], {"AAPL": sessions[-1], "QQQ": sessions[-1]})
+        self.assertEqual(terminal["rows"], 2 * (22 + 2))
+        self.assertEqual([row["symbol"] for row in terminal["first_capture_identity_evidence"]], ["QQQ", "QQQ"])
+        queries = [parse_qs(urlsplit(url).query) for url in self.opener.urls if "/bars?" in url]
+        self.assertEqual(len(queries), 4)
+        for query in queries:
+            ticker = query["symbols"][0]
+            self.assertEqual(query["start"][0][:10], sessions[0] if ticker == "QQQ" else FULL[1])
+            self.assertEqual(query["end"][0][:10], sessions[-1])
+
+    def test_transient_benchmark_refuses_oversized_ranges_before_provider(self):
+        self.benchmark_window()
+        window = self.control["first_capture_identity"]["benchmark_window"]
+        start = window["start"]
+        window["start"] = "2026-09-01"
+        with self.assertRaisesRegex(runtime.Refused, "^MANAGED_BENCHMARK_WINDOW$"):
+            self.execute([], tracked=("AAPL",))
+        window["start"] = start
+        baseline = self.baseline({"AAPL": ["2026-10-20"]}, start="2026-10-20", end=FULL[0])
+        with self.assertRaisesRegex(runtime.Refused, "^MANAGED_INCREMENTAL_WINDOW$"):
+            self.execute([baseline], tracked=("AAPL",))
+        self.assertFalse(self.opener.urls)
 
     def test_new_locator_matches_actual_readback_receipt_and_preserves_exact_object_refs(self):
         group = self.baseline(dict(AAPL=FULL[:2], MSFT=FULL[:2]), end=FULL[-1])
