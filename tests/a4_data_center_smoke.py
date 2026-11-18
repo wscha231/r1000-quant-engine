@@ -57,7 +57,7 @@ def sample_zip(ticker, closes):
 
 class DataCenterTests(unittest.TestCase):
     def test_firstrate_sample_pair_public_summary_and_delay(self):
-        cutoff = '2026-11-18T08:47:00Z'
+        cutoff = '2026-11-18T09:47:00Z'
         spx = sample_zip('SPX', [('2026-11-16', 1234), ('2026-11-17', 1220)])
         ndx = sample_zip('NDX', [('2026-11-16', 5010), ('2026-11-17', 4970)])
         fetch = Mock(side_effect=[spx, ndx])
@@ -75,7 +75,7 @@ class DataCenterTests(unittest.TestCase):
         self.assertNotIn('5010', view)
         self.assertNotIn(digest(spx), view)
 
-        cutoff = '2026-11-19T08:47:00Z'
+        cutoff = '2026-11-19T09:47:00Z'
         ndx = sample_zip('NDX', [('2026-11-17', 4970), ('2026-11-18', 4999)])
         stale = sample.check(scheduled=True, fetch=Mock(side_effect=[spx, ndx]), now=lambda: cutoff)
         self.assertEqual(stale['status'], 'DELAYED_COMMON_SESSION')
@@ -87,14 +87,14 @@ class DataCenterTests(unittest.TestCase):
 
     def test_firstrate_sample_holidays_future_data_and_rollover(self):
         # Thanksgiving is closed; queued jobs must not report a superseded date.
-        for cutoff, status in (('2026-11-27T08:47:00Z', 'SKIPPED_NON_TRADING_DAY'),
+        for cutoff, status in (('2026-11-27T09:47:00Z', 'SKIPPED_NON_TRADING_DAY'),
                                ('2026-11-18T21:40:00Z', 'SKIPPED_SESSION_ADVANCED')):
             with self.subTest(cutoff=cutoff):
                 fetch = Mock()
                 report = sample.check(scheduled=True, fetch=fetch, now=lambda: cutoff)
                 self.assertEqual(report['status'], status)
                 fetch.assert_not_called()
-        cutoff = '2026-11-18T08:47:00Z'
+        cutoff = '2026-11-18T09:47:00Z'
         spx = sample_zip('SPX', [('2026-11-18', 1220)])
         ndx = sample_zip('NDX', [('2026-11-17', 4970)])
         broken = sample.check(scheduled=True, fetch=Mock(side_effect=[spx, ndx]), now=lambda: cutoff)
@@ -110,7 +110,7 @@ class DataCenterTests(unittest.TestCase):
         path=Path(d.__file__).parents[1]/'.github/workflows/a4_firstrate_sample_direction.yml'
         raw=path.read_text(encoding='utf-8')
         workflow=yaml.load(raw,Loader=yaml.BaseLoader)
-        self.assertEqual(workflow['on']['schedule'],[{'cron':'47 8 * * 2-6'}])
+        self.assertEqual(workflow['on']['schedule'],[{'cron':'47 9 * * 2-6'}])
         self.assertEqual(workflow['permissions'],{'contents':'read'})
         self.assertIn('tools.a4_firstrate_sample_direction',raw)
         for forbidden in ('upload-artifact','rclone','secrets.','run_a4_research_cycle','a5_'):

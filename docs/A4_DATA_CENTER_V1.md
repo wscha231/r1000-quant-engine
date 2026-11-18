@@ -194,7 +194,7 @@ FRED standing scope require separate use-specific permission evidence.
 ### FirstRate public sample check
 
 [A4 FirstRate Sample Direction](../.github/workflows/a4_firstrate_sample_direction.yml)
-runs Tuesday through Saturday at 08:47 UTC (17:47 KST) for the preceding
+runs Tuesday through Saturday at 09:47 UTC (18:47 KST) for the preceding
 US session. The NYSE calendar skips closed days without requesting samples.
 An execution that starts after a newer close is reported as skipped. The
 fixed public SPX and NDX sample links each get one request. Only their daily

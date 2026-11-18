@@ -3,7 +3,7 @@ name: A4 FirstRate Sample Direction
 on:
   schedule:
     # Tue-Sat UTC corresponds to the preceding Mon-Fri US session.
-    - cron: '47 8 * * 2-6'
+    - cron: '47 9 * * 2-6'
   workflow_dispatch:
 
 permissions:
