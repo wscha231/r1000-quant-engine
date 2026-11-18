@@ -1119,6 +1119,7 @@ A6_FIXED_PROOF_PROGRAMS = (
     'tools/a4_financing_analysis.py',
     'tests/a4_financing_sources_smoke.py',
     'tools/a4_data_center.py',
+    'tools/a4_index_direction.py',
     'tests/a4_data_center_smoke.py',
     'docs/A4_DATA_CENTER_V1.md',
     'docs/A4_FINANCING_CONDITIONS_V1.md',

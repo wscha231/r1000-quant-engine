@@ -103,12 +103,20 @@ Under the existing `shared-research-v1/macro-primary` namespace:
 - `catalogs/<sha256>.json`: immutable as-of catalog;
 - `reports/<sha256>.json`: reconstructed request/report using existing publisher;
 - `index-executions/<sha256>.json`: receipt published after object readbacks.
+- `index-verifications/<execution sha256>.json`: verification for a receipt
+  with `index_direction_verification_required`.
 
 Every local attempt has catalog JSON/Markdown, request/report, audit and
 execution receipt. A failed publication/readback leaves a separate
 `publication_failed.json`; a local COMPLETE-looking receipt cannot certify
 durability without the matching remote readback. No mutable latest pointer is
 an authority. Use exact snapshot/execution pins for historical queries.
+For the FRED direction view, the catalog and candidate receipt can remain after
+an interrupted transfer. Accept the direction view only with the matching
+`a4-fred-index-publication-verification-v1` record. It binds the receipt hash,
+the expected XNYS session and the time after receipt readback when both the
+permission window and session were rechecked. The verification is as of that
+time. Compare the expected session to the latest completed session at use time.
 The publisher records its exact repository code SHA separately from the
 reusable catalog identity. Source/locator fingerprints are checked before and
 after construction; changing them during replay refuses publication. The
@@ -148,6 +156,40 @@ writer remain in place. Primary/index work uses the existing60-minute ceiling
 readback plus bounded legacy metadata reads without raising object/request caps.
 An index with a blocked core can still retain its diagnostic metadata, but its
 CLI/workflow step fails and cannot start the dependent research cycle.
+
+## S&P 500 and Nasdaq-100 observed direction
+
+The optional `index_direction` view uses two keyless FRED graph CSV downloads
+on the existing Daily Crisis Monitor schedule. It reports the expected latest
+completed XNYS session, each series' last close and lag in sessions, and the
+latest common date. It compares realized price-index returns at 1, 5, 10, 21,
+63, 126, 252 and 504 sessions. A missing exchange session within a lookback
+leaves the horizon incomplete. Holidays are excluded by the exchange calendar.
+The view is separate from the native risk classification, ETF realized returns,
+historical PIT evidence and forecast or training inputs.
+
+Set `A4_INDEX_DIRECTION_POLICY_SHA256` only after documenting permission for
+scheduled keyless FRED CSV access and private Drive retention of both data and
+reports. The existing private restore tree must contain `index_direction/policy.json`
+and three matching permission documents named `fred-permission.txt`,
+`sp500-permission.txt` and `nasdaq100-permission.txt`. The externally pinned
+`a4-fred-index-access-v1` policy has these fields:
+
+- `available_at` and `expires_at` are aware timestamps.
+- `purpose` is `PRIVATE_DESCRIPTIVE_RESEARCH`.
+- `permissions` contains `KEYLESS_SCHEDULED_FRED_CSV` followed by
+  `PRIVATE_DRIVE_RAW_AND_REPORT`.
+- `evidence_sha256` maps `fred`, `sp500` and `nasdaq100` to the hashes of the
+  corresponding permission documents.
+
+With the variable absent there are zero additional provider requests. With a
+valid policy the workflow makes at most one request for each series. The data
+center replays the exact CSVs, verifies the capture clock, and archives
+content-addressed originals and the report with readback. A delayed series
+stays visible, and an unavailable series leaves the joint comparison empty.
+The public run log has status and dates only. The existing private catalog and
+execution receipt attest storage. FRED series notes and the existing disabled
+FRED standing scope require separate use-specific permission evidence.
 
 ## Evidence needed to open each remaining gate
 

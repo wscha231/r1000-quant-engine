@@ -15,6 +15,7 @@ from tools import market_analysis_engine as market,collect_a4_primary_data as co
 from tools import a4_macro_learning as learning,run_a4_research_cycle as cycle
 from tools import a4_rtdsm_sources as vintage, a4_rtdsm_extension as extension
 from tools import a4_flow_relationships as flow, a4_flow_price_inputs as flow_prices
+from tools import a4_index_direction as index_direction
 from tools.macro_history_sources import digest,encoded,exclusive
 from tools.macro_research_checkpoint import LocalTransport,RcloneTransport
 
@@ -29,6 +30,7 @@ SAFETY=dict(source_admitted=False,historical_pit_certified=False,training_admitt
     ledger_mutated=False,orders_generated=False)
 LOADED_INDEX_SHA256=digest(Path(__file__).read_bytes())
 LOADED_COLLECTOR_SHA256=digest(Path(collector.__file__).read_bytes().replace(b'\r\n',b'\n'))
+LOADED_INDEX_DIRECTION_SHA256=digest(Path(index_direction.__file__).read_bytes())
 
 
 def index_identity():
@@ -36,6 +38,7 @@ def index_identity():
     identity[Path(__file__).name]=digest(Path(__file__).read_bytes())
     identity[Path(flow.__file__).name]=digest(Path(flow.__file__).read_bytes())
     identity[Path(flow_prices.__file__).name]=digest(Path(flow_prices.__file__).read_bytes())
+    identity[Path(index_direction.__file__).name]=digest(Path(index_direction.__file__).read_bytes())
     identity[Path(vintage.__file__).name]=digest(Path(vintage.__file__).read_bytes())
     identity[Path(extension.__file__).name]=digest(Path(extension.__file__).read_bytes())
     identity[Path(collector.__file__).name]=digest(Path(collector.__file__).read_bytes().replace(b'\r\n',b'\n'))
@@ -440,16 +443,33 @@ def render_catalog(catalog):
     if context.get('status')=='CURRENT_VINTAGE_DESCRIPTIVE_ONLY':
         available=sum(r['pearson'] is not None for r in context['results'])
         lines.append(f"Price target session: {context['price_target_session']}; available pairs: {available}/{len(context['results'])}.")
+    if 'index_direction' in catalog:
+        direction=catalog['index_direction']
+        lines+=['', '## Observed index direction', '', f"Status: {direction['status']}"]
+        if 'series' in direction:
+            lines.append(f"Latest completed XNYS session: {direction['expected_session']}. "
+                         f"Latest common session: {direction['common_session'] or 'unavailable'}.")
+            for series, item in direction['series'].items():
+                lines.append(f"- {series}: {item['status']}, latest close {item['latest_session'] or 'unavailable'}.")
+            for item in direction['horizons']:
+                if item['status']=='OBSERVED':
+                    changes=', '.join(f"{name} {value:+.2%}" for name,value in item['price_returns'].items())
+                    lines.append(f"- {item['sessions']} sessions: {item['direction']} ({changes}).")
+            lines+=['', 'Price-index closes via FRED. Changes are realized, and the index pair is separate from native risk.']
     return '\n'.join(lines)
 
 
 def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,probe_lake=False,learning_root=None,
           learning_policy_sha256=None,code_sha=None,vintage_references=None,extension_vintage_references=None,
-          flow_price_root=None,flow_policy_root=None,flow_policy_sha256=None):
+          flow_price_root=None,flow_policy_root=None,flow_policy_sha256=None,
+          index_captures=None,index_policy_root=None,index_policy_sha256=None):
     """Produce a hash-bound as-of view; old successes never hide newer failed attempts."""
     now=p.clock(cutoff);cutoff=now.isoformat()
     flow_rows=[];flow_objects=[];flow_context=dict(status='NOT_CONFIGURED',model_fits=0)
     identity=index_identity();p.check(identity[Path(__file__).name]==LOADED_INDEX_SHA256,'DATA_CENTER_LOADED_CODE_CHANGED')
+    if index_policy_sha256 is not None:
+        p.check(identity.get(Path(index_direction.__file__).name)==LOADED_INDEX_DIRECTION_SHA256,
+            'DATA_CENTER_INDEX_DIRECTION_CODE_CHANGED')
     p.check((code_sha is None and transport is None) or type(code_sha) is str and re.fullmatch('[a-f0-9]{40}',code_sha),
         'DATA_CENTER_PUBLICATION_CODE_PIN')
     p.check(type(captures) is list and 0<len(captures)<=MAX_CAPTURES and
@@ -690,11 +710,40 @@ def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,prob
         except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
             flow_context=dict(status='BLOCKED',blocker='FLOW_PRICE_POLICY_SOURCE_OR_REPLAY_REQUIRED',model_fits=0)
     catalog['flow_relationships']=flow_context
+    index_objects=[]
+    if index_policy_sha256 is not None:
+        try:
+            index_policy=index_direction.read_policy(index_policy_root,index_policy_sha256,cutoff)
+            captures=index_captures if index_captures is not None else dict.fromkeys(index_direction.SERIES)
+            observed=index_direction.describe(captures,cutoff=cutoff)
+            observed['access_policy_sha256']=index_policy_sha256
+            index_objects=[index_policy]+[value[0] for value in captures.values() if value is not None]
+            p.check(budget['bytes']+sum(map(len,index_objects))<=MAX_BYTES,'DATA_CENTER_INDEX_READ_BUDGET')
+            catalog['index_direction']=observed
+        except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
+            index_objects=[]
+            catalog['index_direction']=dict(status='BLOCKED',blocker='INDEX_POLICY_OR_CSV_NOT_VERIFIED')
     encoded_catalog=encoded(catalog);p.check(len(encoded_catalog)<=4*1024**2,'DATA_CENTER_CATALOG_SIZE');catalog_sha=digest(encoded_catalog)
     exclusive(root/'catalog.json',encoded_catalog);exclusive(root/'market_analysis.json',encoded(report))
     exclusive(root/'catalog.md',render_catalog(catalog).encode('utf-8'))
     exclusive(root/'market_analysis.md',market.render_report(report).encode('utf-8'))
     exclusive(root/'audit.json',encoded(dict(schema='a4-data-center-audit-v1',excluded_attempts=audit,provider_requests_executed=0)))
+
+    def index_boundary():
+        checked_at=p.now()
+        if index_objects:
+            index_direction.read_policy(index_policy_root,index_policy_sha256,checked_at)
+            p.check(p.clock(checked_at)>=now and market.current_session(checked_at)==observed['expected_session'],
+                'DATA_CENTER_INDEX_SESSION_OR_CLOCK_CHANGED')
+        return checked_at
+
+    def write_verified(name,body,limit,error):
+        if index_objects:index_boundary()
+        transport.write(name,body)
+        if index_objects:index_boundary()
+        p.check(p.read_object(transport,name,digest(body),limit)==body,error)
+        return index_boundary() if index_objects else None
+
     publication=[]
     if transport is not None:
         try:
@@ -708,8 +757,10 @@ def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,prob
                     p.check(p.read_object(transport,name,spec['sha256'],market.input_limit(spec))==body,'DATA_CENTER_NATIVE_READBACK')
                 publication=collector.publish_analysis(transport,raw,encoded(report),cutoff=cutoff)
             for body in flow_objects:transport.write(p.PREFIX+'/objects/'+digest(body),body)
-            name=p.PREFIX+'/catalogs/'+catalog_sha+'.json';transport.write(name,encoded_catalog)
-            p.check(p.read_object(transport,name,catalog_sha,4*1024**2)==encoded_catalog,'DATA_CENTER_CATALOG_READBACK')
+            for body in index_objects:
+                write_verified(p.PREFIX+'/objects/'+digest(body),body,index_direction.MAX_CSV,'DATA_CENTER_INDEX_READBACK')
+            write_verified(p.PREFIX+'/catalogs/'+catalog_sha+'.json',encoded_catalog,4*1024**2,'DATA_CENTER_CATALOG_READBACK')
+            completed_at=index_boundary()
         except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
             exclusive(root/'publication_failed.json',encoded(dict(stage='CATALOG_OR_REPORT',status='BLOCKED')))
             raise ValueError('DATA_CENTER_PUBLICATION_FAILED') from None
@@ -718,12 +769,23 @@ def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,prob
         selected_core_verified=core,
         status='DURABLE_RESEARCH_INDEX_COMPLETE' if transport is not None and transport.remote_verified is True else 'LOCAL_RESEARCH_INDEX_COMPLETE',
         source_executions=[r['execution_sha256'] for r in catalog['attempts']],analysis_publication=publication,
-        completed_at=p.now(),provider_requests_executed=0,model_fit_performed=False,**SAFETY)
-    body=encoded(receipt);exclusive(root/'execution.json',body)
+        completed_at=completed_at if transport is not None else p.now(),provider_requests_executed=0,model_fit_performed=False,**SAFETY)
+    if transport is not None and index_objects:
+        receipt['index_direction_verification_required']=True
+    body=encoded(receipt)
+    if not receipt.get('index_direction_verification_required'):exclusive(root/'execution.json',body)
     if transport is not None:
         try:
-            name=p.PREFIX+'/index-executions/'+digest(body)+'.json';transport.write(name,body)
-            p.check(p.read_object(transport,name,digest(body),128*1024)==body,'DATA_CENTER_EXECUTION_READBACK')
+            execution_sha=digest(body)
+            verified_at=write_verified(p.PREFIX+'/index-executions/'+execution_sha+'.json',body,128*1024,
+                'DATA_CENTER_EXECUTION_READBACK')
+            if verified_at is not None:
+                # A clock rollover during receipt copy/readback must leave the candidate unverified in Drive.
+                proof=encoded(dict(schema=index_direction.VERIFICATION,execution_sha256=execution_sha,
+                    session=observed['expected_session'],verified_at=verified_at))
+                write_verified(p.PREFIX+'/index-verifications/'+execution_sha+'.json',proof,4096,
+                    'DATA_CENTER_INDEX_VERIFICATION_READBACK')
+                exclusive(root/'execution.json',body)
         except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
             exclusive(root/'publication_failed.json',encoded(dict(stage='EXECUTION_RECEIPT',status='BLOCKED',execution_sha256=digest(body))))
             raise ValueError('DATA_CENTER_EXECUTION_READBACK_FAILED') from None
