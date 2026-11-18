@@ -467,8 +467,9 @@ def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,prob
     now=p.clock(cutoff);cutoff=now.isoformat()
     flow_rows=[];flow_objects=[];flow_context=dict(status='NOT_CONFIGURED',model_fits=0)
     identity=index_identity();p.check(identity[Path(__file__).name]==LOADED_INDEX_SHA256,'DATA_CENTER_LOADED_CODE_CHANGED')
-    p.check(identity[Path(index_direction.__file__).name]==LOADED_INDEX_DIRECTION_SHA256,
-        'DATA_CENTER_INDEX_DIRECTION_CODE_CHANGED')
+    if index_policy_sha256 is not None:
+        p.check(identity.get(Path(index_direction.__file__).name)==LOADED_INDEX_DIRECTION_SHA256,
+            'DATA_CENTER_INDEX_DIRECTION_CODE_CHANGED')
     p.check((code_sha is None and transport is None) or type(code_sha) is str and re.fullmatch('[a-f0-9]{40}',code_sha),
         'DATA_CENTER_PUBLICATION_CODE_PIN')
     p.check(type(captures) is list and 0<len(captures)<=MAX_CAPTURES and

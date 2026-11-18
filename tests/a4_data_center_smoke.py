@@ -101,6 +101,12 @@ class DataCenterTests(unittest.TestCase):
             self.assertEqual(transport.read(p.PREFIX+'/catalogs/'+receipt['catalog_sha256']+'.json'),encoded(catalog))
             for raw in [body,*rows.values()]:
                 self.assertEqual(transport.read(p.PREFIX+'/objects/'+digest(raw)),raw)
+            modified=d.index_identity()
+            modified[Path(index.__file__).name]='0'*64
+            with patch.object(d,'index_identity',return_value=modified),self.assertRaisesRegex(ValueError,'DATA_CENTER_INDEX_DIRECTION_CODE_CHANGED'):
+                d.build([spec],cutoff=NOW,output_dir=root/'changed',index_captures=inputs,
+                    index_policy_root=access,index_policy_sha256=digest(body))
+            self.assertFalse((root/'changed').exists())
             (access/'sp500-permission.txt').write_bytes(b'changed')
             refused,_=d.build([spec],cutoff=NOW,output_dir=root/'refused',index_captures=inputs,
                 index_policy_root=access,index_policy_sha256=digest(body))
