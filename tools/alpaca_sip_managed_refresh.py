@@ -40,6 +40,7 @@ MAX_STATE = 2_000_000
 JOB = "Managed A1 private OHLCV refresh"
 JOB_RESERVATION_SECONDS = 5400  # job timeout, including setup/final artifact
 PROVIDER_END_DELAY_MINUTES = 15  # conservative historical SIP, no real-time assumption
+MONITOR_BENCHMARK_SESSIONS = 22  # current and prior 20-session relative strength
 
 
 class MetadataReader:
@@ -101,21 +102,25 @@ def first_capture_profile(control, now):
     if "first_capture_identity" not in control:
         return None
     profile = control["first_capture_identity"]
-    require(isinstance(profile, dict) and set(profile) == {"schema", "expires_at", "assets"}
+    require(isinstance(profile, dict) and set(profile) in (
+                {"schema", "expires_at", "assets"}, {"schema", "expires_at", "assets", "benchmark_window"})
             and profile["schema"] == "a1-managed-first-capture-identity-v1", "MANAGED_FIRST_IDENTITY_PROFILE")
     assets = profile["assets"]
     require(isinstance(assets, dict) and 1 <= len(assets) <= capture.GROUP_SIZE,
             "MANAGED_FIRST_IDENTITY_SCOPE")
     scope = execution_scope(control)
     require(control.get("max_runs") == 1 and type(control.get("max_runs")) is int
-            and scope == set(assets) and control.get("max_symbols_per_run") == len(assets)
+            and scope is not None and control.get("max_symbols_per_run") == len(scope)
             and type(control.get("max_symbols_per_run")) is int
-            and isinstance(control.get("execution_tickers"), list)
-            and len(control["execution_tickers"]) == len(assets)
             and isinstance(control.get("backfill_tickers"), list)
             and len(control["backfill_tickers"]) == len(assets)
             and set(control["backfill_tickers"]) == set(assets)
             and "cadence" not in control, "MANAGED_FIRST_IDENTITY_SCOPE")
+    if "benchmark_window" in profile:
+        require(set(assets) == {"QQQ"} and set(assets) <= scope,
+                "MANAGED_BENCHMARK_IDENTITY_SCOPE")
+    else:
+        require(scope == set(assets), "MANAGED_FIRST_IDENTITY_SCOPE")
     start, expiry = campaign.utc(control["not_before"]), campaign.utc(control["expires_at"])
     profile_expiry = campaign.utc(profile["expires_at"])
     ids = set()
@@ -136,6 +141,22 @@ def first_capture_profile(control, now):
         require(observed <= start <= now < expiry <= profile_expiry <= observed + timedelta(hours=24),
                 "MANAGED_FIRST_IDENTITY_WINDOW")
     return assets
+
+
+def benchmark_sessions(control):
+    profile = control.get("first_capture_identity", {})
+    if "benchmark_window" not in profile:
+        return ()
+    window = profile["benchmark_window"]
+    require(isinstance(window, dict) and set(window) == {"start", "end"}
+            and all(isinstance(day, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", day)
+                    for day in window.values()), "MANAGED_BENCHMARK_WINDOW")
+    start, end = date.fromisoformat(window["start"]), date.fromisoformat(window["end"])
+    require(timedelta(0) < end - start <= timedelta(days=40), "MANAGED_BENCHMARK_WINDOW")
+    sessions = sorted(expected_sessions(start.isoformat(), end.isoformat()))
+    require(len(sessions) == MONITOR_BENCHMARK_SESSIONS and sessions[0] == start.isoformat()
+            and sessions[-1] == (end - timedelta(days=1)).isoformat(), "MANAGED_BENCHMARK_WINDOW")
+    return tuple(sessions)
 
 
 def first_capture_guard(control, meter, clock):
@@ -219,6 +240,7 @@ def validate_control(control, inventory_sha, policy_sha, now):
             and managed.symbols(control.get("authorized_tickers")), "MANAGED_TICKER_SCOPE")
     execution_scope(control)
     first_capture_profile(control, now)
+    benchmark_sessions(control)
     if "cadence" in control:
         cadence = managed.cadence_contract(control["cadence"],
             not_before=control["not_before"], expires_at=control["expires_at"])
@@ -612,7 +634,8 @@ def bootstrap_coverage(drive, control, bootstrap, targets, *, asset_identities=N
     return found
 
 
-def missing_windows(targets, coverage, target_session, backfill, *, include_previous_close=False):
+def missing_windows(targets, coverage, target_session, backfill, *, include_previous_close=False,
+                    backfill_starts=None):
     require(type(include_previous_close) is bool, "MANAGED_ANCHOR_SCOPE")
     windows, reused, held = {}, [], {}
     end = (date.fromisoformat(target_session) + timedelta(days=1)).isoformat()
@@ -626,7 +649,7 @@ def missing_windows(targets, coverage, target_session, backfill, *, include_prev
                 continue
             start = last if include_previous_close else (date.fromisoformat(last) + timedelta(days=1)).isoformat()
         elif ticker in backfill:
-            start = capture.MIN_START
+            start = (backfill_starts or {}).get(ticker, capture.MIN_START)
         else:
             held[ticker] = "MISSING_VERIFIED_ALPACA_COVERAGE"
             continue
@@ -692,8 +715,17 @@ def collect_groups(drive, meter, control, bootstrap, tracked, prior_coverage,
         held.update(incomplete.held)
     coverage.update(prior_coverage)
     candidates = [t for t in candidates if t not in held]
+    monitor_sessions = benchmark_sessions(control)
+    bounded_start = {"QQQ": monitor_sessions[0]} if monitor_sessions else None
+    if monitor_sessions:
+        require(monitor_sessions[-1] == session, "MANAGED_BENCHMARK_SESSION_CHANGED")
     windows, reused, missing = missing_windows(candidates, coverage, session, set(control["backfill_tickers"]),
-        include_previous_close=control.get("include_previous_close", False))
+        include_previous_close=control.get("include_previous_close", False), backfill_starts=bounded_start)
+    if monitor_sessions:
+        tail = set(monitor_sessions[-2:])
+        for (start, end), symbols in windows.items():
+            if set(symbols) - {"QQQ"}:
+                require(expected_sessions(start, end) <= tail, "MANAGED_INCREMENTAL_WINDOW")
     held.update(missing)
     identity_refs = bootstrap.get("asset_identity_refs", {})
     require(isinstance(identity_refs, dict), "MANAGED_IDENTITY_MAP")
@@ -769,16 +801,17 @@ def collect_groups(drive, meter, control, bootstrap, tracked, prior_coverage,
             group = names[offset:offset + capture.GROUP_SIZE]
             meter.asset_symbols = tuple(group)  # each existing metered asset scope stays <=4
             recheck_records = {}
-            if first is None:
+            if first is None or not any(t in first for t in group):
                 evidence = capture.precheck_assets(group, key, secret, meter.perform)
             else:
                 evidence = []
                 for t in group:
                     started = clock()
                     row = capture.precheck_assets([t], key, secret, guarded_get)[0]
-                    recheck_records[t] = retain_identity_original(drive, control, row, identity_evidence,
-                                                                  "CAPTURE_RECHECK", started, clock())
-                    first_capture_guard(control, meter, clock)
+                    if t in first:
+                        recheck_records[t] = retain_identity_original(drive, control, row, identity_evidence,
+                                                                      "CAPTURE_RECHECK", started, clock())
+                        first_capture_guard(control, meter, clock)
                     evidence.append(row)
             eligible = []
             for row in evidence:
@@ -787,11 +820,11 @@ def collect_groups(drive, meter, control, bootstrap, tracked, prior_coverage,
                     held[t] = "INACTIVE_OR_UNSUPPORTED_ASSET"
                 elif capture.asset_record(row["response_utf8"].encode(), t)["id"] != identities[t]:
                     held[t] = "PROVIDER_SECURITY_ID_CHANGED"
-                elif first is not None and capture.asset_record(row["response_utf8"].encode(), t)["exchange"] != first[t]["exchange"]:
+                elif t in recheck_records and capture.asset_record(row["response_utf8"].encode(), t)["exchange"] != first[t]["exchange"]:
                     held[t] = "PROVIDER_EXCHANGE_CHANGED"
                 else:
                     eligible.append(t)
-                if first is not None:
+                if t in recheck_records:
                     recheck_records[t].update(identity_match=t in eligible,
                                               hold_reason=held.get(t))
             if not eligible:
@@ -800,7 +833,7 @@ def collect_groups(drive, meter, control, bootstrap, tracked, prior_coverage,
             objects, valid, no_data, count = capture.capture_one_group(
                 drive, control["private_data_folder_id"], eligible, start, end, key, secret,
                 control["inventory_sha256"], os.environ.get("GITHUB_SHA", ""),
-                get=meter.perform if first is None else guarded_get, scope=dict(task_key=control["task_key"],
+                get=guarded_get if recheck_records else meter.perform, scope=dict(task_key=control["task_key"],
                     namespace="managed-refresh-v1", input_sha256=control["inventory_sha256"]),
                 asset_evidence=[r for r in evidence if r["symbol"] in eligible])
             receipt = decode(private_bytes(drive, control["private_data_folder_id"], objects[-1], MAX_STATE))
@@ -851,7 +884,8 @@ def execute(control, control_sha, policy, bootstrap, history, drive, meter, cont
     require(policy_tracked <= set(control["authorized_tickers"]), "MANAGED_POLICY_SCOPE_CHANGED")
     subset = execution_scope(control)
     if subset is not None:
-        require(subset <= policy_tracked, "MANAGED_EXECUTION_SCOPE")
+        one_run_benchmark = {"QQQ"} if benchmark_sessions(control) else set()
+        require(subset <= policy_tracked | one_run_benchmark, "MANAGED_EXECUTION_SCOPE")
     tracked = policy_tracked if subset is None else subset
     cadence = control.get("cadence")
     roster = load_cadence_roster(control, drive, clock()) if cadence is not None else None
@@ -918,13 +952,13 @@ def execute(control, control_sha, policy, bootstrap, history, drive, meter, cont
     meter.save()
     # An earlier slot can already cover this session even if this batch did not visit it.
     held_in_scope = tracked.intersection(terminal["held"])
-    current = sum(terminal["coverage_updates"].get(ticker, coverage.get(ticker)) == terminal["session"]
-                  for ticker in tracked - held_in_scope)
+    current = {ticker for ticker in tracked - held_in_scope
+               if terminal["coverage_updates"].get(ticker, coverage.get(ticker)) == terminal["session"]}
     session_coverage = dict(policy_tracked=len(policy_tracked), execution_scoped=len(tracked),
-                            current=current, held=len(held_in_scope),
-                            pending=len(tracked) - current - len(held_in_scope),
-                            outside_scope=len(policy_tracked) - len(tracked),
-                            all_tracked_same_session=current == len(policy_tracked))
+                            current=len(current), held=len(held_in_scope),
+                            pending=len(tracked) - len(current) - len(held_in_scope),
+                            outside_scope=len(policy_tracked - tracked),
+                            all_tracked_same_session=policy_tracked <= current)
     result = dict(status="REFRESH_CHECKPOINT_VERIFIED", session=terminal["session"],
                 valid_updated=len(terminal["coverage_updates"])-len(terminal["reused"]), held=len(terminal["held"]),
                 reused=len(terminal["reused"]), rows=terminal["rows"], checkpoint_sha256=stored["sha256"],
@@ -987,6 +1021,9 @@ def run(args, *, gh=campaign.gh_json, drive_factory=OwnerDrive, clock=campaign.u
     observed = clock()  # metadata validation must not freeze the provider clock
     require(observed >= now, "MANAGED_MARKET_CLOCK_REGRESSION")
     gate = managed.cadence_market_gate(now_utc=observed, cadence=control.get("cadence"))
+    target_sessions = benchmark_sessions(control)
+    if target_sessions:
+        require(gate.get("session_date") == target_sessions[-1], "MANAGED_BENCHMARK_SESSION_CHANGED")
     endpoint = provider_endpoint_gate(gate["session_date"], observed) if gate["ready"] else None
     if not gate["ready"] or not endpoint["ready"]:
         marker = dict(schema="a1-managed-no-capture-v1",

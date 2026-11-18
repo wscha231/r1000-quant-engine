@@ -542,3 +542,12 @@ refs remain in a BLOCKED terminal checkpoint after a later failure. Unknown
 write outcomes need reconciliation, never a blind rerun. A verified current
 asset reference still grants no historical identity, corporate-action chain,
 Source/PIT/learning, ER, A5 or portfolio authority.
+
+For a one-run ETF monitor catch-up, the existing first-capture identity profile
+can also bind a `benchmark_window` with an inclusive `start` and exclusive
+`end`. Its sole new symbol is QQQ, with exactly 22 completed NYSE sessions
+ending on the worker's selected session. The OWNER control still lists every
+execution ticker. It can include existing managed names, whose previously
+verified originals are reused and whose collection may cover at most the last
+two sessions. QQQ uses the same Alpaca SIP RAW/SPLIT contracts and both identity
+checks. The scoped exception expires with the one-run control.
