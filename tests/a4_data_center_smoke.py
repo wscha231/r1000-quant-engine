@@ -1,6 +1,6 @@
 """Actual paired-codec integration, deterministic as-of views and failed attempts."""
 import copy
-from datetime import timedelta
+from datetime import datetime, timedelta
 from io import BytesIO
 import json
 from pathlib import Path
@@ -14,6 +14,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from tools import a4_data_center as d,a4_primary_sources as p,collect_a4_primary_data as c
 from tools import a4_index_direction as index
 from tools import a4_firstrate_sample_direction as sample
+from tools import a4_a1_price_monitor as a1_prices
 from tools.macro_history_sources import encoded,digest
 from tools.macro_research_checkpoint import LocalTransport
 from tests.a4_primary_sources_smoke import NOW,archive,nyfed,retained_credit_input
@@ -586,6 +587,77 @@ class DataCenterTests(unittest.TestCase):
         result=d.describe_weekly_history(rows,'h8',NOW)
         self.assertTrue(all(r['pearson_correlation'] is None for r in result))
         with self.assertRaises(ValueError):d.describe_weekly_history(rows+[dict(rows[0])],'h8',NOW)
+
+
+class A1PriceMonitorTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        dates = a1_prices.mcal.get_calendar("NYSE").schedule(
+            start_date="2025-10-01", end_date="2026-11-17").tail(a1_prices.HISTORY)
+        cls.sessions = list(dates.index.strftime("%Y-%m-%d"))
+        ticks = range(a1_prices.HISTORY)
+        up, down = [100 + i/10 for i in ticks], [100 - i/10 for i in ticks]
+        def bars(values):
+            return dict(close=values, raw_close=values, volume=[1000] * len(values))
+        prices = {f"S{i}": bars(up if i % 2 else down) for i in range(a1_prices.COHORT_SIZE)}
+        prices.update(SPY=bars(up), QQQ=bars([None] * (len(up) - 22) + down[-22:]))
+        cls.bundle = dict(schema="a4-a1-price-bundle-v1", price_basis=a1_prices.BASIS,
+            sessions=cls.sessions, prices=prices, a1_run_id=1,
+            a1_checkpoint_sha256="a"*64, readback_sha256="b"*64)
+        cls.source = dict(completed_at="2026-11-18T02:00:00Z", state="COMPLETE", run_id=1,
+            session="2026-11-17", coverage_updates=dict.fromkeys(prices, "2026-11-17"))
+        cls.cutoff = datetime.fromisoformat("2026-11-18T10:00:00+00:00")
+
+    def test_fixed_cohort_and_benchmark_lag_do_not_change_normal_report(self):
+        actual = a1_prices.evaluate(self.bundle, self.source, self.cutoff, verify_lag=True)
+        self.assertEqual(set(actual["breadth"]["valid_symbols"].values()), {606})
+        self.assertEqual(actual["breadth"]["values"]["pct_above_ma50"], .5)
+        self.assertEqual(actual["benchmark"]["common_sessions_in_window"], 22)
+        self.assertEqual(actual["benchmark"]["lag_sessions"], {"SPY": 0, "QQQ": 0})
+        self.assertTrue(all(value < 0 for value in actual["benchmark"]["relative_strength_qqq_vs_spy"].values()))
+        self.assertEqual(actual["isolated_lag_check"]["common_session"], "2026-11-16")
+        self.assertEqual(actual["isolated_lag_check"]["lag_sessions"], {"SPY": 0, "QQQ": 1})
+        self.assertEqual(actual["benchmark"]["common_session"], "2026-11-17")
+
+    def test_stale_snapshot_and_price_hole_never_look_current(self):
+        cutoff = datetime.fromisoformat("2026-11-19T01:00:00+00:00")
+        actual = a1_prices.evaluate(self.bundle, self.source, cutoff)
+        self.assertEqual(actual["breadth"]["status"], "DELAYED")
+        self.assertEqual(actual["benchmark"]["status"], "DELAYED_COMMON_SESSION")
+        self.assertEqual(actual["benchmark"]["lag_sessions"], {"SPY": 1, "QQQ": 1})
+        changed = copy.deepcopy(self.bundle)
+        changed["prices"]["QQQ"]["close"][-5] = None
+        result = a1_prices.evaluate(changed, self.source, cutoff)
+        self.assertTrue(all(value is None for value in result["benchmark"]["relative_strength_qqq_vs_spy"].values()))
+
+    def test_remote_write_readback_and_metadata_projection(self):
+        paths = {"source_file": encoded(self.source)}
+        self.bundle["a1_checkpoint_sha256"] = digest(paths["source_file"])
+        self.addCleanup(self.bundle.__setitem__, "a1_checkpoint_sha256", "a"*64)
+        paths["input_file"] = encoded(self.bundle)
+        def ref(name):
+            return dict(file_id=name, sha256=digest(paths[name]), bytes=len(paths[name]))
+        drive = Mock(owner="owner", root_id="root")
+        drive.read.side_effect = lambda name, _: paths[name]
+        scope = dict(analysis_folder="analysis", source_journal="journal", owner_sha256=digest(b"owner"),
+                     bundle=ref("input_file"), checkpoint=ref("source_file"))
+        def persist(_, folder, raw, extension):
+            self.assertEqual((folder, extension), ("analysis", ".json"))
+            paths["private_report"] = raw
+            return ref("private_report")
+        with patch.object(a1_prices.capture, "persist_object", side_effect=persist):
+            result = a1_prices.run(drive, scope, scope["bundle"]["sha256"], cutoff=self.cutoff,
+                                   run_id="10", attempt="1", code_sha="e"*40)
+        self.assertEqual(result["report_sha256"], digest(paths["private_report"]))
+        self.assertEqual(sorted(result["relative_strength_horizons"]), [1, 5, 20])
+        self.assertNotIn("pct_above_ma50", result["benchmark"])
+        self.assertNotIn("relative_strength_qqq_vs_spy", result["benchmark"])
+        paths["source_file"] += b" "
+        with patch.object(a1_prices.capture, "persist_object") as blocked:
+            with self.assertRaisesRegex(ValueError, "A4_A1_HASH"):
+                a1_prices.run(drive, scope, scope["bundle"]["sha256"], cutoff=self.cutoff,
+                              run_id="10", attempt="1", code_sha="e"*40)
+        blocked.assert_not_called()
 
 
 if __name__=='__main__':unittest.main()
