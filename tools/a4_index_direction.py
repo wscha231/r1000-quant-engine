@@ -43,6 +43,28 @@ def movement(value):
 def describe(captures, *, cutoff):
     """Compute realized price changes without compressing gaps or backdating CSVs."""
     start, through = window(cutoff)
+    require(set(captures) == set(SERIES), 'INDEX_PAIR_REQUIRED')
+    closes = {}
+    for series, capture in captures.items():
+        if capture is None:
+            closes[series] = None
+            continue
+        body, observed_at = capture
+        check_capture_clock(observed_at, cutoff, through)
+        price = parse_csv(body, series, start, through, observed_at)
+        url = GRAPH_CSV + '?' + urlencode(dict(id=series, cosd=start, coed=through))
+        closes[series] = (price, observed_at, fred.digest(body), url)
+    return describe_closes(closes, cutoff=cutoff, attribution='S&P Dow Jones Indices and Nasdaq via FRED')
+
+
+def check_capture_clock(observed_at, cutoff, through):
+    require(fred.stamp(observed_at) <= fred.stamp(cutoff)
+            and market.current_session(observed_at) == through, 'INDEX_CAPTURE_CLOCK')
+
+
+def describe_closes(captures, *, cutoff, attribution):
+    """Compare validated closes from one provider on the shared NYSE session grid."""
+    start, through = window(cutoff)
     schedule = market.clock.mcal.get_calendar('NYSE').schedule(start, through)
     days = [session.date().isoformat() for session in schedule.index]
     positions = {day: index for index, day in enumerate(days)}
@@ -54,17 +76,15 @@ def describe(captures, *, cutoff):
             prices[series] = {}
             sources[series] = dict(status='UNAVAILABLE', latest_session=None, lag_sessions=None)
             continue
-        body, observed_at = capture
-        require(fred.stamp(observed_at) <= fred.stamp(cutoff)
-                and market.current_session(observed_at) == through, 'INDEX_CAPTURE_CLOCK')
-        prices[series] = parse_csv(body, series, start, through, observed_at)
-        require(set(prices[series]) <= positions.keys(), 'INDEX_NON_XNYS_CLOSE')
+        prices[series], observed_at, original_sha256, source_url = capture
+        check_capture_clock(observed_at, cutoff, through)
+        require(prices[series] and set(prices[series]) <= positions.keys(), 'INDEX_NON_XNYS_CLOSE')
+        require(all(math.isfinite(value) and value > 0 for value in prices[series].values()), 'INDEX_CLOSE_POSITIVE')
         latest = max(prices[series])
         lag = positions[through] - positions[latest]
         sources[series] = dict(status='CURRENT' if lag == 0 else 'DELAYED',
             latest_session=latest, lag_sessions=lag, observed_at=observed_at,
-            original_sha256=fred.digest(body),
-            source_url=GRAPH_CSV + '?' + urlencode(dict(id=series, cosd=start, coed=through)))
+            original_sha256=original_sha256, source_url=source_url)
 
     common_days = prices[SERIES[0]].keys() & prices[SERIES[1]].keys()
     anchor = max(common_days, default=None)
@@ -91,7 +111,7 @@ def describe(captures, *, cutoff):
                 expected_session=through, common_session=anchor,
                 common_lag_sessions=None if anchor is None else positions[through] - positions[anchor],
                 cutoff=fred.stamp(cutoff).isoformat(), series=sources, horizons=horizons,
-                basis='PRICE_INDEX_CLOSE', attribution='S&P Dow Jones Indices and Nasdaq via FRED',
+                basis='PRICE_INDEX_CLOSE', attribution=attribution,
                 historical_pit_certified=False, predictive_forecast=False, training_admitted=False)
 
 

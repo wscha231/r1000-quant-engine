@@ -1,16 +1,19 @@
 """Actual paired-codec integration, deterministic as-of views and failed attempts."""
 import copy
 from datetime import timedelta
+from io import BytesIO
 import json
 from pathlib import Path
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from urllib.error import HTTPError
+from zipfile import ZipFile
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from tools import a4_data_center as d,a4_primary_sources as p,collect_a4_primary_data as c
 from tools import a4_index_direction as index
+from tools import a4_firstrate_sample_direction as sample
 from tools.macro_history_sources import encoded,digest
 from tools.macro_research_checkpoint import LocalTransport
 from tests.a4_primary_sources_smoke import NOW,archive,nyfed,retained_credit_input
@@ -43,7 +46,76 @@ def index_fixture(access,expires_at='2026-12-01T00:00:00Z'):
     return policy,rows
 
 
+def sample_zip(ticker, closes):
+    content = BytesIO()
+    rows = ['Date,Open,High,Low,Close']
+    rows.extend(f'{day},999,999,999,{close}' for day, close in closes)
+    with ZipFile(content, 'w') as archive:
+        archive.writestr(f'{ticker}_1day_sample.csv', '\n'.join(rows))
+    return content.getvalue()
+
+
 class DataCenterTests(unittest.TestCase):
+    def test_firstrate_sample_pair_public_summary_and_delay(self):
+        cutoff = '2026-11-18T08:47:00Z'
+        spx = sample_zip('SPX', [('2026-11-16', 1234), ('2026-11-17', 1220)])
+        ndx = sample_zip('NDX', [('2026-11-16', 5010), ('2026-11-17', 4970)])
+        fetch = Mock(side_effect=[spx, ndx])
+        current = sample.check(scheduled=True, fetch=fetch, now=lambda: cutoff)
+        self.assertEqual([call.args[0] for call in fetch.call_args_list],
+                         [sample.SAMPLES.format('SPX'), sample.SAMPLES.format('NDX')])
+        self.assertEqual(current['status'], 'CURRENT_COMMON_SESSION')
+        self.assertEqual(current['common_session'], '2026-11-17')
+        self.assertEqual(current['attribution'], sample.ATTRIBUTION)
+        self.assertEqual(current['series']['SP500']['original_sha256'], digest(spx))
+        view = sample.render(current)
+        self.assertIn('| 1 | DOWN | DOWN | DOWN |', view)
+        self.assertIn('INCOMPLETE_WINDOW', view)
+        self.assertNotIn('1234', view)
+        self.assertNotIn('5010', view)
+        self.assertNotIn(digest(spx), view)
+
+        cutoff = '2026-11-19T08:47:00Z'
+        ndx = sample_zip('NDX', [('2026-11-17', 4970), ('2026-11-18', 4999)])
+        stale = sample.check(scheduled=True, fetch=Mock(side_effect=[spx, ndx]), now=lambda: cutoff)
+        self.assertEqual(stale['status'], 'DELAYED_COMMON_SESSION')
+        self.assertEqual(stale['common_session'], '2026-11-17')
+        view = sample.render(stale)
+        self.assertIn('SPX: `DELAYED` / latest 2026-11-17 / lag 1 sessions', view)
+        self.assertIn('NDX: `CURRENT` / latest 2026-11-18 / lag 0 sessions', view)
+        self.assertNotIn('Joint direction', view)
+
+    def test_firstrate_sample_holidays_future_data_and_rollover(self):
+        # Thanksgiving is closed; queued jobs must not report a superseded date.
+        for cutoff, status in (('2026-11-27T08:47:00Z', 'SKIPPED_NON_TRADING_DAY'),
+                               ('2026-11-18T21:40:00Z', 'SKIPPED_SESSION_ADVANCED')):
+            with self.subTest(cutoff=cutoff):
+                fetch = Mock()
+                report = sample.check(scheduled=True, fetch=fetch, now=lambda: cutoff)
+                self.assertEqual(report['status'], status)
+                fetch.assert_not_called()
+        cutoff = '2026-11-18T08:47:00Z'
+        spx = sample_zip('SPX', [('2026-11-18', 1220)])
+        ndx = sample_zip('NDX', [('2026-11-17', 4970)])
+        broken = sample.check(scheduled=True, fetch=Mock(side_effect=[spx, ndx]), now=lambda: cutoff)
+        self.assertEqual(broken['status'], 'NO_COMMON_SESSION')
+        self.assertEqual(broken['series']['SP500']['status'], 'UNAVAILABLE')
+        self.assertEqual(broken['series']['NASDAQ100']['status'], 'CURRENT')
+        clock = Mock(side_effect=[cutoff, cutoff, cutoff, '2026-11-18T21:40:00Z'])
+        rolled = sample.check(scheduled=True, fetch=Mock(side_effect=[spx, ndx]), now=clock)
+        self.assertEqual(rolled['status'], 'SESSION_ROLLED')
+
+    def test_firstrate_sample_schedule_is_read_only(self):
+        import yaml
+        path=Path(d.__file__).parents[1]/'.github/workflows/a4_firstrate_sample_direction.yml'
+        raw=path.read_text(encoding='utf-8')
+        workflow=yaml.load(raw,Loader=yaml.BaseLoader)
+        self.assertEqual(workflow['on']['schedule'],[{'cron':'47 8 * * 2-6'}])
+        self.assertEqual(workflow['permissions'],{'contents':'read'})
+        self.assertIn('tools.a4_firstrate_sample_direction',raw)
+        for forbidden in ('upload-artifact','rclone','secrets.','run_a4_research_cycle','a5_'):
+            self.assertNotIn(forbidden,raw)
+
     def test_fred_index_direction_respects_common_sessions_and_preserves_gaps(self):
         cutoff='2026-11-18T04:11:00Z'
         sp=b'observation_date,SP500\n2026-11-12,100\n2026-11-13,102\n2026-11-16,101\n2026-11-17,.\n'
