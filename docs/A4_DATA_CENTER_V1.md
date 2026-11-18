@@ -191,6 +191,30 @@ The public run log has status and dates only. The existing private catalog and
 execution receipt attest storage. FRED series notes and the existing disabled
 FRED standing scope require separate use-specific permission evidence.
 
+### FirstRate public sample check
+
+[A4 FirstRate Sample Direction](../.github/workflows/a4_firstrate_sample_direction.yml)
+runs Tuesday through Saturday at 09:47 UTC (18:47 KST) for the preceding
+US session. The NYSE calendar skips closed days without requesting samples.
+An execution that starts after a newer close is reported as skipped. The
+fixed public SPX and NDX sample links each get one request. Only their daily
+CSV members are read in memory.
+
+If both sample closes reach the expected session, the run summary shows the
+observed direction at each complete lookback. If either sample is delayed,
+the summary shows the last common session and each ticker's lag. A failed
+download or unavailable common session is shown explicitly. The workflow
+has read-only repository access and emits dates and direction categories.
+Original ZIPs, CSVs and prices are not written to files, artifacts or Drive.
+
+The provider offers public samples for analysis. Its daily update schedule
+describes customer files. A delayed sample remains a delayed sample until
+both public files actually include the intended close. This evaluation is
+separate from FRED admission and the native risk and portfolio workflows.
+[Public samples](https://firstratedata.com/free-intraday-data) ·
+[Update FAQ](https://firstratedata.com/about/FAQ) ·
+[License](https://firstratedata.com/about/license)
+
 ## Evidence needed to open each remaining gate
 
 | Use | Existing owner route | Required evidence |
