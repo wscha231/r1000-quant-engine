@@ -1119,6 +1119,7 @@ A6_FIXED_PROOF_PROGRAMS = (
     'tools/a4_financing_analysis.py',
     'tests/a4_financing_sources_smoke.py',
     'tools/a4_data_center.py',
+    'tools/a4_a1_price_monitor.py',
     'tools/a4_index_direction.py',
     'tools/a4_firstrate_sample_direction.py',
     '.github/workflows/a4_firstrate_sample_direction.yml',

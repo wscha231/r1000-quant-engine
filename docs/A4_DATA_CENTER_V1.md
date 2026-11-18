@@ -239,3 +239,23 @@ The daily wrapper also retains its existing current-session source snapshot,
 coverage and clock checks. A fresh A4 capture cannot refresh or authorize a
 stale legacy success row; wrapper completion and A4 context capture remain
 separate results until their respective current inputs pass.
+## A1 market breadth and benchmark price report
+
+The existing Daily Crisis Monitor workflow can read an owner-only A1 price
+bundle from the existing private data lake. The `A4_A1_PRICE_BUNDLE_SHA256`
+variable pins the bundle. The `A4_A1_PRICE_SCOPE` secret binds it to the
+completed A1 checkpoint and the private analysis folder. The existing A1
+Drive configuration checks owner-only permissions and reads back the stored
+report. GitHub receives dates, statuses, counts, and hashes.
+
+The report uses the existing A4 breadth calculations over the selected
+606 equities and the existing ETF relative-strength calculation for QQQ
+versus SPY over 1, 5 and 20 NYSE sessions. Each benchmark shows its latest
+observed session and delay. The comparison ends on the latest common
+session and requires the uninterrupted price window. A pinned snapshot
+becomes delayed after a new completed NYSE session. A newer A1 snapshot
+requires its own verified pin. The price report is private research.
+
+Use the workflow's `a1_price_check_only` input to test the same price job
+independently. The test omits the latest QQQ close in memory and records the
+earlier common date and one additional session of delay for QQQ.

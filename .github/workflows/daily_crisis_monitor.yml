@@ -5,12 +5,57 @@ on:
     # After the US close with enough delay for daily price caches/sidecars.
     - cron: '30 22 * * 1-5'
   workflow_dispatch:
+    inputs:
+      a1_price_check_only:
+        description: Verify the pinned A1 price report without running the full daily monitor
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
+  a1_price_research:
+    name: Verify A1 breadth and benchmark prices
+    if: ${{ vars.A4_A1_PRICE_BUNDLE_SHA256 != '' || (github.event_name == 'workflow_dispatch' && inputs.a1_price_check_only) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: a4-a1-price-research-single-writer
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements_github.txt
+      - run: pip install -r requirements_github.txt
+      - name: Compute and read back the private A4 price report
+        env:
+          A4_A1_PRICE_BUNDLE_SHA256: ${{ vars.A4_A1_PRICE_BUNDLE_SHA256 }}
+          A4_A1_PRICE_SCOPE: ${{ secrets.A4_A1_PRICE_SCOPE }}
+          MACRO_DRIVE_CONFIG: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          VERIFY_LAG: ${{ github.event_name == 'workflow_dispatch' && inputs.a1_price_check_only }}
+        run: |
+          set -euo pipefail
+          curl -fsSL https://downloads.rclone.org/rclone-current-linux-amd64.zip -o "$RUNNER_TEMP/rclone.zip"
+          unzip -oq "$RUNNER_TEMP/rclone.zip" -d "$RUNNER_TEMP/a4-price-rclone"
+          sudo install -m 0755 "$RUNNER_TEMP"/a4-price-rclone/rclone-*/rclone /usr/local/bin/rclone
+          args=()
+          if [ "$VERIFY_LAG" = true ]; then args+=(--verify-lag); fi
+          python -m tools.a4_a1_price_monitor --receipt "$RUNNER_TEMP/a4-a1-price-receipt.json" "${args[@]}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: a4-a1-price-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/a4-a1-price-receipt.json
+          if-no-files-found: error
+          retention-days: 30
+
   monitor:
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.a1_price_check_only }}
     runs-on: ubuntu-latest
     timeout-minutes: ${{ (vars.A4_PRIMARY_COLLECTION_ENABLED == 'true' || vars.A4_FINANCING_COLLECTION_ENABLED == 'true') && 60 || 30 }}
     concurrency:
