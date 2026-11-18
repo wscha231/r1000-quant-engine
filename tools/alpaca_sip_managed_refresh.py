@@ -952,13 +952,13 @@ def execute(control, control_sha, policy, bootstrap, history, drive, meter, cont
     meter.save()
     # An earlier slot can already cover this session even if this batch did not visit it.
     held_in_scope = tracked.intersection(terminal["held"])
-    current = sum(terminal["coverage_updates"].get(ticker, coverage.get(ticker)) == terminal["session"]
-                  for ticker in tracked - held_in_scope)
+    current = {ticker for ticker in tracked - held_in_scope
+               if terminal["coverage_updates"].get(ticker, coverage.get(ticker)) == terminal["session"]}
     session_coverage = dict(policy_tracked=len(policy_tracked), execution_scoped=len(tracked),
-                            current=current, held=len(held_in_scope),
-                            pending=len(tracked) - current - len(held_in_scope),
-                            outside_scope=len(policy_tracked) - len(tracked),
-                            all_tracked_same_session=current == len(policy_tracked))
+                            current=len(current), held=len(held_in_scope),
+                            pending=len(tracked) - len(current) - len(held_in_scope),
+                            outside_scope=len(policy_tracked - tracked),
+                            all_tracked_same_session=policy_tracked <= current)
     result = dict(status="REFRESH_CHECKPOINT_VERIFIED", session=terminal["session"],
                 valid_updated=len(terminal["coverage_updates"])-len(terminal["reused"]), held=len(terminal["held"]),
                 reused=len(terminal["reused"]), rows=terminal["rows"], checkpoint_sha256=stored["sha256"],

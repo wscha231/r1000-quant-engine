@@ -238,8 +238,12 @@ class ComponentHoldTests(unittest.TestCase):
                 return observed.astimezone(tz)
 
         with patch.object(cap, "datetime", FixedDateTime):
-            result = self.execute([baseline], tracked=("AAPL",))
+            self.control["authorized_tickers"].append("MSFT")
+            self.control["authorized_tickers"].sort()
+            result = self.execute([baseline], tracked=("AAPL", "MSFT"))
         self.assertEqual(result["session"], sessions[-1])
+        self.assertEqual(result["session_coverage"], dict(policy_tracked=2, execution_scoped=2,
+            current=2, held=0, pending=0, outside_scope=1, all_tracked_same_session=False))
         terminal = next(r for sha, r in runtime.journal_rows(self.drive, self.control)
                         if sha == result["checkpoint_sha256"])
         self.assertEqual(terminal["coverage_updates"], {"AAPL": sessions[-1], "QQQ": sessions[-1]})
