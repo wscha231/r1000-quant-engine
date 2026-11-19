@@ -1,5 +1,11 @@
 # Agent Shared Lessons Ledger
 
+### 2026-11-19 KST — Bind A5 replacement checks to the reviewed portfolio
+
+- Pin the portfolio in the research policy, request and reviewed allocation risk.
+  A 55/45 two-sector transition exercises different existing limits in Main and
+  Concentrated. Preserve legacy Main replay and verify the identity of a carried model book.
+
 ### 2026-11-14 KST — Keep real A4 analysis out of public workflow artifacts
 
 - The repository is public; broad artifact paths included full daily reports,

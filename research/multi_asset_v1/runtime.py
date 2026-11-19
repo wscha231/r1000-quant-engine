@@ -147,6 +147,14 @@ def run(payload, registry, policy, *, artifact_resolver=None, review_root=None, 
     require(policy.get("baseline_commodity_weights")==COMPONENTS,"unsupported_commodity_baseline")
     stock_mode=policy.get("stock_cash_research",{}).get("enabled") is True
     er_suffix=stock_er_suffix(policy) if stock_mode else "12m"
+    if stock_mode:
+        portfolio_profile = stock_research_profile(policy)
+        require(("portfolio_kind" in payload) == ("portfolio_kind" in portfolio_profile) and
+                payload.get("portfolio_kind") == portfolio_profile.get("portfolio_kind"), "stock_portfolio_request_mismatch")
+        if "portfolio_kind" in portfolio_profile and payload.get("position_book_kind") == "MODEL":
+            identity = payload.get("model_identity")
+            require(type(identity) is dict and digest(identity) == portfolio_profile.get("model_identity_sha256"),
+                    "stock_portfolio_incumbent_identity")
     cutoff=payload["as_of"]
     stamp(cutoff)
     underlyings,assets=registry_rows(registry)
@@ -561,6 +569,8 @@ def run(payload, registry, policy, *, artifact_resolver=None, review_root=None, 
                           "PINNED_EXCEPTION_AND_RELEASE_CONDITION","COST_AND_PRICE_INPUTS"])
                 for s in ("GLDM","SHY","IEF","TLT")],
             actual_fit_executed=False,actual_backtest_executed=False)
+    if stock_mode and "portfolio_kind" in portfolio_profile:
+        result["stock_research"]["portfolio_kind"] = portfolio_profile["portfolio_kind"]
     if stock_mode and er_suffix=="63s":
         result["allocation_horizon"]="63_NYSE_SESSIONS"
     result["result_sha256"]=digest(result)
