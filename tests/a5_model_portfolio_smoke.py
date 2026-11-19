@@ -276,7 +276,12 @@ class ModelTests(unittest.TestCase):
             result = runtime.run(p, registry, policy, artifact_resolver=memory)
             self.assertEqual(result["proposal"]["status"], "RESEARCH_PROPOSAL", result["proposal"])
             self.assertEqual(result["stock_research"]["portfolio_kind"], kind)
-            p.update(position_book_kind="MODEL", model_identity={"model_id": "OTHER"})
+            p.update(position_book_kind="PAPER", positions=[{"asset_id": "US:CCJ", "weight": .01}])
+            with self.assertRaisesRegex(ValueError, "stock_portfolio_model_book_required"):
+                runtime.run(p, registry, policy, artifact_resolver=memory)
+            other_kind = "MAIN" if kind == "concentrated" else "CONCENTRATED"
+            p.update(position_book_kind="MODEL", model_identity={"model_id": "RESEARCH:" + other_kind})
+            policy["stock_cash_research"]["model_identity_sha256"] = digest(p["model_identity"])
             with self.assertRaisesRegex(ValueError, "stock_portfolio_incumbent_identity"):
                 runtime.run(p, registry, policy, artifact_resolver=memory)
 

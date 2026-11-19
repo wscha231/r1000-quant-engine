@@ -151,9 +151,15 @@ def run(payload, registry, policy, *, artifact_resolver=None, review_root=None, 
         portfolio_profile = stock_research_profile(policy)
         require(("portfolio_kind" in payload) == ("portfolio_kind" in portfolio_profile) and
                 payload.get("portfolio_kind") == portfolio_profile.get("portfolio_kind"), "stock_portfolio_request_mismatch")
+        if "portfolio_kind" in portfolio_profile:
+            require(payload.get("position_book_kind") in (None, "MODEL") and
+                    (not payload.get("positions") or payload.get("position_book_kind") == "MODEL"),
+                    "stock_portfolio_model_book_required")
         if "portfolio_kind" in portfolio_profile and payload.get("position_book_kind") == "MODEL":
             identity = payload.get("model_identity")
-            require(type(identity) is dict and digest(identity) == portfolio_profile.get("model_identity_sha256"),
+            require(type(identity) is dict and type(identity.get("model_id")) is str and
+                    identity["model_id"].endswith(":" + portfolio_profile["portfolio_kind"].upper()) and
+                    digest(identity) == portfolio_profile.get("model_identity_sha256"),
                     "stock_portfolio_incumbent_identity")
     cutoff=payload["as_of"]
     stamp(cutoff)
