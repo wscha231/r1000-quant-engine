@@ -1,5 +1,10 @@
 # Agent Shared Lessons Ledger
 
+### 2026-11-19 — Measure stock research against matched SPY across a full cycle
+
+- Score both independent books against the same dividend-reinvested SPY CAGR and drawdown. Report 40% separately for Concentrated after its base goal passes. Record the goal-policy version alongside the pinned evidence so older scorecards remain interpretable.
+- Group only completed NYSE months. Compare down months and their immediately following positive months after the fact. Use the previous close's cash from a pinned equity curve to measure rebound exposure. These month labels are unavailable to the trading decision.
+
 ### 2026-11-19 KST — Prepare exact A4 inputs before policy activation
 
 - A historical close and its availability clock must bind to the same exported
