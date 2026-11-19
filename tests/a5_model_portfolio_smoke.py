@@ -59,7 +59,7 @@ class ModelTests(unittest.TestCase):
             horizon="63_NYSE_SESSIONS",ongoing_cost_period="HORIZON_TOTAL_BPS",gross_expected_return=.065)
 
 
-    def baseline_originals(self):
+    def baseline_originals(self, kind=None, arm=None):
         """Actual A1/A2/A3/A6/Native path, disposable synthetic originals only."""
         from tests.multi_asset_leadership_smoke import A3OriginalInputs, CODE_SHA
         from tests.control_plane_agent_contract_smoke import ControlPlaneTests
@@ -88,6 +88,11 @@ class ModelTests(unittest.TestCase):
         def stock63(candidate):
             old_stock(candidate)
             candidate.policy['stock_cash_research'].update(schema='stock-cash-research-v2',horizon='63_NYSE_SESSIONS')
+            if kind is not None:
+                candidate.policy["stock_cash_research"].update(portfolio_kind=kind,
+                    portfolio_contract="portfolio-kind-v1", allocator=arm)
+                candidate.p["portfolio_kind"] = kind
+                candidate.p["risk"]["stock_cash_allocation"]["portfolio_kind"] = kind
             candidate.policy['validated_models']['TEST_MODEL']['horizon']='63_NYSE_SESSIONS'
             self.as63(candidate.original,session63_exposure(list(grid(candidate.p['as_of']))[-1]))
             candidate.policy['reviewed_pins']['evaluation'].append(digest(candidate.original))
@@ -296,6 +301,26 @@ class ModelTests(unittest.TestCase):
                                                  portfolio_kind="concentrated")
         self.assertEqual(audit["note"], "pass")
 
+    def test_native_A5_genesis_proposals_enter_four_separate_books(self):
+        import pandas as pd
+        from r1000_legacy_input_guard import latest_completed_close
+        packets = {}
+        for kind in ("main", "concentrated"):
+            for arm in a5.REPLAY_ARMS:
+                owner, case, _, code = self.baseline_originals(kind, arm)
+                packets[kind, arm] = dict(payload=owner.p, registry=owner.r, policy=owner.policy,
+                    artifact_resolver=owner.memory(), review_root=case.root, code_sha=code)
+        date = latest_completed_close(owner.p["as_of"])[0]
+        marks = {"FTI": pd.DataFrame({"close": [100.]}, index=pd.to_datetime([date]))}
+        with patch("tools.run_multi_asset_leadership.verified_source_hashes", return_value={"fixture": "a"*64}):
+            result = a5.trace_stock_research_books(marks, [date], evidence_end_date=date,
+                load_reviewed_packet=lambda kind, arm, snapshot: packets[kind, arm])
+        for book in result["books"].values():
+            self.assertEqual(book["decisions"][0]["weights"], {"CASH": 1.0})
+            self.assertTrue(book["terminal_pending"])
+            self.assertEqual(book["trades"], ())
+        self.assertFalse(result["performance_measured"])
+
     def test_closed_loop_four_books_advance_own_fills_and_ignore_future_rows(self):
         import pandas as pd
         _, registry, _ = fixture()
@@ -332,6 +357,19 @@ class ModelTests(unittest.TestCase):
             future = {s: pd.concat([frame, pd.DataFrame({"close": [999.]},
                        index=pd.to_datetime(["2026-11-19"]))]) for s, frame in prices.items()}
             self.assertEqual(result, trace(future))
+            mutable_sessions = sessions[:2]
+            mutable_prices = {s: f.copy(deep=True) for s, f in prices.items()}
+            calls = []
+            def mutate_after_first(kind, arm, snapshot):
+                if not calls:
+                    mutable_sessions.clear()
+                    mutable_prices["FTI"].iloc[1, 0] = 99999.
+                calls.append(snapshot.session)
+                return load(kind, arm, snapshot)
+            isolated = a5.trace_stock_research_books(mutable_prices, mutable_sessions,
+                evidence_end_date=sessions[-1], load_reviewed_packet=mutate_after_first)
+            self.assertEqual(isolated, result)
+            self.assertEqual(calls, [sessions[0]] * 4 + [sessions[1]] * 4)
             books = result["books"]
             for kind in ("main", "concentrated"):
                 for arm, symbol in (("CONTROL", "FTI"), ("COST_AWARE_LONG_ONLY", "CCJ")):
