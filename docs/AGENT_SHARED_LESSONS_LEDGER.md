@@ -1,5 +1,20 @@
 # Agent Shared Lessons Ledger
 
+### 2026-11-19 KST — Prepare exact A4 inputs before policy activation
+
+- A historical close and its availability clock must bind to the same exported
+  row and original. A re-encoded export that uses an earlier timestamp fails
+  against the unchanged clock receipt. Restore the three RTDSM generations via
+  the existing reader and keep each provider original in its private location.
+- A candidate retains complete input hashes and evidence references for review.
+  The same independently reviewed policy pin materializes the consumer request
+  after a second read of the evidence. Preserve the case where edited clock
+  evidence or a missing vintage generation prevents that publication.
+- Add packet checks to the existing RTDSM proof suite. The shared A6
+  census pins the Tier-1 program inventory and does not supply new
+  standalone proof paths as fixture dependencies. PR 799 run 44470954793
+  exposed both invariants when a separate registration was attempted.
+
 ### 2026-11-19 KST — Verify each A5 comparison arm against its own fills
 
 - Replay an early divergent integer fill before the next decision and compare the

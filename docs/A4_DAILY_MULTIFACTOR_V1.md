@@ -120,7 +120,8 @@ than 20 nonoverlapping windows produce `INSUFFICIENT_EVIDENCE`. A replay of
 previously inspected market history is development evidence.
 
 Use the existing externally pinned `learning_request.json` and Reader originals
-for the offline replay. The separately reviewed learning policy binds
+for the offline replay. [Prepare a policy candidate and private input packet](A4_DAILY_DIRECTION_INPUTS_V1.md)
+from restored evidence before supplying the separately reviewed policy, which binds
 `daily_direction_protocol_sha256` to the canonical `encoded(specification())`
 hash, pins `daily_direction_calendar_origin_session` to the first session and
 retains its standard purpose, input, rights and original receipts. Every price
