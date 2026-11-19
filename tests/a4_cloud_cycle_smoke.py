@@ -17,6 +17,7 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from tools import run_a4_research_cycle as cycle
 from tools import a4_macro_learning as learning
+from tools import a4_daily_direction as direction
 from tools import a4_public_receipts as public
 from tools.macro_history_sources import encoded,digest
 from tests.a4_macro_learning_smoke import fixture
@@ -25,6 +26,28 @@ NOW="2026-11-07T10:00:00Z"
 
 
 class CloudTests(unittest.TestCase):
+    def test_reviewed_direction_policy_routes_only_to_a4_journal(self):
+        payload=dict(cutoff=NOW, sessions=[dict(session=cycle.market.current_session(NOW))])
+        policy=dict(available_at='2026-11-06T00:00:00Z', expires_at='2026-11-08T00:00:00Z',
+                    daily_direction_protocol_sha256=digest(encoded(direction.specification())))
+        receipt=dict(checkpoint_sha256='a'*64, current_forecasts=6, summary=[])
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            args=dict(input_root=root/'inputs', state_root=root/'state',cutoff=NOW)
+            with patch.object(cycle,'load_learning',return_value=(payload,policy,None)), \
+                 patch.object(direction,'prepare',return_value={}) as prepare, \
+                 patch.object(direction,'daily_journal',return_value=receipt) as journal, \
+                 patch.object(learning,'fit_trial',side_effect=AssertionError('legacy training ran')):
+                result=cycle.run_cycle(**args,output_dir=root/'a4',scope='A4_ONLY')
+                blocked=cycle.run_cycle(**args,output_dir=root/'combined',scope='A4_A5')
+            self.assertEqual(result['daily_direction_journal'],receipt)
+            self.assertEqual(result['quantitative_outlook_status'],'FROZEN_DAILY_RESEARCH')
+            self.assertFalse(result['a5_executed'])
+            self.assertNotIn('daily_direction_journal',blocked)
+            self.assertEqual(blocked['quantitative_outlook_status'],'BLOCKED')
+            prepare.assert_called_once()
+            journal.assert_called_once_with({},root/'state')
+
     def test_public_receipts_hash_current_files_without_copying_private_financial_content(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder);originals={}

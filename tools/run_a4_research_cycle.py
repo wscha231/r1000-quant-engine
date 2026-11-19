@@ -132,62 +132,71 @@ def run_cycle(*, input_root, state_root, output_dir, cutoff,
     except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
         report=market.blocked("MARKET_INPUT_UNAVAILABLE_INVALID_OR_EXPIRED",cutoff=cutoff,session=market.current_session(cutoff))
     events=[];status="BLOCKED";blockers=[];scores=[];predictions=[]
-    learning_context=None
+    learning_context=None;daily_direction=None
     try:
-        trials=restored_trials(state,cutoff)
-        previous=max((t["month"] for t in trials),default=None)
-        plan=learning.cadence(cutoff,previous_training_month=previous)
-        # Weekly checks score fixed past predictions, not a newly fitted model.
-        weekly_path=state/"weekly"
-        weeks=[]
-        if weekly_path.exists():
-            files=list(weekly_path.iterdir())
-            market.need(len(files)<=MAX_STATE_FILES,"A4_STATE_FILE_BUDGET")
-            for file in files:
-                value=market.clock.decode(market.bounded(file,MAX_CHECKPOINT_BYTES))
-                market.need(file.name==digest(encoded(value))+".json","A4_WEEKLY_STATE_HASH")
-                market.need(market.clock.stamp(value["cutoff"])<=market.clock.stamp(cutoff),"A4_FUTURE_WEEKLY_STATE")
-                weeks.append(value["week"])
-        plan["weekly_score_due"]=plan["week"] not in weeks
         payload,policy,resolve=load_learning(learn_root,learning_policy_sha256)
         market.need(market.clock.stamp(policy['available_at'])<=market.clock.stamp(cutoff)<market.clock.stamp(policy['expires_at']),
                     'A4_LEARNING_POLICY_NOT_CURRENT_AT_EXECUTION')
         market.need(market.clock.stamp(payload["cutoff"])<=market.clock.stamp(cutoff) and
                     payload["sessions"][-1]["session"]==market.current_session(cutoff),"A4_LEARNING_NOT_CURRENT_SESSION")
-        learning.validate_inputs(payload,policy,digest(encoded(policy)),resolve)
-        if plan["monthly_trial_due"]:
-            trial=learning.fit_trial(payload,policy,digest(encoded(policy)),resolve)
-            receipt=learning.store_trial(trial,state)
-            trials.append(trial);events.append(dict(kind="MONTHLY_CHALLENGER_STORED",**receipt))
-        active=policy.get("active_trial_sha256")
-        if active:
-            matching=[t for t in trials if t["trial_sha256"]==active]
-            market.need(len(matching)==1,"A4_FIXED_RELEASE_NOT_RESTORED")
-            market.need(report.get("schema")=="market-analysis-report-v2","A4_V2_REPORT_REQUIRED")
-            # Keep the native request-replay report immutable for the existing
-            # A3/A6 graph. An independently pinned auxiliary view is separate
-            # until its release is explicitly included in an A4 request.
-            learning_context=copy.deepcopy(report)
-            forward=load_forward_context(learn_root,policy) if matching[0].get('dated_vintage_sources') else {}
-            predictions=learning.forecast_release(learning_context,matching[0],policy,digest(encoded(policy)),created_at=cutoff,**forward)
-        forecast_root=state/"predictions"
-        if plan["weekly_score_due"]:
-            old=[]
-            if forecast_root.exists():
-                files=list(forecast_root.iterdir())
+        if policy.get('daily_direction_protocol_sha256') is not None:
+            market.need(scope=="A4_ONLY","A4_DAILY_DIRECTION_SCOPE")
+            from tools import a4_daily_direction as direction
+            plan=learning.cadence(cutoff)
+            prepared=direction.prepare(payload,policy,digest(encoded(policy)),resolve)
+            daily_direction=direction.daily_journal(prepared,state)
+            events.append(dict(kind="DAILY_BENCHMARK_JOURNAL_RECORDED",
+                               checkpoint_sha256=daily_direction["checkpoint_sha256"]))
+        else:
+            trials=restored_trials(state,cutoff)
+            previous=max((t["month"] for t in trials),default=None)
+            plan=learning.cadence(cutoff,previous_training_month=previous)
+            # Weekly checks score fixed past predictions, not a newly fitted model.
+            weekly_path=state/"weekly"
+            weeks=[]
+            if weekly_path.exists():
+                files=list(weekly_path.iterdir())
                 market.need(len(files)<=MAX_STATE_FILES,"A4_STATE_FILE_BUDGET")
                 for file in files:
-                    item=market.clock.decode(market.bounded(file,MAX_CHECKPOINT_BYTES))
-                    market.need(file.name==digest(encoded(item))+".json","A4_PREDICTION_HASH")
-                    old.extend(item["predictions"])
-            market.need(len(old)<=100000,"A4_PREDICTION_BUDGET")
-            scores=learning.score_predictions(old,payload["prices"],payload["sessions"],cutoff)
-            weekly=dict(schema="a4-weekly-score-v1",week=plan["week"],cutoff=cutoff,scores=scores)
-            store_checkpoint(weekly_path/(digest(encoded(weekly))+".json"),weekly)
-            events.append(dict(kind="WEEKLY_FIXED_PREDICTIONS_SCORED",count=len(scores)))
-        if predictions:
-            snapshot=dict(schema="a4-forward-predictions-v1",cutoff=cutoff,predictions=predictions)
-            store_checkpoint(forecast_root/(digest(encoded(snapshot))+".json"),snapshot)
+                    value=market.clock.decode(market.bounded(file,MAX_CHECKPOINT_BYTES))
+                    market.need(file.name==digest(encoded(value))+".json","A4_WEEKLY_STATE_HASH")
+                    market.need(market.clock.stamp(value["cutoff"])<=market.clock.stamp(cutoff),"A4_FUTURE_WEEKLY_STATE")
+                    weeks.append(value["week"])
+            plan["weekly_score_due"]=plan["week"] not in weeks
+            learning.validate_inputs(payload,policy,digest(encoded(policy)),resolve)
+            if plan["monthly_trial_due"]:
+                trial=learning.fit_trial(payload,policy,digest(encoded(policy)),resolve)
+                receipt=learning.store_trial(trial,state)
+                trials.append(trial);events.append(dict(kind="MONTHLY_CHALLENGER_STORED",**receipt))
+            active=policy.get("active_trial_sha256")
+            if active:
+                matching=[t for t in trials if t["trial_sha256"]==active]
+                market.need(len(matching)==1,"A4_FIXED_RELEASE_NOT_RESTORED")
+                market.need(report.get("schema")=="market-analysis-report-v2","A4_V2_REPORT_REQUIRED")
+                # Keep the native request-replay report immutable for the existing
+                # A3/A6 graph. An independently pinned auxiliary view is separate
+                # until its release is explicitly included in an A4 request.
+                learning_context=copy.deepcopy(report)
+                forward=load_forward_context(learn_root,policy) if matching[0].get('dated_vintage_sources') else {}
+                predictions=learning.forecast_release(learning_context,matching[0],policy,digest(encoded(policy)),created_at=cutoff,**forward)
+            forecast_root=state/"predictions"
+            if plan["weekly_score_due"]:
+                old=[]
+                if forecast_root.exists():
+                    files=list(forecast_root.iterdir())
+                    market.need(len(files)<=MAX_STATE_FILES,"A4_STATE_FILE_BUDGET")
+                    for file in files:
+                        item=market.clock.decode(market.bounded(file,MAX_CHECKPOINT_BYTES))
+                        market.need(file.name==digest(encoded(item))+".json","A4_PREDICTION_HASH")
+                        old.extend(item["predictions"])
+                market.need(len(old)<=100000,"A4_PREDICTION_BUDGET")
+                scores=learning.score_predictions(old,payload["prices"],payload["sessions"],cutoff)
+                weekly=dict(schema="a4-weekly-score-v1",week=plan["week"],cutoff=cutoff,scores=scores)
+                store_checkpoint(weekly_path/(digest(encoded(weekly))+".json"),weekly)
+                events.append(dict(kind="WEEKLY_FIXED_PREDICTIONS_SCORED",count=len(scores)))
+            if predictions:
+                snapshot=dict(schema="a4-forward-predictions-v1",cutoff=cutoff,predictions=predictions)
+                store_checkpoint(forecast_root/(digest(encoded(snapshot))+".json"),snapshot)
         status="RESEARCH_CYCLE_COMPLETE"
     except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
         blockers.append("LEARNING_INPUT_POLICY_STATE_OR_ORIGINALS_NOT_VERIFIED")
@@ -221,6 +230,10 @@ def run_cycle(*, input_root, state_root, output_dir, cutoff,
         cadence=plan,events=events,source_collection_requests=0,
         process_host_dependency="GITHUB_HOSTED_RUNNER_ONLY",durable_remote_verified=False,
         accepted_model_changed=False,accepted_portfolio_changed=False,orders_generated=False)
+    if daily_direction is not None:
+        cycle["daily_direction_journal"]=daily_direction
+        cycle["quantitative_outlook_status"]=(
+            "FROZEN_DAILY_RESEARCH" if daily_direction["current_forecasts"] else "INSUFFICIENT_EVIDENCE")
     a4_cycle_complete=(report.get("schema")=="market-analysis-report-v2" and report["status"]=="READY_RESEARCH_ONLY"
                  and bool(report.get("enhanced_readiness"))
                  and all(report["enhanced_readiness"].values()) and not blockers)
