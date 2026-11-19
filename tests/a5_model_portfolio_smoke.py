@@ -261,6 +261,41 @@ class ModelTests(unittest.TestCase):
         self.assertEqual(clock["horizon_end"],stamp(clock["forecast_clock"]["mark_at"]).date().isoformat())
         self.assertTrue(clock["holding_horizon_is_not_an_exit_instruction"])
 
+    def test_portfolio_kind_bound_to_request_reviewed_risk_and_incumbents(self):
+        for kind in ("main", "concentrated"):
+            p, registry, policy, memory = self.stock63_inputs()
+            policy["stock_cash_research"].update(portfolio_contract="portfolio-kind-v1", portfolio_kind=kind)
+            with self.assertRaisesRegex(ValueError, "stock_portfolio_request_mismatch"):
+                runtime.run(p, registry, policy, artifact_resolver=memory)
+            p["portfolio_kind"] = kind
+            mismatch = runtime.run(p, registry, policy, artifact_resolver=memory)
+            self.assertEqual(mismatch["proposal"]["status"], "BLOCKED")
+            self.assertIn("stock_portfolio_risk_mismatch", str(mismatch["proposal"]))
+            p["risk"]["stock_cash_allocation"]["portfolio_kind"] = kind
+            policy["reviewed_pins"]["risk"].append(digest(p["risk"]))
+            result = runtime.run(p, registry, policy, artifact_resolver=memory)
+            self.assertEqual(result["proposal"]["status"], "RESEARCH_PROPOSAL", result["proposal"])
+            self.assertEqual(result["stock_research"]["portfolio_kind"], kind)
+            p.update(position_book_kind="PAPER", positions=[{"asset_id": "US:CCJ", "weight": .01}])
+            with self.assertRaisesRegex(ValueError, "stock_portfolio_model_book_required"):
+                runtime.run(p, registry, policy, artifact_resolver=memory)
+            other_kind = "MAIN" if kind == "concentrated" else "CONCENTRATED"
+            p.update(position_book_kind="MODEL", model_identity={"model_id": "RESEARCH:" + other_kind})
+            policy["stock_cash_research"]["model_identity_sha256"] = digest(p["model_identity"])
+            with self.assertRaisesRegex(ValueError, "stock_portfolio_incumbent_identity"):
+                runtime.run(p, registry, policy, artifact_resolver=memory)
+
+    def test_portfolio_kind_applies_native_sector_limit(self):
+        from research.multi_asset_v1.decisions import _stock_replacement_concentration
+        weights = {"AAA": .55, "BBB": .45}
+        rows = {ticker: {"hold_exit_evidence": {"record": {"ticker": ticker, "sector": ticker}}}
+                for ticker in weights}
+        with self.assertRaisesRegex(ValueError, "sector_limit"):
+            _stock_replacement_concentration(weights, weights, rows, "sector_limit", portfolio_kind="main")
+        audit = _stock_replacement_concentration(weights, weights, rows, "sector_limit",
+                                                 portfolio_kind="concentrated")
+        self.assertEqual(audit["note"], "pass")
+
     def test_stock63_actual_runtime_allocates_without_month_alias_and_cost_twice(self):
         from research.multi_asset_v1.decisions import _stock_cost
         p,r,policy,memory=self.stock63_inputs()

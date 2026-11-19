@@ -151,6 +151,8 @@ def _explain_result(result, risk, report, *, previous=None, policy=None):
         native_result_sha256=result["result_sha256"],feature_sha256=result["feature_sha256"],
         policy_sha256=result["policy_sha256"],a3_reference_coverage=result.get("a3_reference_coverage"),**SAFETY)
     if stock:
+        if "portfolio_kind" in result["stock_research"]:
+            explained["portfolio_kind"] = result["stock_research"]["portfolio_kind"]
         explained.update(global_ranking_ready=result["global_ranking_ready"],ranking_scope=result["ranking_scope"],
             stock_decision_scope=result["stock_research"]["decision_scope"],
             full_roster_asset_ids=result["stock_research"]["full_roster_asset_ids"],
