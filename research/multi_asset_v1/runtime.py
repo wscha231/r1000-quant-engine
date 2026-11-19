@@ -567,7 +567,7 @@ def run(payload, registry, policy, *, artifact_resolver=None, review_root=None, 
             scoped_base_membership_verified=scoped_base_membership,
             full_roster_asset_ids=[r["asset_id"] for r in rows],
             unmapped_requested_ids=sorted(set(payload.get("requested_security_ids",[]))-set(assets)),
-            comparison_plan=stock_comparison_plan(policy) if "reason" not in stock_scope else
+            comparison_plan=stock_comparison_plan(policy, latest_completed_session=as_of) if "reason" not in stock_scope else
                 dict(status="BLOCKED",reason=stock_scope["reason"]),
             exception_preparation=[dict(symbol=s,status="METADATA_ONLY_NOT_TRADE_ADMISSION"
                 if any(a["symbol"]==s for a in assets.values()) else "UNREGISTERED",
@@ -583,7 +583,7 @@ def run(payload, registry, policy, *, artifact_resolver=None, review_root=None, 
     return result
 
 
-def stock_comparison_plan(policy):
+def stock_comparison_plan(policy, *, latest_completed_session=None):
     """Prepare registered comparisons without invoking any fit/fullrunner.
 
     Actual retraining remains run_run287_expected_return_challenger.run behind
@@ -591,10 +591,16 @@ def stock_comparison_plan(policy):
     certify a current 12-calendar-month ER from that runner's 63-session label.
     """
     p=stock_research_profile(policy)
-    shared=dict(start="2021-10-01",end="2026-11-06",starting_capital_usd=100000,
+    end = p.get("comparison_end_session", "2026-11-06")
+    if "comparison_end_session" in p:
+        require(latest_completed_session is not None and
+                day("2021-10-01") <= day(end) <= day(latest_completed_session),
+                "stock_comparison_end_outside_completed_window")
+        require(end in grid(end + "T23:59:59Z", count=1), "stock_comparison_end_not_session")
+    shared=dict(start="2021-10-01",end=end,starting_capital_usd=100000,
         integer_shares=True,fill="NEXT_NYSE_CLOSE",cash="DGS3MO_CARRY",horizon=p["horizon"],
         policy_sha256=digest(policy),fullrun_authorized=False)
-    return dict(status="PREPARED_NOT_EXECUTABLE",shared=shared,comparison_family="STOCK_A5_MATCHED_INPUTS",
+    plan = dict(status="PREPARED_NOT_EXECUTABLE",shared=shared,comparison_family="STOCK_A5_MATCHED_INPUTS",
         arms=[dict(allocator=a,cadence=c,cost_bps_per_side=b) for a in ("CONTROL","COST_AWARE_LONG_ONLY")
               for c in ("MONTHLY","WEEKLY","MONTHLY_CONFIRMED_EVENT") for b in (25,50,100)],
         training_adapter="tools/run_run287_expected_return_challenger.py:run",
@@ -614,6 +620,11 @@ def stock_comparison_plan(policy):
                   ("ORIGINAL_VALIDATED_NET_63_SESSION_ER_REQUIRED" if p["horizon"]=="63_NYSE_SESSIONS" else
                    "ORIGINAL_VALIDATED_12_CALENDAR_MONTH_ER_REQUIRED")],
         model_fit=False,targets_written=False,orders_generated=False,promotion_allowed=False)
+    if "portfolio_kind" in p:
+        plan["portfolio_kind"] = p["portfolio_kind"]
+        plan["book_handoff_test"] = "tools/a5_model_portfolio.py:trace_stock_research_books"
+        plan["book_handoff_scope"] = "SYNTHETIC_ACCOUNTING_NO_PERFORMANCE_CERTIFICATION"
+    return plan
 
 
 def render(result):

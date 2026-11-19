@@ -1,5 +1,12 @@
 # Agent Shared Lessons Ledger
 
+### 2026-11-19 KST — Verify each A5 comparison arm against its own fills
+
+- Replay an early divergent integer fill before the next decision and compare the
+  verified A5 incumbent weights with that arm's marked holdings and cash. The C0
+  stepping ledger is synthetic and has no cash carry. Its trace cannot supply the
+  dated price, corporate-action and cash-rate evidence for economic measurement.
+
 ### 2026-11-19 KST — Bind A5 replacement checks to the reviewed portfolio
 
 - Pin the portfolio in the research policy, request and reviewed allocation risk.
