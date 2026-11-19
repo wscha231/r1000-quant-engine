@@ -40,6 +40,8 @@ class GoalTests(unittest.TestCase):
             source_pit=dict(status="VERIFIED", historical_pit_verified=True, corporate_actions_verified=True,
                             portfolio_context_sha256=manifest["portfolio_context_sha256"],
                             spy_context_sha256=manifest["spy_context_sha256"]))
+        for role in ("source_pit", "spy_total_return"):
+            packet["originals"][role].update(kind=role, start_session=dates[0], end_session=dates[-1])
         for role, fields in (
             ("closed_loop", dict(portfolio_kind="main", portfolio_context_sha256=manifest["portfolio_context_sha256"],
                  portfolio_report_sha256=nav.digest(report), producer="tools/run_broker_ledger_replay.py", own_fills_verified=True)),
@@ -70,13 +72,19 @@ class GoalTests(unittest.TestCase):
 
     def test_absent_original_mismatched_window_and_cost(self):
         packet = self.packet([100100, 100200, 101000], [100000, 99000, 100000])
-        for change in ("raw", "spy", "session", "proxy", "failed", "wrong_book", "cost"):
+        for change in ("raw", "spy", "session", "proxy", "failed", "wrong_book", "original_end", "cost"):
             p = copy.deepcopy(packet)
             if change == "raw":
                 p["receipts"].clear()
             elif change in ("failed", "wrong_book"):
                 key = "closed_loop_receipt_sha256"
                 p["receipts"][key].update({"status": "FAILED"} if change == "failed" else {"portfolio_kind": "concentrated"})
+                p["manifest"][key] = nav.digest(p["receipts"][key])
+            elif change == "original_end":
+                role = "spy_total_return"
+                key = role+"_receipt_sha256"
+                p["originals"][role]["end_session"] = "2024-12-31"
+                p["receipts"][key]["original_sha256"] = nav.digest(p["originals"][role])
                 p["manifest"][key] = nav.digest(p["receipts"][key])
             elif change == "spy":
                 p["spy"]["rows"].pop(1)

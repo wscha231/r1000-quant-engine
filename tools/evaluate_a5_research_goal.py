@@ -46,6 +46,10 @@ def assess(packet, *, portfolio_kind, expected_manifest_sha256, end_session):
             original = packet["originals"][role]
             nav.require(isinstance(original, dict) and bool(original) and
                         nav.digest(original) == receipt.get("original_sha256"), "GOAL_RECEIPT_ORIGINAL:" + role)
+            if role != "closed_loop":
+                nav.require(original.get("kind") == role and
+                            original.get("start_session") == manifest["start_session"] and
+                            original.get("end_session") == end_session, "GOAL_ORIGINAL_SCOPE:" + role)
             if role == "closed_loop":
                 nav.require(nav.digest(original) == manifest["portfolio_report_sha256"], "GOAL_NATIVE_PUBLICATION")
             elif role == "spy_total_return":
