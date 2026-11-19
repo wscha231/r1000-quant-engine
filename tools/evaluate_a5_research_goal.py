@@ -75,6 +75,11 @@ def assess(packet, *, portfolio_kind, expected_manifest_sha256, end_session):
                     report["cash_rate_source"] == "DGS3MO" and report["cash_rate_lag_days"] == 1 and
                     report["cash_carry_haircut_bps"] == 0 and report["cash_carry_day_count"] == 365 and
                     report["cash_rate_future_use_count"] == 0 and report["execution_cost_mode"] == "fixed_bps", "GOAL_EXECUTION_POLICY")
+        coverage = report.get("target_fill_coverage")
+        nav.require(type(coverage) is dict and coverage.get("execution_clock_contract") ==
+                    "explicit_cutoff_exact_next_close_v1" and coverage.get("coverage_complete") is True and
+                    coverage.get("chronology_safe") is True and report.get("metric_mode") == nav.MODE and
+                    all(report.get(k) is v for k, v in nav.AUTHORITY.items()), "GOAL_EXACT_CLOSE_E2")
         results = {}
         for name in ("portfolio", "spy"):
             context = packet[name]["context"]

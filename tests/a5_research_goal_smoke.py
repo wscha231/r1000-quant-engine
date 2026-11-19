@@ -31,7 +31,9 @@ class GoalTests(unittest.TestCase):
         report.update(portfolio_kind="main", execution_status="completed", integer_shares=True, fill_mode="next_close",
                       cost_bps_per_side=25, cash_carry_mode="risk_free_rate", cash_rate_source="DGS3MO",
                       cash_rate_lag_days=1, cash_carry_haircut_bps=0, cash_carry_day_count=365,
-                      cash_rate_future_use_count=0, execution_cost_mode="fixed_bps")
+                      cash_rate_future_use_count=0, execution_cost_mode="fixed_bps",
+                      target_fill_coverage=dict(execution_clock_contract="explicit_cutoff_exact_next_close_v1",
+                                                coverage_complete=True, chronology_safe=True))
         packet["portfolio_report"] = report
         manifest["portfolio_report_sha256"] = nav.digest(report)
         packet["originals"] = dict(closed_loop=report,
