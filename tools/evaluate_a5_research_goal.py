@@ -51,8 +51,9 @@ def _turnover(packet, book):
                         math.isclose(value, nav.real(trade["quantity"], positive=True) *
                                      nav.real(trade["fill_price"], positive=True), rel_tol=1e-10), "GOAL_TRADE_FILL")
             gross += value
-        ratio = gross / (sum(row["nav"] for row in rows) / len(rows))
-        return dict(status="MEASURED", gross_over_mean_daily_nav=ratio, annualized=ratio/book["years"])
+        mean_nav = math.fsum(row["nav"] / len(rows) for row in rows)
+        ratio = nav.real(nav.real(gross) / nav.real(mean_nav, positive=True))
+        return dict(status="MEASURED", gross_over_mean_daily_nav=ratio, annualized=nav.real(ratio/book["years"]))
     except (KeyError, TypeError, ValueError, OverflowError) as error:
         return dict(status="DATA_BLOCKED", reason=str(error))
 

@@ -108,6 +108,12 @@ class GoalTests(unittest.TestCase):
         for field in ("turnover", "qqq"):
             self.assertEqual(invalid[field]["status"], "DATA_BLOCKED")
 
+    def test_turnover_overflow_is_optional(self):
+        fills = [dict(date="2021-10-01", side="BUY", quantity=1, fill_price=1e308, gross_value=1e308)]*2
+        packet = dict(trades=fills, manifest={"trades_sha256": nav.digest(fills)},
+                      portfolio_report={"trade_count": 2}, portfolio={"rows": [dict(session="2021-10-01", nav=100000)]})
+        self.assertEqual(goal._turnover(packet, {"years": 5})["status"], "DATA_BLOCKED")
+
     def test_native_fixed_fee_omission_and_variable_fee_refusal(self):
         p = self.packet([100000, 99000, 700000], [100000, 99000, 110000])
         self.assertNotIn("execution_cost_mode", p["portfolio_report"])
