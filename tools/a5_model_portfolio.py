@@ -179,6 +179,103 @@ REPLAY_ARMS=("CONTROL","COST_AWARE_LONG_ONLY")
 _HASH=re.compile(r"[a-f0-9]{64}\Z")
 
 
+def trace_stock_research_books(prices, decision_sessions, *, evidence_end_date, load_reviewed_packet):
+    """Exercise the A5 book handoff with the existing synthetic exact-close ledger.
+
+    load_reviewed_packet(kind, allocator, snapshot) resolves that session's original
+    payload, registry, policy and graph references. It cannot replace the native A5
+    evaluator. Local ledgers are discarded on refusal. The synthetic seam has no
+    cash carry or corporate-action admission and produces no performance certificate.
+    """
+    from tools.run_broker_ledger_replay import ResearchNextCloseSession
+    from research.multi_asset_v1.contracts import day
+
+    end = day(evidence_end_date)
+    require(type(decision_sessions) in (tuple, list) and bool(decision_sessions) and
+            list(decision_sessions) == sorted(set(decision_sessions)) and
+            all(day(session) <= end for session in decision_sessions), "A5_TRACE_DECISION_WINDOW")
+    from r1000_legacy_input_guard import latest_completed_close
+    require(latest_completed_close(evidence_end_date + "T23:59:59Z")[0] == evidence_end_date,
+            "A5_TRACE_END_NOT_NYSE_SESSION")
+    schedule = tuple(decision_sessions)
+    ledgers = {(kind, arm): ResearchNextCloseSession(prices, evidence_end_date=evidence_end_date)
+               for kind in ("main", "concentrated") for arm in REPLAY_ARMS}
+    history = {key: [] for key in ledgers}
+    identities = {}
+    for date in schedule:
+        for (kind, arm), book in ledgers.items():
+            decisions = history[kind, arm]
+            snapshot = book.advance(date)
+            packet = load_reviewed_packet(kind, arm, snapshot)
+            payload, registry, policy = packet["payload"], packet["registry"], packet["policy"]
+            profile = policy["stock_cash_research"]
+            require(profile.get("portfolio_contract") == "portfolio-kind-v1" and
+                    profile.get("portfolio_kind") == payload.get("portfolio_kind") == kind and
+                    profile.get("allocator") == arm and profile.get("horizon") == "63_NYSE_SESSIONS" and
+                    profile.get("cost_bps_per_side") == 25, "A5_TRACE_POLICY")
+            require(latest_completed_close(payload["as_of"])[0] == date, "A5_TRACE_PACKET_SESSION")
+            if decisions:
+                require(payload.get("position_book_kind") == "MODEL", "A5_TRACE_MODEL_CONTINUITY")
+            else:
+                require(payload.get("position_book_kind") is None and not payload.get("positions"),
+                        "A5_TRACE_GENESIS")
+            if payload.get("position_book_kind") == "MODEL":
+                identity = digest(payload.get("model_identity"))
+                key = (kind, arm)
+                require(identity == identities.get(key, identity) and
+                        all(identity != other for name, other in identities.items() if name != key),
+                        "A5_TRACE_SHARED_OR_CHANGED_MODEL")
+                identities[key] = identity
+            result = build_model_proposal(payload, registry, policy, packet.get("report"),
+                artifact_resolver=packet.get("artifact_resolver"), review_root=packet["review_root"],
+                code_sha=packet["code_sha"])
+            require(result["status"] == "RESEARCH_PROPOSAL",
+                    "A5_TRACE_NATIVE_BLOCKED:" + str(result.get("reasons", [])))
+            require(result.get("portfolio_kind") == kind and result.get("session") == date and
+                    result.get("allocation_horizon") == "63_NYSE_SESSIONS", "A5_TRACE_PROPOSAL_SCOPE")
+            _, assets = registry_rows(registry)
+            marked = dict(snapshot.weights)
+            reviewed = {}
+            target = {}
+            symbols = set()
+            for row in result["changes"]:
+                aid = row["asset_id"]
+                weight = number(row["previous_model_weight"], 0, 1)
+                new = number(row["weight"], 0, 1)
+                if weight or new:
+                    asset = assets[aid]
+                    symbol = asset["symbol"]
+                    require(symbol not in symbols and symbol != "CASH" and
+                            asset.get("identity_verified") is True and
+                            asset.get("corporate_action_quarantine") is False, "A5_TRACE_SECURITY_IDENTITY")
+                    symbols.add(symbol)
+                    if weight:
+                        reviewed[symbol] = weight
+                    if new:
+                        target[symbol] = new
+            marked_cash = marked.pop("CASH")
+            require(reviewed.keys() == marked.keys() and
+                    all(math.isclose(marked[s], w, rel_tol=0, abs_tol=1e-10) for s, w in reviewed.items())
+                    and math.isclose(1-sum(reviewed.values()), marked_cash, rel_tol=0, abs_tol=1e-10),
+                    "A5_TRACE_REVIEWED_INCUMBENTS_DIFFER_FROM_FILLS")
+            intent = result["intent"]
+            require(intent in ("REVIEW_REBALANCE", "NO_ENTRY_HOLD_CASH", "HOLD_UNTIL_SCHEDULED_REVIEW"),
+                    "A5_TRACE_INTENT")
+            if intent != "HOLD_UNTIL_SCHEDULED_REVIEW":
+                book.queue(date, target)
+            decisions.append(dict(session=date, weights=dict(snapshot.weights), cash=snapshot.cash,
+                                  shares={p.ticker:p.shares for p in snapshot.positions},
+                                  proposal_sha256=result["proposal_sha256"], intent=intent))
+    traces = {}
+    for (kind, arm), book in ledgers.items():
+        book.finish()
+        traces[kind + "/" + arm] = dict(decisions=history[kind, arm], trades=book.trades,
+                                        intents=book.intents, terminal_pending=book.pending is not None)
+    return dict(status="SYNTHETIC_BOOK_HANDOFF_VERIFIED", books=traces, economically_validated=False,
+                source_admitted=False, performance_measured=False, cash_carry_mode="none",
+                cost_bps_per_side=25, **SAFETY)
+
+
 def prepare_model_replay_targets(proposals, registry, *, expected_proposal_hashes,
                                  expected_registry_sha256):
     """Serialize frozen original comparisons; never rerun A5 or authenticate Source.
