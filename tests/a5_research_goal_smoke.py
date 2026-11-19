@@ -12,16 +12,17 @@ from tools import nav_metrics_v2 as nav
 
 class GoalTests(unittest.TestCase):
     def packet(self, values, spy_values):
-        dates = ("2021-10-01", "2021-10-04", "2021-10-05")
+        import pandas_market_calendars as mcal
+        schedule = mcal.get_calendar("NYSE").schedule(start_date="2021-10-01", end_date="2026-11-06")
+        dates = [value.date().isoformat() for value in schedule.index]
         packet = {"manifest": dict(schema="a5-matched-spy-goal-v1", portfolio_kind="main", benchmark="SPY",
                       benchmark_policy="BUY_AND_HOLD_DIVIDENDS_REINVESTED", start_session=dates[0],
                       end_session=dates[-1]), "receipts": {}}
         manifest = packet["manifest"]
-        for key in ("spy_total_return_receipt_sha256", "source_pit_receipt_sha256", "closed_loop_receipt_sha256"):
-            packet["receipts"][key] = {"synthetic_test": key}
-            manifest[key] = nav.digest(packet["receipts"][key])
         for name, points in (("portfolio", values), ("spy", spy_values)):
-            rows = [dict(session=d, timestamp=d+"T20:00:00Z", nav=v) for d, v in zip(dates, points)]
+            values = [points[0]]*(len(dates)-2) + list(points[1:])
+            rows = [dict(session=d, timestamp=t.isoformat(), nav=v)
+                    for d, t, v in zip(dates, schedule["market_close"], values)]
             c = context(rows, anchor_nav=100000, anchor_time="2021-09-30T20:00:00Z")
             packet[name] = dict(context=c, rows=rows)
             manifest[name+"_context_sha256"] = nav.digest(c)
@@ -33,14 +34,34 @@ class GoalTests(unittest.TestCase):
                       cash_rate_future_use_count=0, execution_cost_mode="fixed_bps")
         packet["portfolio_report"] = report
         manifest["portfolio_report_sha256"] = nav.digest(report)
+        packet["originals"] = dict(closed_loop=report,
+            spy_total_return=dict(symbol="SPY", return_basis="TOTAL_RETURN", dividends_reinvested=True,
+                                  status="VERIFIED", nav_rows_sha256=nav.digest(packet["spy"]["rows"])),
+            source_pit=dict(status="VERIFIED", historical_pit_verified=True, corporate_actions_verified=True,
+                            portfolio_context_sha256=manifest["portfolio_context_sha256"],
+                            spy_context_sha256=manifest["spy_context_sha256"]))
+        for role, fields in (
+            ("closed_loop", dict(portfolio_kind="main", portfolio_context_sha256=manifest["portfolio_context_sha256"],
+                 portfolio_report_sha256=nav.digest(report), producer="tools/run_broker_ledger_replay.py", own_fills_verified=True)),
+            ("spy_total_return", dict(symbol="SPY", benchmark_policy=manifest["benchmark_policy"],
+                 spy_context_sha256=manifest["spy_context_sha256"], dividends_reinvested=True)),
+            ("source_pit", dict(portfolio_context_sha256=manifest["portfolio_context_sha256"],
+                 spy_context_sha256=manifest["spy_context_sha256"], point_in_time_verified=True, corporate_actions_verified=True)),
+        ):
+            key = role+"_receipt_sha256"
+            receipt = dict(kind=role, status="VERIFIED", start_session=dates[0], end_session=dates[-1],
+                           original_sha256=nav.digest(packet["originals"][role]), **fields)
+            packet["receipts"][key] = receipt
+            manifest[key] = nav.digest(receipt)
         return packet
 
     def assess(self, p, kind="main"):
-        return goal.assess(p, portfolio_kind=kind, expected_manifest_sha256=nav.digest(p["manifest"]))
+        return goal.assess(p, portfolio_kind=kind, expected_manifest_sha256=nav.digest(p["manifest"]),
+                           end_session="2026-11-06")
 
     def test_joint_target_without_rounding(self):
         spy = [100000, 90000, 100000]
-        for values, expected in (([100000, 90000, 101000], "PASS"), ([100000, 89999.99999, 101000], "MISS"),
+        for values, expected in (([100000, 90000, 700000], "PASS"), ([100000, 89999.99999, 700000], "MISS"),
                                  ([100000, 90000, 100000], "MISS")):
             result = self.assess(self.packet(values, spy))
             self.assertEqual(result["status"], expected, result)
@@ -49,10 +70,14 @@ class GoalTests(unittest.TestCase):
 
     def test_absent_original_mismatched_window_and_cost(self):
         packet = self.packet([100100, 100200, 101000], [100000, 99000, 100000])
-        for change in ("raw", "spy", "session", "proxy", "cost"):
+        for change in ("raw", "spy", "session", "proxy", "failed", "wrong_book", "cost"):
             p = copy.deepcopy(packet)
             if change == "raw":
                 p["receipts"].clear()
+            elif change in ("failed", "wrong_book"):
+                key = "closed_loop_receipt_sha256"
+                p["receipts"][key].update({"status": "FAILED"} if change == "failed" else {"portfolio_kind": "concentrated"})
+                p["manifest"][key] = nav.digest(p["receipts"][key])
             elif change == "spy":
                 p["spy"]["rows"].pop(1)
             elif change == "session":

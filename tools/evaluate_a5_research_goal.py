@@ -1,6 +1,7 @@
 """Assess one registered A5 research portfolio against a matched SPY total-return curve."""
 import argparse
 import json
+from datetime import date
 import sys
 from pathlib import Path
 
@@ -10,7 +11,7 @@ if str(ROOT) not in sys.path:
 from tools import nav_metrics_v2 as nav
 
 
-def assess(packet, *, portfolio_kind, expected_manifest_sha256):
+def assess(packet, *, portfolio_kind, expected_manifest_sha256, end_session):
     """The external pin must come from the review of the named historical inputs."""
     base = dict(portfolio_kind=portfolio_kind, research_only=True, promotion_allowed=False)
     try:
@@ -22,13 +23,45 @@ def assess(packet, *, portfolio_kind, expected_manifest_sha256):
         nav.require(manifest["benchmark"] == "SPY" and manifest["benchmark_policy"] ==
                     "BUY_AND_HOLD_DIVIDENDS_REINVESTED", "GOAL_SPY_TOTAL_RETURN")
         nav.require(manifest["start_session"] == "2021-10-01", "GOAL_REGISTERED_START")
-        for key in ("spy_total_return_receipt_sha256", "source_pit_receipt_sha256",
-                    "closed_loop_receipt_sha256"):
+        nav.require(manifest["end_session"] == end_session and
+                    date.fromisoformat(end_session) >= date(2026, 11, 6), "GOAL_REGISTERED_END")
+        portfolio_context = manifest["portfolio_context_sha256"]
+        spy_context = manifest["spy_context_sha256"]
+        for role, scope in (
+            ("source_pit", dict(portfolio_context_sha256=portfolio_context, spy_context_sha256=spy_context,
+                                point_in_time_verified=True, corporate_actions_verified=True)),
+            ("closed_loop", dict(portfolio_kind=portfolio_kind, portfolio_context_sha256=portfolio_context,
+                                 portfolio_report_sha256=manifest["portfolio_report_sha256"],
+                                 producer="tools/run_broker_ledger_replay.py", own_fills_verified=True)),
+            ("spy_total_return", dict(symbol="SPY", benchmark_policy=manifest["benchmark_policy"],
+                                      spy_context_sha256=spy_context, dividends_reinvested=True)),
+        ):
+            key = role + "_receipt_sha256"
             receipt = packet["receipts"][key]
-            nav.require(isinstance(receipt, dict) and bool(receipt) and
-                        nav.digest(receipt) == manifest[key],
-                        "GOAL_REQUIRED_RECEIPT:" + key)
+            required = dict(kind=role, status="VERIFIED", start_session=manifest["start_session"],
+                            end_session=end_session, **scope)
+            nav.require(isinstance(receipt, dict) and nav.digest(receipt) == manifest[key] and
+                        all(type(receipt.get(k)) is type(v) and receipt[k] == v for k, v in required.items()),
+                        "GOAL_RECEIPT_SCOPE:" + role)
+            original = packet["originals"][role]
+            nav.require(isinstance(original, dict) and bool(original) and
+                        nav.digest(original) == receipt.get("original_sha256"), "GOAL_RECEIPT_ORIGINAL:" + role)
+            if role == "closed_loop":
+                nav.require(nav.digest(original) == manifest["portfolio_report_sha256"], "GOAL_NATIVE_PUBLICATION")
+            elif role == "spy_total_return":
+                nav.require(original.get("symbol") == "SPY" and original.get("return_basis") == "TOTAL_RETURN" and
+                            original.get("dividends_reinvested") is True and original.get("status") == "VERIFIED" and
+                            original.get("nav_rows_sha256") == packet["spy"]["context"]["nav_ref"]["sha256"],
+                            "GOAL_SPY_ORIGINAL_SERIES")
+            else:
+                nav.require(original.get("status") == "VERIFIED" and original.get("historical_pit_verified") is True
+                            and original.get("corporate_actions_verified") is True and
+                            original.get("portfolio_context_sha256") == portfolio_context and
+                            original.get("spy_context_sha256") == spy_context, "GOAL_HISTORICAL_INPUTS")
         report = packet["portfolio_report"]
+        for k in ("cost_bps_per_side", "cash_rate_lag_days", "cash_carry_haircut_bps", "cash_carry_day_count",
+                  "cash_rate_future_use_count"):
+            nav.real(report[k])
         nav.require(nav.digest(report) == manifest["portfolio_report_sha256"] and
                     report["portfolio_kind"] == portfolio_kind and report["status"] == nav.COMPLETE and
                     report["execution_status"] == "completed" and report["metric_admission_complete"] is True and
@@ -71,9 +104,14 @@ def main():
     parser.add_argument("packet", type=Path)
     parser.add_argument("--portfolio-kind", choices=("main", "concentrated"), required=True)
     parser.add_argument("--reviewed-manifest-sha256", required=True)
+    parser.add_argument("--end-session", required=True, help="NYSE end session fixed at preflight")
     args = parser.parse_args()
-    result = assess(json.loads(args.packet.read_bytes()), portfolio_kind=args.portfolio_kind,
-                    expected_manifest_sha256=args.reviewed_manifest_sha256)
+    try:
+        packet = nav.load_context(args.packet)
+        result = assess(packet, portfolio_kind=args.portfolio_kind, end_session=args.end_session,
+                        expected_manifest_sha256=args.reviewed_manifest_sha256)
+    except (ValueError, OSError) as error:
+        result = dict(portfolio_kind=args.portfolio_kind, status="DATA_BLOCKED", reason=str(error))
     print(json.dumps(result, allow_nan=False))
     return 2 if result["status"] == "DATA_BLOCKED" else 0
 
