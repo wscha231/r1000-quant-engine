@@ -296,6 +296,71 @@ class ModelTests(unittest.TestCase):
                                                  portfolio_kind="concentrated")
         self.assertEqual(audit["note"], "pass")
 
+    def test_closed_loop_four_books_advance_own_fills_and_ignore_future_rows(self):
+        import pandas as pd
+        _, registry, _ = fixture()
+        sessions = ["2026-11-16", "2026-11-17", "2026-11-18"]
+        marks = {"CCJ": [100., 110., 105.], "FTI": [50., 45., 48.]}
+        prices = {s: pd.DataFrame({"close": values}, index=pd.to_datetime(sessions)) for s, values in marks.items()}
+
+        def load(kind, arm, snapshot):
+            payload = dict(portfolio_kind=kind, as_of=snapshot.session+"T22:00:00Z",
+                           marked=dict(snapshot.weights))
+            if snapshot.session != sessions[0]:
+                payload.update(position_book_kind="MODEL", model_identity={"model_id": arm+":"+kind.upper()})
+            profile = dict(portfolio_kind=kind, portfolio_contract="portfolio-kind-v1", allocator=arm,
+                           cost_bps_per_side=25, horizon="63_NYSE_SESSIONS")
+            return dict(payload=payload, policy={"stock_cash_research": profile}, registry=registry,
+                        review_root=None, code_sha="a"*40)
+
+        def choose(payload, registry, policy, *args, **kwargs):
+            arm = policy["stock_cash_research"]["allocator"]
+            ticker = "FTI" if arm == "CONTROL" else "CCJ"
+            weight = .30 if payload["portfolio_kind"] == "main" else .55
+            prior = payload["marked"]
+            changes = [dict(asset_id="US:"+s, previous_model_weight=prior.get(s, 0),
+                            weight=weight if s == ticker else 0) for s in marks]
+            return dict(status="RESEARCH_PROPOSAL", portfolio_kind=payload["portfolio_kind"],
+                        session=payload["as_of"][:10], allocation_horizon="63_NYSE_SESSIONS",
+                        changes=changes, intent="REVIEW_REBALANCE", proposal_sha256=digest(changes))
+
+        def trace(market, reader=load):
+            return a5.trace_stock_research_books(market, sessions[:2], evidence_end_date=sessions[-1],
+                                                 load_reviewed_packet=reader)
+        with patch.object(a5, "build_model_proposal", side_effect=choose):
+            result = trace(prices)
+            future = {s: pd.concat([frame, pd.DataFrame({"close": [999.]},
+                       index=pd.to_datetime(["2026-11-19"]))]) for s, frame in prices.items()}
+            self.assertEqual(result, trace(future))
+            books = result["books"]
+            for kind in ("main", "concentrated"):
+                for arm, symbol in (("CONTROL", "FTI"), ("COST_AWARE_LONG_ONLY", "CCJ")):
+                    d0, d1 = books[kind+"/"+arm]["decisions"]
+                    self.assertEqual(d0["shares"], {})
+                    self.assertEqual(set(d1["shares"]), {symbol})
+                    self.assertLess(d1["cash"], d0["cash"])
+            self.assertGreater(books["concentrated/CONTROL"]["decisions"][1]["shares"]["FTI"],
+                               books["main/CONTROL"]["decisions"][1]["shares"]["FTI"])
+            def stale(kind, arm, snapshot):
+                packet = load(kind, arm, snapshot)
+                packet["payload"]["marked"] = {"CASH": 1.0}
+                return packet
+            with self.assertRaisesRegex(ValueError, "DIFFER_FROM_FILLS"):
+                trace(prices, stale)
+
+    def test_comparison_end_requires_completed_nyse_session(self):
+        _, _, policy, _ = self.stock63_inputs()
+        self.assertEqual(runtime.stock_comparison_plan(policy)["shared"]["end"], "2026-11-06")
+        profile = policy["stock_cash_research"]
+        for date, valid in (("2026-11-18", True), ("2026-11-15", False), ("2026-11-19", False)):
+            profile["comparison_end_session"] = date
+            if valid:
+                plan = runtime.stock_comparison_plan(policy, latest_completed_session="2026-11-18")
+                self.assertEqual(plan["shared"]["end"], date)
+            else:
+                with self.assertRaisesRegex(ValueError, "stock_comparison_end"):
+                    runtime.stock_comparison_plan(policy, latest_completed_session="2026-11-18")
+
     def test_stock63_actual_runtime_allocates_without_month_alias_and_cost_twice(self):
         from research.multi_asset_v1.decisions import _stock_cost
         p,r,policy,memory=self.stock63_inputs()
