@@ -12,6 +12,8 @@
   Require the reviewed SPY total-return receipt and matching NAV anchors, daily
   closes and cost policy for each independent portfolio. Keep sensitivity cases
   separate from the 25-bps objective. Apply both thresholds before rounding.
+- When adding a registered validation program, include the test and its product
+  entry point in the fixed A6 proof inventory and exercise the byte-change refusal.
 
 ### 2026-11-14 KST — Keep real A4 analysis out of public workflow artifacts
 
