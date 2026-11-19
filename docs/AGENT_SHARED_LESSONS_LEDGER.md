@@ -10,6 +10,10 @@
   The same independently reviewed policy pin materializes the consumer request
   after a second read of the evidence. Preserve the case where edited clock
   evidence or a missing vintage generation prevents that publication.
+- Add packet checks to the existing RTDSM proof suite. The shared A6
+  census pins the Tier-1 program inventory and does not supply new
+  standalone proof paths as fixture dependencies. PR 799 run 44470954793
+  exposed both invariants when a separate registration was attempted.
 
 ### 2026-11-19 KST — Verify each A5 comparison arm against its own fills
 
