@@ -11900,3 +11900,4 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 ### 2026-11-19 — Use exchange period ends for daily stock review comparisons
 
 - A daily caller comparing the week or month with its previous decision can fire on the first session. A reviewed period-end comparison checks the next NYSE session, including holiday-shortened weeks. A mid-month event leaves the scheduled month-end review due. Consume only material confirmations known by the decision cutoff and retain next-close execution.
+- In PR 801 the Python 3.13 synthetic checks exhausted their 30-minute budget after three successful suites. Reuse the immutable NYSE session grid at the exact UTC cutoff and requested length. Return a fresh mapping to each consumer and verify both sides of an early close.

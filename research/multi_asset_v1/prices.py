@@ -5,12 +5,13 @@ relabel a daily crypto bar as a NY close, or turn price return into total return
 """
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 import math
 import numpy as np
 import pandas_market_calendars as mcal
 
-from r1000_legacy_input_guard import latest_completed_close
+from r1000_legacy_input_guard import _utc, latest_completed_close
 from research.theme_etf_runtime_v1.strict import compute_leadership
 from .contracts import HORIZONS, ContractError, day, metadata, number, require, stamp
 
@@ -18,11 +19,18 @@ BASE_RS_WEIGHTS={"20":.2,"60":.3,"120":.3,"240":.2}
 
 
 def grid(cutoff, count=281):
+    # Callers may mutate their own mapping. Cache only immutable calendar rows.
+    at = _utc(datetime.now(timezone.utc) if cutoff is None else cutoff)
+    return dict(_session_grid(at, count))
+
+
+@lru_cache(maxsize=64)
+def _session_grid(cutoff, count):
     session, _, _ = latest_completed_close(cutoff)
     end = day(session)
     table = mcal.get_calendar("NYSE").schedule(start_date=end-timedelta(days=count*2+30), end_date=end)
     table = table.iloc[-count:]
-    return {d.date().isoformat(): close.to_pydatetime() for d, close in table["market_close"].items()}
+    return tuple((d.date().isoformat(), close.to_pydatetime()) for d, close in table["market_close"].items())
 
 
 def admit_prices(rows, asset, cutoff, policy, sessions, clock="NYSE_CLOSE"):

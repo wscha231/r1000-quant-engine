@@ -271,6 +271,17 @@ class ModelTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "stock_schedule_basis"):
             runtime.stock_comparison_plan(policy)
 
+    def test_repeated_calendar_queries_keep_exact_close_and_private_mapping(self):
+        from research.multi_asset_v1.prices import grid
+        early = "2024-11-29T18:00:00Z"
+        before = grid("2024-11-29T17:59:59Z", 1)
+        self.assertEqual(list(before), ["2024-11-27"])
+        after = grid(early, 2)
+        self.assertEqual(list(after), ["2024-11-27", "2024-11-29"])
+        after.clear()
+        self.assertEqual(list(grid("2024-11-29T13:00:00-05:00", 2)), ["2024-11-27", "2024-11-29"])
+        self.assertEqual(list(grid(early, 1)), ["2024-11-29"])
+
     def test_stock63_clock_matches_existing_learner_and_cash_exposure(self):
         import pandas as pd
         from tools.run_run287_expected_return_challenger import expected_nyse_label_ends
