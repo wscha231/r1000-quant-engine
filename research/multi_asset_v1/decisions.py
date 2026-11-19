@@ -291,6 +291,7 @@ def propose(rows, assets, risk, holdings, cutoff, policy, input_hash, current_we
 
 STOCK_CLASSES = frozenset({"US_EQUITY","COMMODITY_EQUITY","CRYPTO_EQUITY"})
 EXCEPTION_SYMBOLS = frozenset({"GLDM","SHY","IEF","TLT"})
+STOCK_COMPARISON_START = "2021-10-01"
 
 
 def stock_research_profile(policy):
@@ -301,6 +302,8 @@ def stock_research_profile(policy):
     require(p.get("enabled") is True,"stock_research_disabled")
     require(p.get("allocator") in {"CONTROL","COST_AWARE_LONG_ONLY"},"stock_allocator")
     require(p.get("cadence") in {"MONTHLY","WEEKLY","MONTHLY_CONFIRMED_EVENT"},"stock_cadence")
+    if "schedule_basis" in p:
+        require(p["schedule_basis"] == "NYSE_PERIOD_END", "stock_schedule_basis")
     horizon=SESSION_HORIZON if p["schema"]==SESSION_PROFILE_SCHEMA else "12_CALENDAR_MONTHS"
     require(p.get("horizon")==horizon and p.get("deep_review_count")==40,
             "stock_horizon_or_queue_changed")
@@ -353,6 +356,15 @@ def stock_decision_scope(rows,assets,current_weights,events,cutoff,policy,decisi
                 global_ranking_certified=False,cutoff=cutoff)
 
 
+def stock_period_end_due(today, next_session, previous_day):
+    """Month and week review flags for two successive exchange sessions."""
+    if previous_day == today:
+        return False, False
+    if previous_day is None and next_session.isoformat() == STOCK_COMPARISON_START:
+        return True, True
+    return today.month != next_session.month, today.isocalendar()[:2] != next_session.isocalendar()[:2]
+
+
 def stock_decision_clock(cutoff,profile,review,events):
     """Calendar-only intent; no next-session prices enter a decision."""
     from datetime import timedelta
@@ -378,10 +390,17 @@ def stock_decision_clock(cutoff,profile,review,events):
     require(previous_at is None or previous_at<=stamp(cutoff),"stock_future_previous_decision")
     previous_session=list(grid(previous))[-1] if previous is not None else None
     previous_day=day(previous_session) if previous_session is not None else None
+    decision_at = stamp(cutoff)
     changed=[e["event_id"] for e in events if e["confirmed"] and e["materiality"]>=.5 and any(
-             previous_at is None or stamp(value)>previous_at for value in e["material_change_times"])]
-    month_due=previous_day is None or (previous_day.year,previous_day.month)!=(day(session).year,day(session).month)
-    week_due=previous_day is None or previous_day.isocalendar()[:2]!=day(session).isocalendar()[:2]
+             (previous_at is None or previous_at < stamp(value)) and stamp(value) <= decision_at
+             for value in e["material_change_times"])]
+    today = day(session)
+    if "schedule_basis" in profile:
+        require(profile["schedule_basis"] == "NYSE_PERIOD_END", "stock_schedule_basis")
+        month_due, week_due = stock_period_end_due(today, schedule.index[0].date(), previous_day)
+    else:
+        month_due=previous_day is None or (previous_day.year,previous_day.month)!=(today.year,today.month)
+        week_due=previous_day is None or previous_day.isocalendar()[:2]!=today.isocalendar()[:2]
     due={"MONTHLY":month_due,"WEEKLY":week_due,
          "MONTHLY_CONFIRMED_EVENT":month_due or bool(changed)}[profile["cadence"]]
     clock=dict(decision_session=session,previous_decision_session=previous_session,
@@ -391,6 +410,8 @@ def stock_decision_clock(cutoff,profile,review,events):
         horizon="12_CALENDAR_MONTHS",horizon_end=horizon_end.isoformat(),
         covariance_scale_sessions=len(schedule),carry_calendar_days=(horizon_end-day(session)).days,
         realized_fills=False)
+    if "schedule_basis" in profile:
+        clock["schedule_basis"] = profile["schedule_basis"]
     if session_mode:
         clock.update(horizon=profile["horizon"],forecast_clock=exposure,mark_at=exposure["mark_at"],
             covariance_scale_sessions=63,carry_calendar_days=exposure["carry_calendar_days"],
