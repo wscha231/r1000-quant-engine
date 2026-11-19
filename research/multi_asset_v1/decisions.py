@@ -308,6 +308,9 @@ def stock_research_profile(policy):
             "stock_exception_or_cash_policy")
     require(type(p.get("cost_bps_per_side")) is int and p["cost_bps_per_side"] in {25,50,100},"stock_cost_scenario")
     require(number(p.get("risk_aversion"),0)==1.0,"stock_fixed_research_risk_aversion")
+    if any(k in p for k in ("portfolio_contract", "portfolio_kind", "model_identity_sha256")):
+        require(p.get("portfolio_contract") == "portfolio-kind-v1" and
+                p.get("portfolio_kind") in ("main", "concentrated"), "stock_portfolio_policy")
     return p
 
 
@@ -473,7 +476,7 @@ def _stock_cash_return(quote,clock,cutoff,policy,artifact_resolver):
     return selected["rate_pct"]/100*clock["carry_calendar_days"]/365
 
 
-def _stock_exit(review,row,old,by_id,cutoff,current,artifact_resolver,risk,*,assets=None,holdings=None,policy=None):
+def _stock_exit(review,row,old,by_id,cutoff,current,artifact_resolver,risk,*,assets=None,holdings=None,policy=None,portfolio_kind="main"):
     """Original risk review plus current same-security thesis; never missing=exit."""
     from tools.run287_hold_exit_policy import classify_execution_sell, SELL_TAXONOMY
     require(review.get("taxonomy") in set(SELL_TAXONOMY)-{"EXECUTION_RECONCILIATION"},"stock_exit_taxonomy")
@@ -518,7 +521,7 @@ def _stock_exit(review,row,old,by_id,cutoff,current,artifact_resolver,risk,*,ass
         own=evidence[row["asset_id"]];challenger=evidence[other["asset_id"]]
         percentile=(sum(x<number(own["rs_benchmark_3m"]) for x in
             [number(r["rs_benchmark_3m"]) for r in evidence.values()])+1)/len(evidence)
-        protected,reason,native_taxonomy=incumbent_protection(own,portfolio="main",score_median=float(np.median(scores)),
+        protected,reason,native_taxonomy=incumbent_protection(own,portfolio=portfolio_kind,score_median=float(np.median(scores)),
             score_sigma=float(np.std(scores)),rs_percentile=percentile,lifecycle_terminal=False,policy=native)
         require(native_taxonomy!="EXECUTION_RECONCILIATION" and not reason.startswith("missing_required_evidence"),
                 "stock_replacement_incomplete_incumbent")
@@ -530,7 +533,7 @@ def _stock_exit(review,row,old,by_id,cutoff,current,artifact_resolver,risk,*,ass
         after[row["asset_id"]]=target
         after[other["asset_id"]]=after.get(other["asset_id"],0)+old-target
         concentration_ok,_,_,_=concentration_not_worse(before,
-            [dict(evidence[a],weight=w) for a,w in after.items() if w>0],portfolio="main")
+            [dict(evidence[a],weight=w) for a,w in after.items() if w>0],portfolio=portfolio_kind)
         require(concentration_ok,"stock_replacement_concentration_worse")
         # The fixed margin applies even when a winner is protected; no short-RS
         # warning alone is sufficient to displace it.
@@ -568,12 +571,12 @@ def _stock_exit(review,row,old,by_id,cutoff,current,artifact_resolver,risk,*,ass
         **(review_basis if kind in {"REPLACEMENT_EXIT","LIFECYCLE_EXIT"} else {}))
 
 
-def _stock_replacement_concentration(current, after, by_id, reason):
+def _stock_replacement_concentration(current, after, by_id, reason, *, portfolio_kind="main"):
     from tools.run287_hold_exit_policy import concentration_not_worse
     def records(weights):
         return [dict(by_id[aid]["hold_exit_evidence"]["record"],weight=value)
                 for aid,value in weights.items() if value>0]
-    passed,note,before_audit,after_audit=concentration_not_worse(records(current),records(after),portfolio="main")
+    passed,note,before_audit,after_audit=concentration_not_worse(records(current),records(after),portfolio=portfolio_kind)
     require(passed,reason)
     return dict(before=before_audit,after=after_audit,note=note)
 
@@ -601,6 +604,9 @@ def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,curre
     require(type(review) is dict and review.get("horizon")==p["horizon"],"stock_reviewed_allocation_required")
     if suffix=="63s":
         require(review.get("minimum_expected_alpha_horizon")==p["horizon"],"stock_alpha_threshold_horizon")
+    portfolio_kind = p.get("portfolio_kind", "main")
+    require(("portfolio_kind" in review) == ("portfolio_kind" in p) and
+            review.get("portfolio_kind", "main") == portfolio_kind, "stock_portfolio_risk_mismatch")
     declared=review.get("decision_asset_ids")
     require(type(declared) is list and bool(declared) and len(declared)==len(set(declared)),"stock_explicit_a5_cohort_required")
     require(set(declared)=={r["asset_id"] for r in rows},"stock_explicit_a5_cohort_mismatch")
@@ -655,7 +661,7 @@ def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,curre
             hi=min(hi,number(proof.get("max_weight"),0,.20))
         if aid in exits:
             hi,audit=_stock_exit(exits[aid],row,old,by_id,cutoff,current,artifact_resolver,risk,
-                assets=assets,holdings=holdings,policy=policy);lo=hi;exit_audit.append(audit)
+                assets=assets,holdings=holdings,policy=policy,portfolio_kind=portfolio_kind);lo=hi;exit_audit.append(audit)
         hi=min(hi,cap)  # A direct ETF vehicle remains capped after look-through.
         if not old and (not entry or not tradable): continue
         require(lo<=hi+1e-10,"stock_winner_hard_limit_conflict:"+aid)
@@ -709,7 +715,7 @@ def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,curre
             aid=audit["replacement_asset_id"]
             combined[aid]=combined.get(aid,0)+released
         concentration_audit["COMBINED_REPLACEMENT_TRANSITION"]=_stock_replacement_concentration(
-            current,combined,by_id,"stock_combined_replacement_concentration_worse")
+            current,combined,by_id,"stock_combined_replacement_concentration_worse",portfolio_kind=portfolio_kind)
     returns=np.asarray([[number(x) for x in r.get("daily_log_returns",[])] for r in accepted],dtype=float)
     require(returns.shape==(n,60) and np.isfinite(returns).all(),"stock_common_covariance_history")
     require(all(r.get("return_history_sessions")==list(grid(cutoff))[-60:] for r in accepted),
@@ -798,7 +804,7 @@ def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,curre
         for name,values in (("CONTROL",control),("COST_AWARE_LONG_ONLY",optimized)):
             concentration_audit[name]=_stock_replacement_concentration(current,
                 {aid:float(value) for aid,value in zip(ids,values)},by_id,
-                "stock_final_replacement_concentration_worse:"+name)
+                "stock_final_replacement_concentration_worse:"+name,portfolio_kind=portfolio_kind)
     chosen=control if p["allocator"]=="CONTROL" else optimized
     exception_audit=[]
     if any(chosen[i]>old[i]+1e-9 and alt[i]>0 for i in range(n)):

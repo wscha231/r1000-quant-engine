@@ -1,5 +1,11 @@
 # Agent Shared Lessons Ledger
 
+### 2026-11-19 KST — Bind A5 replacement checks to the reviewed portfolio
+
+- Pin the portfolio in the research policy, request and reviewed allocation risk.
+  A 55/45 two-sector transition exercises different existing limits in Main and
+  Concentrated. Preserve legacy Main replay and verify the identity of a carried model book.
+
 ### 2026-11-19 KST — Measure both research goals on one authenticated daily grid
 
 - An adjusted-close benchmark cache alone does not attest dividend reinvestment.
