@@ -240,6 +240,37 @@ class ModelTests(unittest.TestCase):
         with self.assertRaises(ValueError):a5.validate_report(report(),p,policy)
         with self.assertRaises(ValueError):a5.validate_report(None,p,self.policy)
 
+    def test_period_end_review_with_holiday_event_and_separate_next_fill(self):
+        from research.multi_asset_v1.decisions import stock_decision_clock
+        profile = dict(cadence="WEEKLY", schedule_basis="NYSE_PERIOD_END")
+        def clock(cutoff, previous=None, events=()):
+            return stock_decision_clock(cutoff, profile, {"previous_decision_at":previous}, events)
+
+        self.assertTrue(clock("2021-09-30T20:15:00Z")["scheduled_due"])
+        self.assertFalse(clock("2024-03-27T20:10:00Z")["scheduled_due"])
+        # Good Friday closed the market on the calendar month and week's final weekday.
+        month_end = "2024-03-28T20:10:00Z"
+        self.assertTrue(clock(month_end)["scheduled_due"])
+        self.assertEqual(stamp(clock(month_end)["earliest_fill_at"]).date().isoformat(), "2024-04-01")
+        self.assertFalse(clock("2024-04-01T20:10:00Z", month_end)["scheduled_due"])
+        profile["cadence"] = "MONTHLY_CONFIRMED_EVENT"
+        before, after = "2024-03-26T20:05:00Z", "2024-03-26T20:20:00Z"
+        event = dict(event_id="SEC:1",confirmed=True,materiality=.8,material_change_times=[after])
+        self.assertFalse(clock(before, events=[event])["scheduled_due"])
+        at_review = clock(after, before, [event])
+        self.assertEqual(at_review["confirmed_new_event_ids"], ["SEC:1"])
+        self.assertTrue(at_review["scheduled_due"])
+        self.assertFalse(clock("2024-03-27T20:10:00Z", after, [event])["scheduled_due"])
+        # An earlier event in this same month cannot suppress the regular month-end review.
+        self.assertTrue(clock(month_end, after, [event])["scheduled_due"])
+        self.assertFalse(clock("2024-03-28T20:15:00Z",month_end,[event])["scheduled_due"])
+        _, _, policy, _ = self.stock63_inputs()
+        policy["stock_cash_research"]["schedule_basis"] = "NYSE_PERIOD_END"
+        self.assertEqual(runtime.stock_comparison_plan(policy)["shared"]["schedule_basis"], "NYSE_PERIOD_END")
+        policy["stock_cash_research"]["schedule_basis"] = "UNKNOWN"
+        with self.assertRaisesRegex(ValueError, "stock_schedule_basis"):
+            runtime.stock_comparison_plan(policy)
+
     def test_stock63_clock_matches_existing_learner_and_cash_exposure(self):
         import pandas as pd
         from tools.run_run287_expected_return_challenger import expected_nyse_label_ends

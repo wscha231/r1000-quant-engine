@@ -11891,3 +11891,7 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   report nonoverlapping windows alongside daily counts. A fixture initially
   expected 22 features after reuse of price risk definitions. The distinct
   registry has 21 after removing the two repeated core risk features.
+
+### 2026-11-19 — Use exchange period ends for daily stock review comparisons
+
+- A daily caller comparing the week or month with its previous decision can fire on the first session. A reviewed period-end comparison checks the next NYSE session, including holiday-shortened weeks. A mid-month event leaves the scheduled month-end review due. Consume only material confirmations known by the decision cutoff and retain next-close execution.

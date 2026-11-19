@@ -8,7 +8,7 @@ import math
 from .contracts import (ContractError, ER_HORIZONS, HORIZONS, day, digest, identifier,
                         load_json, metadata, number, pinned, registry_rows, require, stamp, unique)
 from .prices import BASE_RS_WEIGHTS, admit_prices, cross_section, grid, one_asset
-from .decisions import (COMPONENTS, classify, evaluation, event_memory, lookthrough, propose,
+from .decisions import (COMPONENTS, STOCK_COMPARISON_START, classify, evaluation, event_memory, lookthrough, propose,
                         stock_decision_scope, stock_research_profile, stock_er_suffix)
 from .fundamentals import receipt_blockers
 
@@ -597,9 +597,11 @@ def stock_comparison_plan(policy, *, latest_completed_session=None):
                 day("2021-10-01") <= day(end) <= day(latest_completed_session),
                 "stock_comparison_end_outside_completed_window")
         require(end in grid(end + "T23:59:59Z", count=1), "stock_comparison_end_not_session")
-    shared=dict(start="2021-10-01",end=end,starting_capital_usd=100000,
+    shared=dict(start=STOCK_COMPARISON_START,end=end,starting_capital_usd=100000,
         integer_shares=True,fill="NEXT_NYSE_CLOSE",cash="DGS3MO_CARRY",horizon=p["horizon"],
         policy_sha256=digest(policy),fullrun_authorized=False)
+    if "schedule_basis" in p:
+        shared["schedule_basis"] = p["schedule_basis"]
     plan = dict(status="PREPARED_NOT_EXECUTABLE",shared=shared,comparison_family="STOCK_A5_MATCHED_INPUTS",
         arms=[dict(allocator=a,cadence=c,cost_bps_per_side=b) for a in ("CONTROL","COST_AWARE_LONG_ONLY")
               for c in ("MONTHLY","WEEKLY","MONTHLY_CONFIRMED_EVENT") for b in (25,50,100)],
