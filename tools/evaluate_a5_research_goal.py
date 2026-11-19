@@ -16,11 +16,14 @@ from tools.execution_cost_model import EXECUTION_COST_MODE_FIXED
 
 
 GOAL_POLICY = "matched_spy_base_concentrated_stretch_v2"
+CASH_BASIS = "MODELED_TRADE_DATE_LEDGER_CASH_OVER_CLOSING_NAV"
 
 
 def goal_outcome(kind, book, spy):
     """Score the full net-NAV window. Month labels have no effect on either goal."""
-    beats_spy = book["cagr"] > spy["cagr"]
+    # On the authenticated common window and capital, terminal NAV strictly orders
+    # CAGR even when annualizing two adjacent representable values rounds them equal.
+    beats_spy = book["ending_capital_usd"] > spy["ending_capital_usd"]
     drawdown_ok = abs(book["max_dd"]) <= abs(spy["max_dd"])
     base_met = beats_spy and drawdown_ok
     stretch = "NOT_APPLICABLE"
@@ -36,7 +39,8 @@ def _cash_at_close(packet, nav_rows):
     """Optional original daily equity curve, pinned by the same external manifest."""
     try:
         rows = packet["equity_curve"]
-        nav.require(type(rows) is list and len(rows) == len(nav_rows) and
+        nav.require(packet["manifest"].get("equity_curve_cash_basis") == CASH_BASIS and
+                    type(rows) is list and len(rows) == len(nav_rows) and
                     nav.digest(rows) == packet["manifest"]["equity_curve_sha256"], "GOAL_CASH_ORIGINAL")
         cash = {}
         for row, mark in zip(rows, nav_rows):
@@ -95,7 +99,8 @@ def monthly_diagnostics(packet):
                                                      if available_cash else None))
         for key in ("portfolio_return", "spy_return"):
             groups[label][key] = nav.real(math.prod(1 + row[key] for row in subset)-1) if subset else None
-    return dict(basis="EX_POST_COMPLETE_NYSE_MONTHS", cash_status=cash_status, groups=groups, months=months)
+    return dict(basis="EX_POST_COMPLETE_NYSE_MONTHS", cash_status=cash_status,
+                cash_basis=CASH_BASIS if cash_status == "MEASURED" else None, groups=groups, months=months)
 
 
 def _recovery(rows, anchor):
@@ -269,6 +274,7 @@ def assess(packet, *, portfolio_kind, expected_manifest_sha256, end_session):
                     spy_excess_cagr=book["cagr"]-spy["cagr"],
                     recovery_from_worst_trough=_recovery(packet["portfolio"]["rows"],
                                                          packet["portfolio"]["context"]["anchor"]),
+                    spy_recovery_from_worst_trough=_recovery(packet["spy"]["rows"], packet["spy"]["context"]["anchor"]),
                     turnover=_turnover(packet, book), qqq=_qqq_comparison(packet, book),
                     reviewed_manifest_sha256=expected_manifest_sha256)
     except (TypeError, KeyError, ValueError, OverflowError) as error:

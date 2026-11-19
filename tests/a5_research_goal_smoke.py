@@ -1,5 +1,6 @@
 from __future__ import annotations
 import copy
+import math
 from pathlib import Path
 import sys
 import unittest
@@ -73,19 +74,21 @@ class GoalTests(unittest.TestCase):
         self.assertEqual(self.assess(self.packet(spy, spy), "concentrated")["status"], "DATA_BLOCKED")
 
     def test_relative_base_and_separate_concentrated_stretch(self):
-        spy = dict(cagr=.12, max_dd=-.20)
+        spy = dict(cagr=.12, max_dd=-.20, ending_capital_usd=112000)
         for cagr, drawdown, base, stretch in (
             (.12, -.10, "MISS", "NOT_EVALUATED_BASE_MISS"), (.12000000001, -.20, "PASS", "MISS"),
             (.39999999999, -.20, "PASS", "MISS"), (.40, -.20, "PASS", "PASS"),
             (.50, -.2000000001, "MISS", "NOT_EVALUATED_BASE_MISS"),
         ):
-            book = dict(cagr=cagr, max_dd=drawdown)
+            book = dict(cagr=cagr, max_dd=drawdown, ending_capital_usd=100000+100000*cagr)
             self.assertEqual(goal.goal_outcome("main", book, spy)["status"], base)
             self.assertEqual(goal.goal_outcome("main", book, spy)["stretch_status"], "NOT_APPLICABLE")
             result = goal.goal_outcome("concentrated", book, spy)
             self.assertEqual((result["status"], result["stretch_status"]), (base, stretch))
-        self.assertEqual(goal.goal_outcome("concentrated", dict(cagr=.43, max_dd=-.20),
-                                          dict(cagr=.45, max_dd=-.30))["status"], "MISS")
+        self.assertEqual(goal.goal_outcome("concentrated", dict(cagr=.43, max_dd=-.20, ending_capital_usd=143000),
+                                          dict(cagr=.45, max_dd=-.30, ending_capital_usd=145000))["status"], "MISS")
+        tiny = self.assess(self.packet([100000, 100000, math.nextafter(100000., math.inf)], [100000]*3))
+        self.assertEqual(tiny["status"], "PASS")
         low = self.assess(self.packet([100000, 98000, 120000], [100000, 97000, 110000]))
         self.assertEqual((low["status"], low["stretch_status"], low["goal_policy"]),
                          ("PASS", "NOT_APPLICABLE", goal.GOAL_POLICY))
@@ -100,6 +103,8 @@ class GoalTests(unittest.TestCase):
         cash = [dict(date=d, equity_usd=r["nav"], cash_usd=19) for d,r in zip(dates, packet["portfolio"]["rows"])]
         packet["equity_curve"] = cash
         packet["manifest"]["equity_curve_sha256"] = nav.digest(cash)
+        self.assertEqual(goal.monthly_diagnostics(packet)["cash_status"], "DATA_BLOCKED")
+        packet["manifest"]["equity_curve_cash_basis"] = goal.CASH_BASIS
         diag = goal.monthly_diagnostics(packet)
         self.assertEqual(len(diag["months"]), 4)
         downs, rebounds = (diag["groups"][k] for k in ("spy_down", "immediate_rebound"))
