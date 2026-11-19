@@ -98,3 +98,49 @@ Focused validation: `python tests/a4_daily_multifactor_smoke.py`. The test is
 registered in `tools/run_pr_validation.py` after the accepted Source/Main
 integration. `--only a4_daily_multifactor_smoke` selects it without adding a
 second registration. No frozen historical fixture or production pin is changed.
+
+## Daily SPY and QQQ direction research
+
+The optional daily journal uses 21 features across trailing price, volatility,
+drawdown and dated payroll, CPI and unemployment. It issues a row per eligible
+session, target and 21/63/126-session horizon. Price inputs must have been known
+within 60 minutes of the scheduled NYSE close. Dated macro state uses the NYSE
+close and the existing conservative RTDSM availability bounds. The target uses
+the next-session close for entry and the close 21, 63 or 126 sessions later for
+exit. The session grid includes gaps, and incomplete price paths cannot mature.
+
+Expanding fits start on a fixed 21-session grid from session position 756 and
+require at least 504 eligible training rows. Both benchmarks must have the
+complete feature set on a forecast date. Training excludes holding paths that
+end on or after the fit session, including delayed prices that only became
+available at or after its decision clock. The report compares the same scored
+rows with the past training mean and always-up direction. It preserves daily
+forecasts, mature and pending counts and nonoverlapping holding windows. Fewer
+than 20 nonoverlapping windows produce `INSUFFICIENT_EVIDENCE`. A replay of
+previously inspected market history is development evidence.
+
+Use the existing externally pinned `learning_request.json` and Reader originals
+for the offline replay. The separately reviewed learning policy binds
+`daily_direction_protocol_sha256` to the canonical `encoded(specification())`
+hash, pins `daily_direction_calendar_origin_session` to the first session and
+retains its standard purpose, input, rights and original receipts. Every price
+binding must carry a stable `price_series_id` and a reviewed
+`price_publication_clock_evidence_sha256` receipt covering the source of each
+row's availability time. For forward-capture inputs, `collected_at` must be the
+actual capture time and no later than `available_at`. Index levels, delayed
+public samples, later price adjustments and unreviewed supplier rights cannot
+fill those receipts. RTDSM workbooks and their exact normalization retain their
+separate dated-archive evidence. Stay within the existing learning input budgets.
+
+```sh
+python -m tools.a4_daily_direction --input-root <private-input-dir> \
+  --policy-sha256 <reviewed-raw-policy-sha256> --output <private-output-json>
+```
+
+The same opt-in policy selects the private forward journal during the existing
+hosted cycle in `A4_ONLY` scope. The first write for a session records the actual
+creation time, estimates and model hashes before the next entry close; later
+attempts reuse its bytes. New matured outcomes are added in the next available
+journal entry. The hosted restore, immutable Drive copy and readback apply to
+these records. The public artifacts expose only the existing metadata receipts.
+The forward and retrospective results have distinct schemas and stay in research.

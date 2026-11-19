@@ -11861,3 +11861,18 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - The public-sample check uses an independent read-only schedule after the U.S. close. Skip closed days and superseded sessions, use at most one request per symbol and report only dates, lag and categories. Keep the provider's daily customer-delivery schedule separate from observed public-sample freshness. A manual dispatch or local scheduled-mode test cannot certify a scheduled GitHub event.
 - The original sample-check head passed the complete CI set, but a concurrent merge moved the protected base. Verify the current ruleset and mergeability, then update the topic branch and obtain new exact-head evidence. A passing check for the earlier head cannot satisfy strict up-to-date protection.
 - Hosted sample-check dispatch `44280814392` evaluated both ZIPs in about two seconds but took 7 minutes and 1 second to check out the repository. Its tracked tree contains more than 6 GB of unrelated cloud results. Limit checkout to A4 tooling, documentation and top-level files to give the daily run room within its deadline. Keep dispatch evidence separate from a scheduled receipt.
+
+### 2026-11-19 KST — Keep daily direction issuance and holding-path maturity separate
+
+- Re-read and matched the November 18 history generation 37 commit and catalog
+  SHA256 from Drive. Run 44341301835/job 134931695324 stopped during collection
+  and clean consumption. The latest listed execution receipt matched generation
+  36 with `PARTIAL` quality. Index CSV catalog entries are `current_only` and
+  no reviewed SPY/QQQ long-history price publication and training-purpose grant
+  was found. Retain this blockage independently of executable paper tests.
+- Freeze one live journal record per session at the actual write clock, and keep
+  historical replay separate. Train on price paths known strictly before each
+  refit anchor, score against baselines on the same mature observations and
+  report nonoverlapping windows alongside daily counts. A fixture initially
+  expected 22 features after reuse of price risk definitions. The distinct
+  registry has 21 after removing the two repeated core risk features.
