@@ -1,8 +1,10 @@
 """Assess one registered A5 research portfolio against a matched SPY total-return curve."""
 import argparse
+import calendar
 import json
 import math
-from datetime import date
+from datetime import date, timedelta
+from itertools import groupby
 import sys
 from pathlib import Path
 
@@ -11,6 +13,94 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from tools import nav_metrics_v2 as nav
 from tools.execution_cost_model import EXECUTION_COST_MODE_FIXED
+
+
+GOAL_POLICY = "matched_spy_base_concentrated_stretch_v2"
+CASH_BASIS = "MODELED_TRADE_DATE_LEDGER_CASH_OVER_CLOSING_NAV"
+
+
+def goal_outcome(kind, book, spy):
+    """Score the full net-NAV window. Month labels have no effect on either goal."""
+    # On the authenticated common window and capital, terminal NAV strictly orders
+    # CAGR even when annualizing two adjacent representable values rounds them equal.
+    beats_spy = book["ending_capital_usd"] > spy["ending_capital_usd"]
+    drawdown_ok = abs(book["max_dd"]) <= abs(spy["max_dd"])
+    base_met = beats_spy and drawdown_ok
+    stretch = "NOT_APPLICABLE"
+    if kind == "concentrated":
+        stretch = "NOT_EVALUATED_BASE_MISS"
+        if base_met:
+            stretch = "PASS" if book["cagr"] >= 0.40 else "MISS"
+    return dict(status="PASS" if base_met else "MISS", return_goal_met=beats_spy,
+                drawdown_goal_met=drawdown_ok, stretch_status=stretch)
+
+
+def _cash_at_close(packet, nav_rows):
+    """Optional original daily equity curve, pinned by the same external manifest."""
+    try:
+        rows = packet["equity_curve"]
+        nav.require(packet["manifest"].get("equity_curve_cash_basis") == CASH_BASIS and
+                    type(rows) is list and len(rows) == len(nav_rows) and
+                    nav.digest(rows) == packet["manifest"]["equity_curve_sha256"], "GOAL_CASH_ORIGINAL")
+        cash = {}
+        for row, mark in zip(rows, nav_rows):
+            amount = nav.real(row["cash_usd"])
+            nav.require(row["date"] == mark["session"] and
+                        nav.real(row["equity_usd"], positive=True) == mark["nav"] and
+                        0 <= amount <= mark["nav"], "GOAL_CASH_GRID")
+            cash[row["date"]] = amount / mark["nav"]
+        return cash, "MEASURED"
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return {}, "DATA_BLOCKED"
+
+
+def monthly_diagnostics(packet):
+    """Use complete NYSE months on the already verified, identical daily grids."""
+    import pandas_market_calendars as mcal
+
+    book, spy = packet["portfolio"], packet["spy"]
+    rows = book["rows"]
+    first = date.fromisoformat(rows[0]["session"])
+    last = date.fromisoformat(rows[-1]["session"])
+    first_of_month = first.replace(day=1)
+    last_of_month = last.replace(day=calendar.monthrange(last.year, last.month)[1])
+    nyse = mcal.get_calendar("NYSE")
+    prior_month_end = first_of_month - timedelta(days=1)
+    prior = nyse.schedule(start_date=prior_month_end.replace(day=1), end_date=prior_month_end)
+    first_anchor_ok = nav.stamp(book["context"]["anchor"]["timestamp"]) == prior.market_close.iloc[-1]
+    first_session = nyse.valid_days(first_of_month, first)[0].date()
+    last_session = nyse.valid_days(last, last_of_month)[-1].date()
+    cash, cash_status = _cash_at_close(packet, rows)
+    prev_nav = book["context"]["anchor"]["nav"]
+    prev_spy = spy["context"]["anchor"]["nav"]
+    prev_day = None
+    previous_spy_down = False
+    months = []
+    for month, pairs in groupby(zip(rows, spy["rows"]), key=lambda pair: pair[0]["session"][:7]):
+        mark, benchmark = list(pairs)[-1]
+        complete = (prev_day is not None or (first_session == first and first_anchor_ok)) and (
+            mark["session"] != rows[-1]["session"] or last_session == last)
+        if complete:
+            book_return = nav.real(mark["nav"] / prev_nav - 1)
+            spy_return = nav.real(benchmark["nav"] / prev_spy - 1)
+            months.append(dict(month=month, portfolio_return=book_return, spy_return=spy_return,
+                               excess_return=book_return-spy_return, spy_down=spy_return < 0,
+                               immediate_rebound=previous_spy_down and spy_return > 0,
+                               prior_close_cash_weight=cash.get(prev_day)))
+            previous_spy_down = spy_return < 0
+        prev_day, prev_nav, prev_spy = mark["session"], mark["nav"], benchmark["nav"]
+    groups = {}
+    for label in ("spy_down", "immediate_rebound"):
+        subset = [row for row in months if row[label]]
+        available_cash = [row["prior_close_cash_weight"] for row in subset
+                          if row["prior_close_cash_weight"] is not None]
+        groups[label] = dict(count=len(subset), prior_cash_count=len(available_cash),
+                             mean_prior_cash_weight=(math.fsum(available_cash)/len(available_cash)
+                                                     if available_cash else None))
+        for key in ("portfolio_return", "spy_return"):
+            groups[label][key] = nav.real(math.prod(1 + row[key] for row in subset)-1) if subset else None
+    return dict(basis="EX_POST_COMPLETE_NYSE_MONTHS", cash_status=cash_status,
+                cash_basis=CASH_BASIS if cash_status == "MEASURED" else None, groups=groups, months=months)
 
 
 def _recovery(rows, anchor):
@@ -82,7 +172,8 @@ def _qqq_comparison(packet, book):
 
 def assess(packet, *, portfolio_kind, expected_manifest_sha256, end_session):
     """The external pin must come from the review of the named historical inputs."""
-    base = dict(portfolio_kind=portfolio_kind, research_only=True, promotion_allowed=False)
+    base = dict(portfolio_kind=portfolio_kind, goal_policy=GOAL_POLICY,
+                research_only=True, promotion_allowed=False)
     try:
         manifest = packet["manifest"]
         nav.require(nav.digest(manifest) == expected_manifest_sha256, "GOAL_MANIFEST_PIN")
@@ -170,16 +261,20 @@ def assess(packet, *, portfolio_kind, expected_manifest_sha256, end_session):
                     book["anchor_timestamp"] == spy["anchor_timestamp"], "GOAL_UNMATCHED_GRID")
         for key in ("measurement_context_sha256", "input_rows_sha256", "total_return", "cagr", "max_dd"):
             nav.require(report[key] == book[key], "GOAL_ORIGINAL_E2_MISMATCH:" + key)
-        passed_return = book["cagr"] >= .40
-        passed_drawdown = abs(book["max_dd"]) <= abs(spy["max_dd"])
-        return dict(base, status="PASS" if passed_return and passed_drawdown else "MISS",
+        outcome = goal_outcome(portfolio_kind, book, spy)
+        try:
+            monthly = monthly_diagnostics(packet)
+        except (KeyError, TypeError, ValueError, OverflowError) as error:
+            monthly = dict(status="DATA_BLOCKED", reason=str(error))
+        return dict(base, **outcome,
                     total_return=book["total_return"], cagr=book["cagr"], max_dd=book["max_dd"],
                     spy_total_return=spy["total_return"], spy_cagr=spy["cagr"], spy_max_dd=spy["max_dd"],
                     start_session=book["start_date"], end_session=book["end_date"],
-                    cost_bps_per_side=25, return_goal_met=passed_return, drawdown_goal_met=passed_drawdown,
+                    cost_bps_per_side=25, monthly_diagnostics=monthly,
                     spy_excess_cagr=book["cagr"]-spy["cagr"],
                     recovery_from_worst_trough=_recovery(packet["portfolio"]["rows"],
                                                          packet["portfolio"]["context"]["anchor"]),
+                    spy_recovery_from_worst_trough=_recovery(packet["spy"]["rows"], packet["spy"]["context"]["anchor"]),
                     turnover=_turnover(packet, book), qqq=_qqq_comparison(packet, book),
                     reviewed_manifest_sha256=expected_manifest_sha256)
     except (TypeError, KeyError, ValueError, OverflowError) as error:
