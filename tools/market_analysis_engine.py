@@ -161,7 +161,7 @@ def sce_rows(raw, collected_at, cutoff):
     return result
 
 
-def native_risk(blobs, session, cutoff):
+def native_risk(blobs, session, cutoff, *, include_review_timing=False):
     """Compute with the incumbent contract; no new risk model or thresholds."""
     if "risk_metrics" not in blobs or "risk_calendar" not in blobs:
         return {"status": "DATA_BLOCKED", "blockers": ["NATIVE_RISK_METRICS_AND_CALENDAR_REQUIRED"],
@@ -188,7 +188,7 @@ def native_risk(blobs, session, cutoff):
     latest_axes = axes[axes["decision_date"] == pd.Timestamp(session)].to_dict(orient="records")
     # A previously effective state is never advertised as a fresh current state
     # while the incumbent readiness gate is closed.
-    return risk.json_safe({"status": "READY_RESEARCH_ONLY" if ready else "DATA_BLOCKED",
+    result = {"status": "READY_RESEARCH_ONLY" if ready else "DATA_BLOCKED",
         "blockers": [] if ready else ["INCUMBENT_TEN_AXIS_READINESS_NOT_MET"],
         "state": latest["effective_state"] if ready else None,
         "observed_state": latest["observed_state"] if ready else None,
@@ -198,7 +198,12 @@ def native_risk(blobs, session, cutoff):
         "fear_recovery_stage": sentiment.iloc[-1]["fear_recovery_stage"] if ready else None,
         "declared_input_truth_class": risk._worst_truth(list(metrics["truth_class"]), cfg),
         "contract_sha256": sha(risk.DEFAULT_CONTRACT.read_bytes()),
-        "calibration_or_economic_approval": False})
+        "calibration_or_economic_approval": False}
+    if include_review_timing and ready:
+        from tools.a4_macro_diagnosis import native_review_timing
+        result["review_timing"] = native_review_timing(
+            daily, sentiment.iloc[-1], cfg["state_machine"]["states_in_severity_order"])
+    return risk.json_safe(result)
 
 
 def input_limit(spec):
@@ -273,7 +278,10 @@ def analyze(raw_request, supplied, *, expected_sha, cutoff, session):
         calendar_result=None, security_map=None, security_map_available_at=None,
         cutoff=cutoff, expected_session=session)
     survey_panel = free.trailing_context(surveys, cutoff=cutoff, max_age_days=75, lookback=120, minimum=24)
-    model = native_risk(native, session, cutoff)
+    if req["schema"] == REQUEST_SCHEMA_V2:
+        model = native_risk(native, session, cutoff, include_review_timing=True)
+    else:
+        model = native_risk(native, session, cutoff)
     reassessment = reassessment_snapshot(composed, survey_panel, cutoff=cutoff, expires_at=req["expires_at"])
     from tools.candidate_reassessment_bridge import CLOSED as review_authority
     result = {"schema": SCHEMA, "status": model["status"], "market": "US", "session": session,
@@ -307,6 +315,7 @@ def analyze(raw_request, supplied, *, expected_sha, cutoff, session):
                 result['primary_source_notices'].append('Source: U.S. Bureau of Labor Statistics; retrieval times are in observation provenance. BLS.gov cannot vouch for the data or analyses derived from these data after the data have been retrieved from BLS.gov.')
             if any(r['source_id'].startswith('ust:') for r in primary_rows):
                 result['primary_source_notices'].append('Source: U.S. Department of the Treasury; downloaded current-vintage par-yield data, not original historical releases.')
+        release_expires_at = None
         if learning_release is not None:
             from tools import a4_macro_learning as learning
             body, spec = learning_release
@@ -320,9 +329,16 @@ def analyze(raw_request, supplied, *, expected_sha, cutoff, session):
                 options=dict(forward_inputs=release['forward_inputs'],forward_policy=release['forward_policy'],
                     forward_policy_sha256=spec['forward_policy_sha256'],artifact_resolver=originals.__getitem__)
             learning.forecast_release(result, release["trial"], release["policy"], spec["policy_sha256"],**options)
+            release_expires_at = release["policy"]["expires_at"]
             result.pop("content_sha256", None)
-        from tools.a4_macro_diagnosis import diagnose
+        from tools.a4_macro_diagnosis import diagnose, review_handoff
         diagnose(result)
+        decision = free.iso_date(session)
+        schedule = clock.mcal.get_calendar("NYSE").schedule(
+            start_date=decision, end_date=decision + timedelta(days=14))
+        need(len(schedule) >= 2 and schedule.index[0].date() == decision, "A4_REVIEW_ENTRY_CALENDAR")
+        result["review_handoff"] = review_handoff(result, expires_at=req["expires_at"],
+            entry_close_at=schedule.market_close.iloc[1].isoformat(), release_expires_at=release_expires_at)
     result["content_sha256"] = context.digest(result)
     return result
 
@@ -486,6 +502,15 @@ def render_report(value):
                 'Completion blockers: '+', '.join(r['code'] for r in diagnosis['completion_blockers'])]
         lines += ["", "## Horizon outlook", "", "| Sessions | Direction |", "| ---: | --- |"]
         lines += [f"| {r['horizon_sessions']} | {r['direction']} |" for r in value["horizon_outlook"]]
+        if review := value.get('review_handoff'):
+            lines += ['', '## Market review handoff', '',
+                f"Status `{review['status']}`. Expires at {review['expires_at']}.",
+                'Candidate '+review['candidate'] if review['candidate'] else 'No current review candidate.',
+                '', '| Sessions | Research role | SPY | QQQ |', '| ---: | --- | --- | --- |']
+            for row in review['horizons']:
+                spy, qqq = (row['benchmarks'][target] for target in ('SPY', 'QQQ'))
+                lines.append(f"| {row['horizon_sessions']} | {row['role']} | "
+                             f"{spy['direction'] or spy['status']} | {qqq['direction'] or qqq['status']} |")
         if value.get('benchmark_outlook'):
             lines += ['', '## Benchmark direction research', '',
                 'SPY proxies the S&P 500; QQQ proxies the Nasdaq-100, not the Nasdaq Composite.',

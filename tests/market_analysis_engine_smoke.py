@@ -339,6 +339,19 @@ class NativeRiskPipelineTests(unittest.TestCase):
         self.assertFalse(out["source_and_pit_admission"])
         self.assertEqual(out["household_expectations"],[])
 
+    def test_v2_review_timing_uses_the_native_decision_and_source_bundle(self):
+        entries = [source(v,kind=k,path=k+".csv") for k,v in self.blobs.items()]
+        req = request(entries)
+        req["schema"] = m.REQUEST_SCHEMA_V2
+        out = analyze(req, {k+".csv":v for k,v in self.blobs.items()})
+        timing = out["review_handoff"]["native_timing"]
+        self.assertTrue(timing["comparable"])
+        self.assertEqual(timing["previous_state"], "NORMAL")
+        self.assertEqual(len(timing["axis_source_bundle_sha256"]), 64)
+        self.assertLessEqual(m.clock.stamp(timing["decision_at"]), m.clock.stamp(NOW))
+        self.assertEqual(out["review_handoff"]["status"], "NO_NEW_REVIEW")
+        self.assertIn("Market review handoff", m.render_report(out))
+
     def test_producer_context_optional_blanks_preserve_native_missing_values(self):
         # The incumbent CSV producer emits blanks during warmup and where an
         # optional fundamental/leadership input was never supplied.

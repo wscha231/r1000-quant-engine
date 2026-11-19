@@ -3,6 +3,7 @@ import copy
 from pathlib import Path
 import sys
 import unittest
+import pandas as pd
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from tools import a4_macro_diagnosis as d,market_analysis_engine as m
@@ -192,6 +193,82 @@ class DiagnosisTests(unittest.TestCase):
         source=report();original=copy.deepcopy(source['macro_direction_inputs'])
         self.assertEqual(d.diagnose(copy.deepcopy(source)),d.diagnose(copy.deepcopy(source)))
         d.diagnose(source);self.assertEqual(source['macro_direction_inputs'],original)
+
+    def test_report_handoff_preserves_input_gate_and_horizon_roles(self):
+        result = analyze([('fred:DGS10', raw('DGS10', [('2026-11-06', 4.1)]))])
+        handoff = result['review_handoff']
+        self.assertEqual(handoff['status'], 'DATA_BLOCKED')
+        self.assertEqual(handoff['entry_close_at'], '2026-11-09T21:00:00+00:00')
+        self.assertLessEqual(d.f.utc(handoff['expires_at']), d.f.utc(handoff['entry_close_at']))
+        self.assertEqual(handoff['request_sha256'], result['request_sha256'])
+        self.assertIsNone(handoff['candidate'])
+        self.assertIsNone(handoff['exposure']['affected_assets'])
+        self.assertTrue(handoff['solo_stock_cash_research_allowed'])
+        self.assertFalse(handoff['automatic_winner_exit_allowed'])
+        self.assertEqual([(h['horizon_sessions'], h['role']) for h in handoff['horizons']],
+            [(21, 'ENTRY_WARNING_AND_REVIEW'), (63, 'PRIMARY_SELECTION_RESEARCH'),
+             (126, 'PERSISTENCE_RESEARCH')])
+        for row in handoff['horizons']:
+            self.assertTrue(all(v['direction'] is None for v in row['benchmarks'].values()))
+
+    def test_incumbent_timing_warns_once_and_reentry_respects_current_guards(self):
+        order = m.risk.load_contract()['state_machine']['states_in_severity_order']
+        def timing(previous, current, *, previous_ready=True, ordinal_gap=1,
+                   stage_advanced=False, guards_ready=True, paused=False):
+            rows = [dict(effective_state=effective, observed_state=observed,
+                         entry_confirmation_count=count,
+                         state_change_allowed=ready, nyse_session_ordinal=ordinal,
+                         decision_time_utc=pd.Timestamp(NOW), state_source_hash_bundle_sha256='a'*64)
+                    for (effective, observed, count), ready, ordinal in
+                    ((previous, previous_ready, 1000), (current, True, 1000+ordinal_gap))]
+            sentiment = dict(fear_recovery_stage_changed=stage_advanced,
+                fear_recovery_pause_guards_ready=guards_ready, fear_recovery_paused=paused)
+            return d.native_review_timing(pd.DataFrame(rows), sentiment, order)
+        previous = ('NORMAL', 'NORMAL', 0)
+        pending = ('NORMAL', 'RISK_ALERT', 1)
+        confirmed = ('RISK_ALERT', 'RISK_ALERT', 0)
+        source = d.diagnose(report())
+        source['request_sha256'] = 'c'*64
+        source['market_assessment']['status'] = 'READY_RESEARCH_ONLY'
+        for profile, candidate, state in [
+                (timing(previous, pending), 'RISK_WORSENING', 'REVIEW_CANDIDATE'),
+                (timing(pending, confirmed), None, 'NO_NEW_REVIEW'),
+                (timing(confirmed, previous), 'RISK_EASING', 'REVIEW_CANDIDATE'),
+                (timing(confirmed, confirmed, stage_advanced=True), 'REENTRY_REVIEW', 'REVIEW_CANDIDATE'),
+                (timing(confirmed, confirmed, stage_advanced=True, paused=True), None, 'NO_NEW_REVIEW'),
+                (timing(confirmed, confirmed, stage_advanced=True, guards_ready=False), None, 'NO_NEW_REVIEW'),
+                (timing(previous, pending, previous_ready=False), None, 'DATA_BLOCKED'),
+                (timing(previous, pending, ordinal_gap=2), None, 'DATA_BLOCKED')]:
+            source['market_assessment']['review_timing'] = profile
+            handoff = d.review_handoff(source, expires_at='2026-11-08T21:00:00Z',
+                                      entry_close_at='2026-11-09T21:00:00Z')
+            self.assertEqual((handoff['candidate'], handoff['status']), (candidate,state))
+            self.assertEqual(bool(handoff['research_alternatives']), candidate is not None)
+            self.assertFalse(handoff['portfolio_effect_allowed'])
+
+    def test_handoff_checks_expiry_and_separates_fixed_horizon_evidence(self):
+        source = d.diagnose(report())
+        source['request_sha256'] = 'b'*64
+        source['benchmark_outlook'] = [dict(target='SPY', horizon_sessions=63, direction='UP', evidence=[{}])]
+        expires = '2026-11-10T01:00:00Z'
+        entry = '2026-11-09T21:00:00Z'
+        def handoff():
+            return d.review_handoff(source, expires_at=expires, entry_close_at=entry,
+                                    release_expires_at='2026-11-09T15:00:00Z')
+        self.assertIsNone(handoff()['horizons'][1]['benchmarks']['SPY']['direction'])
+        source['learning_provenance'] = dict(status='EXTERNALLY_REVIEWED_FIXED_RELEASE')
+        value = handoff()
+        self.assertEqual(value['expires_at'], '2026-11-09T21:00:00+00:00')
+        self.assertEqual(value['horizons'][1]['benchmarks']['SPY']['direction'], 'UP')
+        self.assertEqual(value['horizons'][1]['benchmarks']['SPY']['expires_at'], '2026-11-09T15:00:00+00:00')
+        self.assertIsNone(value['horizons'][0]['benchmarks']['SPY']['direction'])
+        self.assertIsNone(value['horizons'][1]['benchmarks']['QQQ']['direction'])
+        source['cutoff'] = '2026-11-09T15:00:00Z'
+        self.assertIsNone(handoff()['horizons'][1]['benchmarks']['SPY']['direction'])
+        source['cutoff'] = entry
+        value = handoff()
+        self.assertEqual(value['blockers'], ['ENTRY_OR_REQUEST_WINDOW_CLOSED'])
+        self.assertIsNone(value['horizons'][1]['benchmarks']['SPY']['direction'])
 
 
 if __name__=='__main__':unittest.main()

@@ -181,3 +181,101 @@ def diagnose(report):
         horizon['current_conditions_reference']='macro_diagnosis.windows.'+window
         horizon['current_conditions_are_return_forecast']=False
     return report
+
+
+def native_review_timing(daily, sentiment, states):
+    """Expose the incumbent transition and recovery guards for the latest close."""
+    latest = daily.iloc[-1]
+    previous = daily.iloc[-2] if len(daily) > 1 else None
+    effective = latest['effective_state']
+    previous_state = previous['effective_state'] if previous is not None else None
+    comparable = (previous is not None and bool(previous['state_change_allowed'])
+                  and int(previous['nyse_session_ordinal']) + 1 == int(latest['nyse_session_ordinal'])
+                  and previous_state in states and effective in states)
+    order = {name: i for i, name in enumerate(states)}
+    worse = comparable and order[latest['observed_state']] > order[effective]
+    change = order[effective] - order[previous_state] if comparable else 0
+    return dict(
+        comparable=comparable, previous_state=previous_state if comparable else None,
+        decision_at=latest['decision_time_utc'].isoformat(),
+        axis_source_bundle_sha256=latest['state_source_hash_bundle_sha256'],
+        first_pending_escalation=worse and int(latest['entry_confirmation_count']) == 1,
+        confirmed_escalation=change > 0, confirmed_easing=change < 0,
+        recovery_stage_advanced=bool(sentiment['fear_recovery_stage_changed']),
+        recovery_guards_ready=bool(sentiment['fear_recovery_pause_guards_ready']),
+        recovery_paused=bool(sentiment['fear_recovery_paused']),
+        worsening_observed=worse,
+    )
+
+
+def _short_review(report, expires_at):
+    native = report['market_assessment']
+    timing = native.get('review_timing', {})
+    if f.utc(report['cutoff']) >= expires_at:
+        return 'DATA_BLOCKED', None, ['ENTRY_OR_REQUEST_WINDOW_CLOSED']
+    if native['status'] != 'READY_RESEARCH_ONLY':
+        return 'DATA_BLOCKED', None, native.get('blockers') or ['NATIVE_RISK_NOT_READY']
+    if not timing.get('comparable'):
+        return 'DATA_BLOCKED', None, ['ADJACENT_NATIVE_DECISIONS_REQUIRED']
+    if timing['first_pending_escalation']:
+        return 'REVIEW_CANDIDATE', 'RISK_WORSENING', []
+    if (timing['recovery_stage_advanced'] and timing['recovery_guards_ready']
+            and not timing['recovery_paused'] and not timing['worsening_observed']
+            and not timing['confirmed_escalation']):
+        return 'REVIEW_CANDIDATE', 'REENTRY_REVIEW', []
+    if timing['confirmed_easing']:
+        return 'REVIEW_CANDIDATE', 'RISK_EASING', []
+    return 'NO_NEW_REVIEW', None, []
+
+
+def review_handoff(report, *, expires_at, entry_close_at, release_expires_at=None):
+    """Build an additive A4-to-research context view of the existing V2 report."""
+    expiry = min(f.utc(expires_at), f.utc(entry_close_at))
+    status, candidate, blockers = _short_review(report, expiry)
+    release = report.get('learning_provenance', {})
+    release_expiry = min(expiry, f.utc(release_expires_at)) if release_expires_at is not None else None
+    reviewed = (release.get('status') == 'EXTERNALLY_REVIEWED_FIXED_RELEASE'
+                and release_expiry is not None and f.utc(report['cutoff']) < release_expiry)
+    benchmarks = {(row['target'], row['horizon_sessions']): row for row in report.get('benchmark_outlook', [])}
+    horizons = []
+    for horizon, role in ((21, 'ENTRY_WARNING_AND_REVIEW'), (63, 'PRIMARY_SELECTION_RESEARCH'),
+                          (126, 'PERSISTENCE_RESEARCH')):
+        pair = {}
+        for target in ('SPY', 'QQQ'):
+            row = benchmarks.get((target, horizon), {})
+            direction = row.get('direction')
+            if reviewed and row.get('evidence') and direction in {'UP', 'DOWN', 'FLAT', 'MIXED'}:
+                pair[target] = dict(status='REVIEWED_RESEARCH_EVIDENCE', direction=direction, expires_at=release_expiry.isoformat(),
+                                    evidence_path='benchmark_outlook')
+            else:
+                pair[target] = dict(status='INSUFFICIENT_EVIDENCE', direction=None,
+                                    blockers=row.get('blockers') or ['CURRENT_REVIEWED_BENCHMARK_EVIDENCE_REQUIRED'])
+        horizons.append(dict(horizon_sessions=horizon, role=role, benchmarks=pair))
+    native = report['market_assessment']
+    alternatives = {
+        'RISK_WORSENING': ['HOLD_EXISTING', 'DEFER_NEW_OR_INCREASED_EXPOSURE', 'CASH_ALTERNATIVE'],
+        'RISK_EASING': ['HOLD_EXISTING', 'REVIEW_NEW_OR_INCREASED_EXPOSURE', 'CASH_ALTERNATIVE'],
+        'REENTRY_REVIEW': ['HOLD_EXISTING', 'COMPARE_STAGED_REENTRY', 'CASH_ALTERNATIVE'],
+    }
+    return dict(
+        schema='a4-market-review-handoff-v1', authority='RESEARCH_CONTEXT_ONLY',
+        session=report['session'], cutoff=report['cutoff'], expires_at=expiry.isoformat(),
+        request_sha256=report['request_sha256'],
+        entry_close_at=entry_close_at, holding_period_basis='NYSE_CLOSE_TO_CLOSE',
+        return_maturity='H_TRADING_INTERVALS_AFTER_NEXT_NYSE_CLOSE',
+        status=status, candidate=candidate, blockers=blockers,
+        candidate_key=report['session']+':'+candidate if candidate else None,
+        native_timing=native.get('review_timing'), native_truth_class=native.get('declared_input_truth_class'),
+        recovery_stage=native.get('fear_recovery_stage'), horizons=horizons,
+        evidence_paths=['market_assessment.axes', 'source_receipts', 'a4_observation_provenance',
+                        'macro_diagnosis.windows', 'financing_conditions', 'candidate_reassessment_snapshot'],
+        context_status={key: report.get(key, {}).get('status', 'DATA_BLOCKED')
+                        for key in ('funding', 'liquidity', 'bank_credit', 'financing_conditions')},
+        exposure=dict(scope='US_EQUITY_COMMON_RISK', channels=['RISK', 'TIMING'],
+                      affected_assets=None, candidate_mapping='VERIFIED_EXPOSURE_INDEX_REQUIRED'),
+        research_alternatives=alternatives.get(candidate, []),
+        invalidated_by=['ENTRY_OR_REQUEST_WINDOW_CLOSED', 'LATER_SESSION_OR_SOURCE_REVISION',
+                        'NATIVE_READINESS_LOST', 'RECOVERY_GUARDS_MISSING_OR_PAUSED'],
+        solo_stock_cash_research_allowed=True, portfolio_effect_allowed=False,
+        automatic_winner_exit_allowed=False, automatic_dispatch_allowed=False,
+    )
