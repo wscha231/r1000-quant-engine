@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from tools import nav_metrics_v2 as nav
+from tools.execution_cost_model import EXECUTION_COST_MODE_FIXED
 
 
 def assess(packet, *, portfolio_kind, expected_manifest_sha256, end_session):
@@ -74,7 +75,12 @@ def assess(packet, *, portfolio_kind, expected_manifest_sha256, end_session):
                     report["cost_bps_per_side"] == 25 and report["cash_carry_mode"] == "risk_free_rate" and
                     report["cash_rate_source"] == "DGS3MO" and report["cash_rate_lag_days"] == 1 and
                     report["cash_carry_haircut_bps"] == 0 and report["cash_carry_day_count"] == 365 and
-                    report["cash_rate_future_use_count"] == 0 and report["execution_cost_mode"] == "fixed_bps", "GOAL_EXECUTION_POLICY")
+                    report["cash_rate_future_use_count"] == 0, "GOAL_EXECUTION_POLICY")
+        # The native fixed-bps producer omits optional variable-model metadata.
+        config = report.get("execution_cost_config")
+        nav.require(report.get("execution_cost_mode", EXECUTION_COST_MODE_FIXED) == EXECUTION_COST_MODE_FIXED and
+                    (config is None or (type(config) is dict and config.get("enabled") is False and
+                                        config.get("mode") == EXECUTION_COST_MODE_FIXED)), "GOAL_VARIABLE_COST")
         coverage = report.get("target_fill_coverage")
         nav.require(type(coverage) is dict and coverage.get("execution_clock_contract") ==
                     "explicit_cutoff_exact_next_close_v1" and coverage.get("coverage_complete") is True and

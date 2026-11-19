@@ -31,7 +31,7 @@ class GoalTests(unittest.TestCase):
         report.update(portfolio_kind="main", execution_status="completed", integer_shares=True, fill_mode="next_close",
                       cost_bps_per_side=25, cash_carry_mode="risk_free_rate", cash_rate_source="DGS3MO",
                       cash_rate_lag_days=1, cash_carry_haircut_bps=0, cash_carry_day_count=365,
-                      cash_rate_future_use_count=0, execution_cost_mode="fixed_bps",
+                      cash_rate_future_use_count=0,
                       target_fill_coverage=dict(execution_clock_contract="explicit_cutoff_exact_next_close_v1",
                                                 coverage_complete=True, chronology_safe=True))
         packet["portfolio_report"] = report
@@ -71,6 +71,22 @@ class GoalTests(unittest.TestCase):
             self.assertEqual(result["status"], expected, result)
             self.assertAlmostEqual(result["total_return"], values[-1]/100000-1)
         self.assertEqual(self.assess(self.packet(spy, spy), "concentrated")["status"], "DATA_BLOCKED")
+
+    def test_native_fixed_fee_omission_and_variable_fee_refusal(self):
+        p = self.packet([100000, 99000, 700000], [100000, 99000, 110000])
+        self.assertNotIn("execution_cost_mode", p["portfolio_report"])
+        self.assertEqual(self.assess(p)["status"], "PASS")
+        for fields in ({"execution_cost_mode": "variable"}, {"execution_cost_config": {"enabled": True}}):
+            changed = copy.deepcopy(p)
+            report = changed["portfolio_report"]
+            report.update(fields)
+            key = "closed_loop_receipt_sha256"
+            hashed = nav.digest(report)
+            changed["manifest"]["portfolio_report_sha256"] = hashed
+            changed["originals"]["closed_loop"] = report
+            changed["receipts"][key].update(original_sha256=hashed, portfolio_report_sha256=hashed)
+            changed["manifest"][key] = nav.digest(changed["receipts"][key])
+            self.assertEqual(self.assess(changed)["reason"], "GOAL_VARIABLE_COST")
 
     def test_absent_original_mismatched_window_and_cost(self):
         packet = self.packet([100100, 100200, 101000], [100000, 99000, 100000])
