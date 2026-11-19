@@ -72,6 +72,42 @@ class GoalTests(unittest.TestCase):
             self.assertAlmostEqual(result["total_return"], values[-1]/100000-1)
         self.assertEqual(self.assess(self.packet(spy, spy), "concentrated")["status"], "DATA_BLOCKED")
 
+    def test_recovery_gross_turnover_and_optional_qqq(self):
+        p = self.packet([100000, 90000, 700000], [100000, 98000, 110000])
+        blocked_optional = self.assess(p)
+        self.assertEqual(blocked_optional["recovery_from_worst_trough"], dict(status="RECOVERED", days=1, sessions=1))
+        self.assertEqual(blocked_optional["turnover"]["status"], "DATA_BLOCKED")
+        self.assertEqual(blocked_optional["qqq"]["status"], "DATA_BLOCKED")
+        untouched = self.assess(self.packet([100000, 90000, 99000], [100000, 98000, 110000]))
+        self.assertEqual(untouched["recovery_from_worst_trough"]["status"], "UNRECOVERED_AT_END")
+
+        p["trades"] = [dict(date=p["manifest"]["start_session"], side="BUY", quantity=10, fill_price=9, gross_value=90)]
+        p["manifest"]["trades_sha256"] = nav.digest(p["trades"])
+        report = p["portfolio_report"]
+        report["trade_count"] = 1
+        key = "closed_loop_receipt_sha256"
+        p["originals"]["closed_loop"] = report
+        p["receipts"][key].update(original_sha256=nav.digest(report), portfolio_report_sha256=nav.digest(report))
+        p["manifest"][key] = nav.digest(p["receipts"][key])
+        p["manifest"]["portfolio_report_sha256"] = nav.digest(report)
+        p["qqq"] = copy.deepcopy(p["spy"])
+        original = dict(p["originals"]["spy_total_return"], symbol="QQQ", kind="qqq_total_return")
+        p["originals"]["qqq_total_return"] = original
+        p["manifest"]["qqq_total_return_original_sha256"] = nav.digest(original)
+        p["manifest"]["qqq_context_sha256"] = nav.digest(p["qqq"]["context"])
+        result = self.assess(p)
+        self.assertEqual(result["qqq"]["status"], "MEASURED")
+        self.assertEqual(result["qqq"]["cagr"], result["spy_cagr"])
+        avg = sum(r["nav"] for r in p["portfolio"]["rows"])/len(p["portfolio"]["rows"])
+        self.assertAlmostEqual(result["turnover"]["gross_over_mean_daily_nav"], 90/avg)
+        p["qqq"]["rows"].pop()
+        p["trades"][0]["side"] = "UNKNOWN"
+        p["manifest"]["trades_sha256"] = nav.digest(p["trades"])
+        invalid = self.assess(p)
+        self.assertEqual(invalid["status"], result["status"])
+        for field in ("turnover", "qqq"):
+            self.assertEqual(invalid[field]["status"], "DATA_BLOCKED")
+
     def test_native_fixed_fee_omission_and_variable_fee_refusal(self):
         p = self.packet([100000, 99000, 700000], [100000, 99000, 110000])
         self.assertNotIn("execution_cost_mode", p["portfolio_report"])

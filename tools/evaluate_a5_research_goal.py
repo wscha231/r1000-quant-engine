@@ -1,6 +1,7 @@
 """Assess one registered A5 research portfolio against a matched SPY total-return curve."""
 import argparse
 import json
+import math
 from datetime import date
 import sys
 from pathlib import Path
@@ -10,6 +11,72 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from tools import nav_metrics_v2 as nav
 from tools.execution_cost_model import EXECUTION_COST_MODE_FIXED
+
+
+def _recovery(rows, anchor):
+    """Calendar days from the deepest trough to the next close at its previous peak."""
+    peak = anchor["nav"]
+    worst = 0.0
+    trough = None
+    recovery_level = peak
+    for i, row in enumerate(rows):
+        peak = max(peak, row["nav"])
+        drawdown = row["nav"] / peak - 1
+        if drawdown < worst:
+            worst, trough, recovery_level = drawdown, i, peak
+    if trough is None:
+        return dict(status="NO_DRAWDOWN", days=0, sessions=0)
+    low = date.fromisoformat(rows[trough]["session"])
+    for i in range(trough + 1, len(rows)):
+        if rows[i]["nav"] >= recovery_level:
+            return dict(status="RECOVERED", days=(date.fromisoformat(rows[i]["session"])-low).days,
+                        sessions=i-trough)
+    return dict(status="UNRECOVERED_AT_END", days=None, sessions=None,
+                observed_days=(date.fromisoformat(rows[-1]["session"])-low).days)
+
+
+def _turnover(packet, book):
+    """Gross buys plus sells divided by mean daily closing NAV, before fees."""
+    try:
+        trades = packet["trades"]
+        nav.require(type(trades) is list and nav.digest(trades) == packet["manifest"]["trades_sha256"] and
+                    type(packet["portfolio_report"]["trade_count"]) is int and
+                    len(trades) == packet["portfolio_report"]["trade_count"], "GOAL_TRADES_ORIGINAL")
+        rows = packet["portfolio"]["rows"]
+        dates = {row["session"] for row in rows}
+        gross = 0.0
+        for trade in trades:
+            value = nav.real(trade["gross_value"], positive=True)
+            nav.require(trade["date"] in dates and trade["side"] in ("BUY", "SELL") and
+                        math.isclose(value, nav.real(trade["quantity"], positive=True) *
+                                     nav.real(trade["fill_price"], positive=True), rel_tol=1e-10), "GOAL_TRADE_FILL")
+            gross += value
+        ratio = gross / (sum(row["nav"] for row in rows) / len(rows))
+        return dict(status="MEASURED", gross_over_mean_daily_nav=ratio, annualized=ratio/book["years"])
+    except (KeyError, TypeError, ValueError, OverflowError) as error:
+        return dict(status="DATA_BLOCKED", reason=str(error))
+
+
+def _qqq_comparison(packet, book):
+    try:
+        original = packet["originals"]["qqq_total_return"]
+        qqq = packet["qqq"]
+        manifest = packet["manifest"]
+        nav.require(nav.digest(original) == manifest["qqq_total_return_original_sha256"] and
+                    original["symbol"] == "QQQ" and original["status"] == "VERIFIED" and
+                    original["return_basis"] == "TOTAL_RETURN" and original["dividends_reinvested"] is True and
+                    original["start_session"] == book["start_date"] and original["end_session"] == book["end_date"]
+                    and original["nav_rows_sha256"] == nav.digest(qqq["rows"]), "GOAL_QQQ_ORIGINAL")
+        nav.require(nav.digest(qqq["context"]) == manifest["qqq_context_sha256"] and
+                    qqq["context"]["frequency"] == "daily" and qqq["context"]["grid"]["rows"] ==
+                    packet["portfolio"]["context"]["grid"]["rows"], "GOAL_QQQ_GRID")
+        measured = nav.calculate(qqq["rows"], qqq["context"])
+        nav.require(measured["status"] == nav.COMPLETE and measured["anchor_timestamp"] == book["anchor_timestamp"]
+                    and measured["starting_capital_usd"] == book["starting_capital_usd"], "GOAL_QQQ_NAV")
+        return dict(status="MEASURED", total_return=measured["total_return"], cagr=measured["cagr"],
+                    max_dd=measured["max_dd"], excess_cagr=book["cagr"]-measured["cagr"])
+    except (KeyError, TypeError, ValueError, OverflowError) as error:
+        return dict(status="DATA_BLOCKED", reason=str(error))
 
 
 def assess(packet, *, portfolio_kind, expected_manifest_sha256, end_session):
@@ -109,6 +176,10 @@ def assess(packet, *, portfolio_kind, expected_manifest_sha256, end_session):
                     spy_total_return=spy["total_return"], spy_cagr=spy["cagr"], spy_max_dd=spy["max_dd"],
                     start_session=book["start_date"], end_session=book["end_date"],
                     cost_bps_per_side=25, return_goal_met=passed_return, drawdown_goal_met=passed_drawdown,
+                    spy_excess_cagr=book["cagr"]-spy["cagr"],
+                    recovery_from_worst_trough=_recovery(packet["portfolio"]["rows"],
+                                                         packet["portfolio"]["context"]["anchor"]),
+                    turnover=_turnover(packet, book), qqq=_qqq_comparison(packet, book),
                     reviewed_manifest_sha256=expected_manifest_sha256)
     except (TypeError, KeyError, ValueError, OverflowError) as error:
         return dict(base, status="DATA_BLOCKED", reason=str(error))
