@@ -8436,7 +8436,9 @@ class ManualTests(unittest.TestCase):
         programs.update({'tests/control_plane_agent_contract_smoke.py',
                          'tests/system_state_materializer_smoke.py',
                          'tests/manual_foundation_smoke.py', 'tools/run_pr_validation.py'})
-        self.assertEqual(len(registered_validation.DEFAULT_TESTS), 245)
+        self.assertEqual(len(registered_validation.DEFAULT_TESTS), 246)
+        self.assertEqual(registered_validation.DEFAULT_TESTS.count(("tests/a5_research_goal_smoke.py", [])), 1)
+        self.assertIn("tools/evaluate_a5_research_goal.py", manual.A6_FIXED_PROOF_PROGRAMS)
         self.assertEqual(registered_validation.DEFAULT_TESTS.count(
             ('tests/a4_guarded_regression_smoke.py', [])), 1)
         self.assertEqual(registered_validation.DEFAULT_TESTS.count(

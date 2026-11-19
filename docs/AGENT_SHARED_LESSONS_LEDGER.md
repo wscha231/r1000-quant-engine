@@ -13,6 +13,15 @@
   A 55/45 two-sector transition exercises different existing limits in Main and
   Concentrated. Preserve legacy Main replay and verify the identity of a carried model book.
 
+### 2026-11-19 KST — Measure both research goals on one authenticated daily grid
+
+- An adjusted-close benchmark cache alone does not attest dividend reinvestment.
+  Require the reviewed SPY total-return receipt and matching NAV anchors, daily
+  closes and cost policy for each independent portfolio. Keep sensitivity cases
+  separate from the 25-bps objective. Apply both thresholds before rounding.
+- When adding a registered validation program, include the test and its product
+  entry point in the fixed A6 proof inventory and exercise the byte-change refusal.
+
 ### 2026-11-14 KST — Keep real A4 analysis out of public workflow artifacts
 
 - The repository is public; broad artifact paths included full daily reports,
