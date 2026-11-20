@@ -1,5 +1,13 @@
 # Agent Shared Lessons Ledger
 
+### 2026-11-20 — Bind each issuer to its own financial generation in ER pre-fit metadata
+
+A cohort may span separate issuer archives. In a v2 pre-fit binding, keep one
+price request and one financial request per issuer within the existing eight-request
+budget. Pin the financial generation and row-set hash on features and labels,
+including unlabelled dates. Matching these references proves metadata integrity only.
+Training still requires an independently qualified historical financial Reader.
+
 ### 2026-11-20 KST - Keep recession observations on their own capture clocks
 
 - Both Treasury slopes are available from a matched original. Preserve the
