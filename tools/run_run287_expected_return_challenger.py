@@ -50,6 +50,7 @@ FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 REPOSITORY = "wscha231/r1000-quant-engine"
 PRE_FIT_BINDING_SCHEMA = "run287-stock-leader-pre-fit-binding-v1"
+PRE_FIT_ISSUER_BINDING_SCHEMA = "run287-stock-leader-pre-fit-binding-v2"
 PRE_FIT_MAX_FILE = 64 * 1024 * 1024
 PRE_FIT_MAX_TOTAL = 128 * 1024 * 1024
 PRE_FIT_MAX_FEATURE_STORE = 32 * 1024 * 1024
@@ -92,6 +93,71 @@ def _binding_features(row: Mapping[str, Any], names: list[str]) -> str:
     return canonical_sha256({name: json_clean(row.get(name)) for name in names})
 
 
+def _pre_fit_source_bindings(requests, universe, schema):
+    """Bind metadata to the full denominator before either features or labels are used."""
+    _binding_need(type(requests) is list and 1 <= len(requests) <= 8, "reader_requests")
+    scoped = schema == PRE_FIT_ISSUER_BINDING_SCHEMA
+    price_instruments = set()
+    issuer_instruments = {}
+    instrument_owners = {}
+    for member in universe.values():
+        ids = member["reader_instrument_ids"]
+        issuer = member["issuer_id"]
+        price_instruments.add(ids["prices"])
+        issuer_instruments.setdefault(issuer, set()).add(ids["financial"])
+        if scoped:
+            owner = instrument_owners.setdefault(ids["financial"], issuer)
+            _binding_need(owner == issuer, "financial_instrument_issuer_conflict")
+
+    price_hash = None
+    price_generation = None
+    financial = {}
+    generations = set()
+    for request in requests:
+        _binding_need(type(request) is dict, "reader_request_object")
+        role = request.get("role")
+        _binding_need(role in ("prices", "financial"), "reader_component_roles")
+        _binding_need(request.get("dataset_id") == PRE_FIT_DATASETS[role], "reader_role_dataset_identity")
+        for name in ("data_generation_id", "expected_row_set_sha256"):
+            _binding_need(type(request.get(name)) is str and SHA256_RE.fullmatch(request[name]) is not None,
+                          "reader_original_hash")
+        ids = request.get("instrument_ids")
+        _binding_need(type(ids) is list and bool(ids) and all(type(v) is str and v for v in ids) and
+                      len(ids) == len(set(ids)) and type(request.get("required_sessions")) is list and
+                      bool(request["required_sessions"]), "reader_identity_sessions")
+        instruments = set(ids)
+        if role == "prices":
+            _binding_need(price_hash is None and (not scoped or "issuer_id" not in request), "reader_component_roles")
+            _binding_need(price_instruments <= instruments, "reader_denominator_identity")
+            price_hash = request["expected_row_set_sha256"]
+            price_generation = request["data_generation_id"]
+        elif scoped:
+            issuer = request.get("issuer_id")
+            _binding_need(type(issuer) is str and issuer in issuer_instruments and issuer not in financial,
+                          "financial_issuer_request")
+            _binding_need(instruments == issuer_instruments[issuer], "reader_denominator_identity")
+            generation = request["data_generation_id"]
+            _binding_need(generation not in generations, "duplicate_financial_generation")
+            generations.add(generation)
+            financial[issuer] = (request["expected_row_set_sha256"], generation)
+        else:
+            _binding_need(not financial, "reader_component_roles")
+            _binding_need(all(members <= instruments for members in issuer_instruments.values()),
+                          "reader_denominator_identity")
+            financial = dict.fromkeys(issuer_instruments, (request["expected_row_set_sha256"], None))
+    _binding_need(price_hash is not None and financial.keys() == issuer_instruments.keys(),
+                  "financial_and_price_origins_required")
+    _binding_need(price_generation not in generations, "financial_price_generation_alias")
+    return {issuer: ({"prices": price_hash, "financial": rows_hash}, generation)
+            for issuer, (rows_hash, generation) in financial.items()}
+
+
+def _matches_pre_fit_sources(row, expected):
+    hashes, generation = expected
+    return (row.get("source_row_sets") == hashes and
+            (generation is None or row.get("financial_generation_id") == generation))
+
+
 def validate_pre_fit_binding(frame: pd.DataFrame, binding: Mapping[str, Any],
                              contract: Mapping[str, Any], *, feature_store_sha256: str,
                              artifact_resolver) -> dict[str, Any]:
@@ -105,7 +171,7 @@ def validate_pre_fit_binding(frame: pd.DataFrame, binding: Mapping[str, Any],
     validate_contract(contract)  # Immutable V1 bytes/digest and feature roles.
     fields = {"schema", "decision_time", "feature_store_sha256", "contract_sha256", "code_sha", "refs"}
     _binding_need(type(binding) is dict and set(binding) == fields and
-                  binding["schema"] == PRE_FIT_BINDING_SCHEMA, "schema")
+                  binding["schema"] in (PRE_FIT_BINDING_SCHEMA, PRE_FIT_ISSUER_BINDING_SCHEMA), "schema")
     _binding_need(binding["feature_store_sha256"] == feature_store_sha256 and
                   SHA256_RE.fullmatch(feature_store_sha256) is not None, "feature_store_hash")
     _binding_need(binding["contract_sha256"] == EXPECTED_CONTRACT_SHA256 and
@@ -178,27 +244,10 @@ def validate_pre_fit_binding(frame: pd.DataFrame, binding: Mapping[str, Any],
                       "feature_availability")
         _binding_need(clock.get("feature_sha256") == _binding_features(row, features), "feature_row_hash")
     requests = values["reader_requests"].get("requests")
-    _binding_need(type(requests) is list and 1 <= len(requests) <= 8, "reader_requests")
-    row_sets, source_roles = {}, set()
-    for request in requests:
-        _binding_need(type(request) is dict, "reader_request_object")
-        role = request.get("role")
-        _binding_need(role in {"prices", "financial"} and role not in source_roles, "reader_component_roles")
-        _binding_need(request.get("dataset_id") == PRE_FIT_DATASETS[role], "reader_role_dataset_identity")
-        source_roles.add(role)
-        for name in ("data_generation_id", "expected_row_set_sha256"):
-            _binding_need(type(request.get(name)) is str and SHA256_RE.fullmatch(request[name]) is not None,
-                          "reader_original_hash")
-        _binding_need(type(request.get("instrument_ids")) is list and bool(request["instrument_ids"]) and
-                      len(request["instrument_ids"]) == len(set(request["instrument_ids"])) and
-                      type(request.get("required_sessions")) is list and bool(request["required_sessions"]),
-                      "reader_identity_sessions")
-        _binding_need(set(member["reader_instrument_ids"][role] for member in universe.values()) <= set(request["instrument_ids"]),
-                      "reader_denominator_identity")
-        row_sets[role] = request["expected_row_set_sha256"]
-    _binding_need(source_roles == {"prices", "financial"}, "financial_and_price_origins_required")
-    for clock in clocks.values():
-        _binding_need(clock.get("source_row_sets") == row_sets, "feature_source_join")
+    by_issuer = _pre_fit_source_bindings(requests, universe, binding["schema"])
+    for key, clock in clocks.items():
+        expected = by_issuer[universe[key]["issuer_id"]]
+        _binding_need(_matches_pre_fit_sources(clock, expected), "feature_source_join")
     label_rows = values["labels"].get("rows")
     _binding_need(type(label_rows) is list, "label_rows")
     labels = {(_binding_key(row), row.get("horizon")): row for row in label_rows}
@@ -213,7 +262,7 @@ def validate_pre_fit_binding(frame: pd.DataFrame, binding: Mapping[str, Any],
         row, spec = records[key], contract["horizons"][str(horizon)]
         _binding_need(label.get("benchmark_identity") == contract["data_policy"]["canonical_benchmark"] and
                       label.get("benchmark_source") == contract["data_policy"]["canonical_benchmark_source"] and
-                      label.get("source_row_sets") == row_sets, "label_provider_or_source_join")
+                      _matches_pre_fit_sources(label, by_issuer[universe[key]["issuer_id"]]), "label_provider_or_source_join")
         required = ("stock_return", "benchmark_return", "stock_label_end", "benchmark_label_end")
         original = {name: json_clean(row[spec[name]]) for name in required}
         _binding_need(all(json_clean(label.get(name)) == original[name] for name in required), "label_original")
@@ -266,7 +315,7 @@ def validate_pre_fit_binding(frame: pd.DataFrame, binding: Mapping[str, Any],
                   all(type(experiment.get(name)) is str and SHA256_RE.fullmatch(experiment[name]) is not None
                       for name in ("experiment_ledger_sha256", "do_not_repeat_sha256")), "experiment_original_refs")
     latest_feature_date = max(key[0] for key in records)
-    return {"schema": PRE_FIT_BINDING_SCHEMA, "status": "PRE_FIT_METADATA_BOUND_NOT_TRAINING_ADMISSION",
+    return {"schema": binding["schema"], "status": "PRE_FIT_METADATA_BOUND_NOT_TRAINING_ADMISSION",
             "binding_sha256": canonical_sha256(binding), "decision_time": binding["decision_time"],
             "denominator_rows": len(asof_frame), "outside_decision_prefix_rows": len(frame)-len(asof_frame),
             "selection_counts": counts, "prepared_rows": len(prepared), "labels":label_statuses,

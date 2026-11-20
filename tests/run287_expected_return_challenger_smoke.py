@@ -1362,6 +1362,89 @@ def _pre_fit_validate(frame, values, cfg, decision):
     return MOD.validate_pre_fit_binding(frame,binding,cfg,feature_store_sha256="f"*64,artifact_resolver=resolver)
 
 
+def test_pre_fit_separate_issuer_generations():
+    frame, values, cfg, decision = _pre_fit_fixture()
+    members = values["universe"]["rows"]
+    # Multiple share classes can point at the same issuer's financial statements.
+    for member in members:
+        issuer = "CIK:" + str(1 + int(member["ticker"][1:]) % 2)
+        member["issuer_id"] = member["reader_instrument_ids"]["financial"] = issuer
+    price, template = values["reader_requests"]["requests"]
+    financial = [dict(template, issuer_id=issuer, instrument_ids=[issuer],
+                      data_generation_id=MOD.canonical_sha256(issuer))
+                 for issuer in ("CIK:1", "CIK:2")]
+    requests = [financial[1], price, financial[0]]
+    values["reader_requests"]["requests"] = requests
+    # Both requests deliberately advertise the SAME row hash. Generation and
+    # issuer must still be bound for every feature row and horizon, even UNKNOWNs.
+    by_key = {MOD._binding_key(m): m["issuer_id"] for m in members}
+    for role in ("features", "labels"):
+        for row in values[role]["rows"]:
+            row["financial_generation_id"] = MOD.canonical_sha256(by_key[MOD._binding_key(row)])
+
+    def validate():
+        binding, resolver, _ = _pre_fit_binding(values, decision)
+        binding["schema"] = MOD.PRE_FIT_ISSUER_BINDING_SCHEMA
+        return MOD.validate_pre_fit_binding(frame, binding, cfg,
+            feature_store_sha256=binding["feature_store_sha256"], artifact_resolver=resolver)
+
+    result = validate()
+    _pre_fit_check(result["schema"] == MOD.PRE_FIT_ISSUER_BINDING_SCHEMA and
+                   result["mature_rows"]["63"] == 200 and not result["learning_eligible"],
+                   "issuer-specific metadata binding")
+    for role, reason in (("features", "feature_source_join"), ("labels", "label_provider_or_source_join")):
+        row = values[role]["rows"][-1]
+        original = row["financial_generation_id"]
+        row["financial_generation_id"] = next(r["data_generation_id"] for r in financial
+                                              if r["data_generation_id"] != original)
+        try:
+            validate()
+        except ValueError as exc:
+            _pre_fit_check(reason in str(exc), str(exc))
+        else:
+            raise AssertionError("cross-issuer generation used by " + role)
+        row["financial_generation_id"] = original
+
+    keyed = {MOD._binding_key(m): m for m in members}
+    def sources(reqs, universe=keyed):
+        return MOD._pre_fit_source_bindings(reqs, universe, MOD.PRE_FIT_ISSUER_BINDING_SCHEMA)
+    _pre_fit_check(sources(requests) == sources(list(reversed(requests))), "request order must not select the issuer")
+    for bad, reason in (
+        ([price, financial[0]], "financial_and_price_origins_required"),
+        (requests + [financial[0]], "financial_issuer_request"),
+        (requests + [dict(template, issuer_id="OTHER")], "financial_issuer_request"),
+        ([price, financial[0], dict(financial[1], instrument_ids=["CIK:1"])], "reader_denominator_identity"),
+        ([price, financial[0], dict(financial[1], data_generation_id=financial[0]["data_generation_id"])],
+         "duplicate_financial_generation"),
+        ([dict(price, data_generation_id=financial[0]["data_generation_id"]), *financial],
+         "financial_price_generation_alias"),
+        ([*financial, dict(price, data_generation_id=financial[0]["data_generation_id"])],
+         "financial_price_generation_alias"),
+        (requests + [price], "reader_component_roles"),
+        (requests * 3, "reader_requests"),
+    ):
+        try:
+            sources(bad)
+        except ValueError as exc:
+            _pre_fit_check(reason in str(exc), str(exc))
+        else:
+            raise AssertionError("bad financial request passed: " + reason)
+    conflict = copy.deepcopy(keyed)
+    conflict[next(iter(conflict))]["issuer_id"] = "CIK:2"
+    try:
+        sources(requests, conflict)
+    except ValueError as exc:
+        _pre_fit_check("financial_instrument_issuer_conflict" in str(exc), str(exc))
+    else:
+        raise AssertionError("cross-issuer financial instrument accepted")
+    try:
+        MOD.replay_pre_fit_training_sources(result, ".")
+    except ValueError as exc:
+        _pre_fit_check("FINANCIAL_TRAINING_ADMISSION_UNSUPPORTED" in str(exc), str(exc))
+    else:
+        raise AssertionError("metadata binding authorized a fit")
+
+
 def test_pre_fit_full_denominator_and_unlabelled_latest_prefix() -> None:
     frame,values,cfg,decision = _pre_fit_fixture()
     result = _pre_fit_validate(frame,values,cfg,decision)
@@ -2247,6 +2330,7 @@ def main() -> int:
     test_pre_fit_clock_denominator_provider_and_role_refusals()
     test_pre_fit_cli_without_u0_and_financial_training_fail_closed()
     test_pre_fit_hash_path_code_and_parquet_budgets_precede_decode()
+    test_pre_fit_separate_issuer_generations()
     test_pre_fit_public_price_reader_replay_is_not_financial_authority()
     test_pre_fit_optional_timing_and_peer_actual_maturity()
     test_pre_fit_optional_21_labels_absent_remain_unknown()
