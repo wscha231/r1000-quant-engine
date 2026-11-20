@@ -1,5 +1,34 @@
 # Agent Shared Lessons Ledger
 
+### 2026-11-20 KST - Keep recession observations on their own capture clocks
+
+- Both Treasury slopes are available from a matched original. Preserve the
+  exchange grid when testing crossings and prior moves. The supplemental
+  three-month parser does not change legacy source generations.
+- October 2025 unemployment is null in the BLS original used for the
+  November 18 report. Leave the 15-month Sahm proxy blocked, and retain
+  the official realtime Sahm series as a separate input requirement.
+- The original Shiller workbook retains partial-month price and CPI estimate
+  notes. Bind the CAPE value to the actual later download clock and preserve
+  the difference between a one-time observation and historical PIT.
+
+- PR 802 showed that adding report implementation files also requires
+  literal coverage in the checkout-byte witness. Pin LF for new document
+  operands and rerun the witness with Windows autocrlf enabled.
+
+### 2026-11-20 KST - Keep settlement horizons and market review actions distinct
+
+- The 21-session Native observation can request a review at the first pending
+  escalation. Its confirmation must not emit a duplicate. Reentry needs a
+  newly advanced incumbent recovery stage with available, unpaused guards.
+- A handoff expires at the next NYSE close or input expiry, whichever comes
+  first. Released benchmark evidence also respects the learning policy expiry.
+  A missing Native state or benchmark release leaves its own status explicit.
+- Replaying the archived November 18 decision accepted the pinned funding
+  originals and exposed the missing Native operands. This verifies input
+  consumption. Incremental performance still needs matched market events
+  and bases that were available at each decision.
+
 ### 2026-11-19 — Measure stock research against matched SPY across a full cycle
 
 - Score both independent books against the same dividend-reinvested SPY CAGR and drawdown. Report 40% separately for Concentrated after its base goal passes. Record the goal-policy version alongside the pinned evidence so older scorecards remain interpretable.

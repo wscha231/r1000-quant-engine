@@ -179,6 +179,13 @@ def run_cycle(*, input_root, state_root, output_dir, cutoff,
                 learning_context=copy.deepcopy(report)
                 forward=load_forward_context(learn_root,policy) if matching[0].get('dated_vintage_sources') else {}
                 predictions=learning.forecast_release(learning_context,matching[0],policy,digest(encoded(policy)),created_at=cutoff,**forward)
+                if handoff := learning_context.get("review_handoff"):
+                    from tools.a4_macro_diagnosis import review_handoff
+                    learning_context["review_handoff"] = review_handoff(
+                        learning_context, expires_at=handoff["expires_at"], entry_close_at=handoff["entry_close_at"],
+                        release_expires_at=policy["expires_at"])
+                    learning_context.pop("content_sha256", None)
+                    learning_context["content_sha256"] = market.context.digest(learning_context)
             forecast_root=state/"predictions"
             if plan["weekly_score_due"]:
                 old=[]

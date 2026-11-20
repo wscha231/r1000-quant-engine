@@ -75,3 +75,38 @@ Validation: `python tests/a4_regime_signals_smoke.py`. Registration also binds
 the smoke, three implementations, consumed legacy vintage codec and JSON in the
 independent A6 proof inventory. The legacy codec bytes remain unchanged; separate
 literal witnesses reject its changed bytes and omission after caller rebinding.
+
+## Coverage in the V2 market report
+
+`market-analysis-report-v2.recession_watch` displays the seven families with
+item-level coverage and source evidence. The two Treasury slopes use matching
+observations for the report session. The 3-month leg comes from the same
+verified Treasury original as the 2- and 10-year legs. The watch retains the
+NYSE grid for 21- and 63-session changes and leaves a change unfilled when its
+lookback has a gap. The prior available NYSE row is required to report a
+crossing. This extra Treasury tenor is scoped to the watch.
+
+When the original BLS data supply 15 contiguous, nonmissing unemployment
+months, the watch shows a current-vintage Sahm proxy. Its 0.50 percentage-point
+level follows the published metric definition. Retain the current collection
+clocks of all source windows used and list any missing months. Official
+realtime Sahm and qualified LEI vintages have their own evidence requirements.
+The credit view lists SLOOS separately from market spreads. Market breadth, corporate
+credit, policy cycles, analyst revisions and matched sector histories expose
+their respective missing inputs explicitly.
+
+For one-time private research, an existing V2 request can include an optional
+`valuation_cape` input with `source_id: shiller:ie_data`. Supply the exact
+original workbook path, byte SHA-256 and actual `collected_at`, using the
+ordinary request clock and session checks. The bounded reader takes the CAPE
+column from the publisher's `Data` sheet and retains the publisher's cutoff
+and estimate notes. It shows the last observation month and its prior-only
+120-month comparison. A terminal blank stays missing. The workbook becomes
+visible at the actual capture clock. Its history is current vintage, and it
+confers no training or history admission. Scheduled collection and durable
+storage require the corresponding source use evidence.
+
+The watch supplies observed context alongside the existing 21/63/126-session
+handoff. A missing family retains its blocker. No composite recession
+probability, independent signal count, native-risk override or portfolio
+action comes from this view.

@@ -1,8 +1,11 @@
 """Offline contextual hypotheses; supplied provenance is not authenticated here."""
 from datetime import date
+from datetime import timedelta
+from io import StringIO
 import math
 import numpy as np
 import pandas as pd
+from tools.macro_history_sources import digest, encoded
 
 def require(ok, reason):
     if not ok:
@@ -19,6 +22,105 @@ def monthly(series):
     require(series.index[-1].ordinal - series.index[0].ordinal + 1 <= 2000, 'MONTHLY_EXPANSION_BUDGET')
     require(not np.isinf(series.to_numpy(float)).any(), 'MONTHLY_NONFINITE')
     return series.reindex(pd.period_range(series.index[0], series.index[-1], freq='M'))
+
+
+def shiller_workbook(raw, *, collected_at, cutoff):
+    """Read the publisher's current CAPE sheet with the actual capture clock."""
+    import xlrd
+    from xlrd.compdoc import CompDocError
+    from struct import error as StructError
+
+    require(collected_at is not None and stamp(collected_at) <= stamp(cutoff), 'CAPE_CLOCK')
+    require(type(raw) is bytes and 0 < len(raw) <= 4 * 1024**2
+            and raw.startswith(bytes.fromhex('D0CF11E0A1B11AE1')), 'CAPE_WORKBOOK')
+    require(xlrd.__version__ == '2.0.2', 'CAPE_XLS_PARSER_VERSION')
+    book = None
+    try:
+        book = xlrd.open_workbook(file_contents=raw, on_demand=True, logfile=StringIO())
+        sheet = book.sheet_by_name('Data')
+        require(8 < sheet.nrows <= 2500 and 13 <= sheet.ncols <= 40, 'CAPE_SHEET_SIZE')
+        require([sheet.cell_value(7, i).strip() for i in (0, 1, 3, 4, 12)] ==
+                ['Date', 'P', 'E', 'CPI', 'CAPE'], 'CAPE_HEADER')
+        months, values, notes = [], [], []
+        last_month = stamp(collected_at).tz_convert('America/New_York').date().replace(day=1)
+        for i in range(8, sheet.nrows):
+            key = sheet.cell_value(i, 0)
+            if key == '':
+                for j in (1, 4, 6):
+                    note = sheet.cell_value(i, j)
+                    require(type(note) is str and len(note) <= 160 and len(notes) < 12, 'CAPE_NOTE')
+                    if note.strip():
+                        notes.append(note.strip())
+                continue
+            require(type(key) is float and math.isfinite(key) and not notes, 'CAPE_MONTH')
+            year = int(key)
+            fraction = (key-year)*100
+            month = round(fraction)
+            require(1871 <= year <= last_month.year and 1 <= month <= 12
+                    and abs(fraction-month) < 1e-6, 'CAPE_MONTH')
+            when = date(year, month, 1)
+            require(when <= last_month and (not months or months[-1] < when), 'CAPE_MONTH_ORDER')
+            value = sheet.cell_value(i, 12)
+            require(value in ('', 'NA', '#N/A') or
+                    (type(value) is float and math.isfinite(value) and value > 0), 'CAPE_VALUE')
+            values.append(value if type(value) is float else np.nan)
+            months.append(when)
+    except (xlrd.XLRDError, CompDocError, StructError, AttributeError, IndexError, OverflowError):
+        raise ValueError('A4_REGIME_CONTEXT_CAPE_INVALID') from None
+    finally:
+        if book is not None:
+            book.release_resources()
+
+    require(bool(months), 'CAPE_NO_ROWS')
+    series = monthly(pd.Series(values, index=pd.PeriodIndex(months, freq='M'), dtype=float))
+    last = series.iloc[-1]
+    prior = series.iloc[-121:-1].dropna()
+    stale = (stamp(cutoff).date() - months[-1]) > timedelta(days=90)
+    status = 'MISSING' if pd.isna(last) else 'STALE' if stale else 'OBSERVED'
+    publisher_notes = [note for note in notes if note]
+    return dict(status=status, observation_month=months[-1].isoformat()[:7],
+        value=float(last) if status == 'OBSERVED' else None,
+        prior_120_month_percentile=float((prior < last).mean()) if status == 'OBSERVED' and len(prior)>=60 else None,
+        prior_month_count=len(prior), available_at=collected_at, collected_at=collected_at, published_at=None,
+        publisher_notes=publisher_notes, source_id='shiller:ie_data', original_sha256=digest(raw),
+        source_uri='https://shillerdata.com/', basis='PUBLISHER_CURRENT_MONTHLY_VINTAGE',
+        historical_pit_certified=False, training_admitted=False)
+
+
+def treasury_three_month(raw, *, collected_at, start, through):
+    """Read the 3-month leg from the already validated nominal Treasury original."""
+    from tools import a4_primary_macro_sources as treasury
+    from tools import free_market_context as f
+    from xml.etree.ElementTree import ParseError
+
+    rows = []
+    property_tag = '{'+treasury.META+'}properties'
+    value_tag = '{'+treasury.DATA+'}BC_3MONTH'
+    date_tag = '{'+treasury.DATA+'}NEW_DATE'
+    null_tag = '{'+treasury.META+'}null'
+    try:
+        for event, element, parents in treasury._xml_events(raw):
+            if event != 'end' or element.tag != '{'+treasury.ATOM+'}entry':
+                continue
+            props = element.find('.//'+property_tag)
+            observed = props.find(date_tag).text[:10]
+            cell = props.find(value_tag)
+            if cell is not None and start <= observed <= through:
+                value = None if cell.get(null_tag) == 'true' else f.number(cell.text)
+                rows.append(dict(observation_date=observed, value=value))
+            element.clear()
+            if len(parents) > 1:
+                parents[-2].remove(element)
+    except (ParseError, AttributeError, TypeError, RuntimeError):
+        raise ValueError('A4_REGIME_CONTEXT_TREASURY_3M_INVALID') from None
+    if not rows:
+        return []
+    original, normalized = digest(raw), digest(encoded(rows))
+    return [dict(row, source_id='ust:DGS3MO', logical_id='yield_3m', unit='percent',
+                 frequency='daily', measurement_basis='PAR_YIELD_CURVE', seasonal_basis='NSA',
+                 family='RATES', max_age_days=7, original_sha256=original, normalized_sha256=normalized,
+                 available_at=collected_at, collected_at=collected_at, published_at=None,
+                 truth_class='PRIMARY_CURRENT_VINTAGE', historical_pit_certified=False) for row in rows]
 
 def lei(monthly_values, diffusion, *, method_version, annualized_threshold):
     """Already-as-of native monthly LEI; no date or proprietary history inference."""

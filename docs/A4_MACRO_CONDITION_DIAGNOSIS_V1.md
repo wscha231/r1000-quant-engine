@@ -73,3 +73,61 @@ slowdown/cessation and reserve-management purchases must remain separate from
 QE episode labels. Repeated days/weeks within a policy episode are not
 independent QE events. QE-start probability stays null until independently
 reviewed event history and out-of-sample calibration exist.
+
+## Market review handoff
+
+`market-analysis-report-v2.review_handoff` carries research context under the
+same request and report hashes. Validate the enclosing report, the expected
+NYSE session and `cutoff <= consumer_clock < expires_at`. Expiry is the earlier
+of the original request expiry and the next NYSE close. A changed source
+version or a later session requires another report and its own evidence.
+Use the request and source receipts with `market_assessment.axes` and
+`native_timing.axis_source_bundle_sha256` to inspect an observed change.
+
+| Horizon | Use |
+| --- | --- |
+| 21 sessions | Review new entry or additions when risk first worsens, or examine normal retention and staged reentry after confirmed improvement. |
+| 63 sessions | Primary selection research with independently reviewed SPY and QQQ horizon evidence. |
+| 126 sessions | Check whether longer evidence supports the thesis. |
+
+The 21-session role is distinct from the private daily benchmark learner's
+21 input features. With decision session D, entry occurs at the next NYSE
+close, D+1. The 21-session outcome matures at D+22, after 21 close-to-close
+intervals. The 63- and 126-session outcomes mature at D+64 and D+127.
+Use the existing daily-direction policy, prepared clocks and fixed journal
+for those benchmark forecasts. Its 504 mature training rows and maturity
+checks still apply. Read SPY/QQQ common session, per-symbol delay and price
+basis from the existing price or preparation receipt. Preserve the first
+available value and its correction lineage. A current-only price archive
+can support retrospective exploration or begin a forward record at the
+actual capture time. Historical PIT still requires independent proof.
+
+The 21-session `candidate` uses adjacent ready Native states. The first
+pending escalation produces `RISK_WORSENING`. Confirmation of that episode
+does not emit a second warning. A lower confirmed state produces
+`RISK_EASING`. A new recovery stage with ready, unpaused guards and no
+worsening produces `REENTRY_REVIEW`. A missing or unready consecutive
+observation keeps the notification blocked. `native_timing` carries the
+separate decision clock, previous state, confirmation and pause flags.
+At 21, 63 and 126, the SPY and QQQ fields reference the existing
+independently reviewed fixed-release rows individually. Missing benchmark
+evidence leaves the direction null with `INSUFFICIENT_EVIDENCE`.
+The benchmark evidence expires at the earlier of the reviewed learning
+policy expiry and the handoff expiry. Use `candidate_key` to deduplicate the
+same candidate on the same session and `request_sha256` to track revisions.
+
+The exposure is a common US equity risk/timing context. Main may resolve
+affected assets only through separately verified exposure edges. The listed
+research alternatives include continuing to hold existing names, comparing
+new exposure and cash, and reviewing staged reentry. Standalone stock and
+cash research can proceed when A4 is unavailable. The handoff provides no
+security weight, order, ledger write, automatic dispatch or exit.
+
+Compare the monthly plus company-event baseline with the same book plus
+the reviewed A4 events, separately for Main and Concentrated. Pin the same
+PIT inputs, calendar, next-close fills and cash treatment. Use 25 basis points
+one way with 50 and 100 for sensitivity. Report net CAGR and maximum drawdown
+against the same matched SPY total return. Report 21-session alert lead time,
+false alarms, reentry delay, recovery duration, rebound participation,
+turnover and retained winners separately. Missing qualified event or return
+histories leave the incremental performance unmeasured.
