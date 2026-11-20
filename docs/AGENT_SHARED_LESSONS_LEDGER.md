@@ -11965,3 +11965,10 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   replace the actual document. Research readback grants no training/ER/portfolio
   authority. Preserve incumbent worktree changes and prepare a private patch
   while a different finite Source lease excludes these Reader paths.
+
+- Independent review reproduced three refusals that incorrectly passed: a
+  valid context plus a missing context, a duplicated context, and a rounded
+  29-digit amount. Require the observed context set to equal unique requested
+  contexts. Decimal.scaleb and unary minus use ambient precision; construct
+  sign/digits/exponent directly to preserve exact scaled amounts. Keep the
+  original failing regressions and rerun normal/optimized original readback.

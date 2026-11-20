@@ -545,3 +545,8 @@ Selected numeric facts must have direct text only: nested markup, ix:exclude,
 continuedAt and unknown transformation namespaces refuse. Concept and unit
 QNames resolve in each element's own namespace scope, including local prefix
 redefinitions; only actual US-GAAP, ISO4217 USD and XBRL shares are accepted.
+
+Each requested fact context must be unique and observed in the original after
+validation; extra missing references cannot accompany a valid context. Numeric
+scale uses the exact Decimal sign/digits/exponent tuple without ambient-context
+rounding, including signed values beyond28 significant digits.

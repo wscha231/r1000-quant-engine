@@ -250,6 +250,43 @@ class SECDateVersionTests(unittest.TestCase):
         self.refuse(self.edit_member(fixture(),b'unitRef="USD">100',
             b'unitRef="USD" xmlns:bad="https://example.invalid/not-transform" format="bad:num-dot-decimal">100'))
 
+
+    def test_requested_context_list_with_missing_context_refuses(self):
+        f=fixture(); f['rows'][1]['context_refs']=['c','missing']; self.refuse(f)
+
+    def test_requested_context_list_with_duplicate_context_refuses(self):
+        f=fixture(); f['rows'][1]['context_refs']=['c','c']; self.refuse(f)
+
+    def long_scaled_fixture(self, requested, scale='6', sign=''):
+        f=fixture()
+        replacement=(b'unitRef="USD" scale="'+scale.encode()+b'"'+
+                     (b' sign="-"' if sign else b'')+
+                     b'>12345678901234567890123456789</ix:nonFraction>')
+        f=self.edit_member(f,b'unitRef="USD">20</ix:nonFraction>',replacement)
+        f['rows'][1]['value']=requested
+        return f
+
+    def test_rounded_29_digit_amount_is_not_the_original_fact(self):
+        self.refuse(self.long_scaled_fixture('1.234567890123456789012345679E+34'))
+
+    def test_exact_29_digit_amount_preserves_every_digit(self):
+        value='12345678901234567890123456789'+'000000'
+        result=self.call(self.long_scaled_fixture(value))
+        self.assertEqual(result.rows[1]['value'],value)
+
+    def test_exact_scale_is_independent_of_decimal_precision(self):
+        from decimal import localcontext
+        value='12345678901234567890123456789'+'000000'
+        with localcontext() as context:
+            context.prec=7
+            result=self.call(self.long_scaled_fixture(value))
+        self.assertEqual(result.rows[1]['value'],value)
+
+    def test_exact_negative_fractional_scale_does_not_round(self):
+        value='-12345678901234567890.123456789'
+        result=self.call(self.long_scaled_fixture(value,scale='-9',sign='-'))
+        self.assertEqual(result.rows[1]['value'],value)
+
     def test_resource_and_duplicate_proof_refuse(self):
         a=seal(fixture()); p=a['proof_objects']
         self.refuse(proof_objects=(p[0],p[0],p[2]))

@@ -103,6 +103,14 @@ def _facts_from_primary(primary, rows, cik):
     check(len(contexts) <= 10000 and len(units) <= 1000, 'SEC_VERSION_RESOURCE')
     expected = {r['tag']: r for r in rows}
     observed = {tag: set() for tag in TAGS}
+    observed_contexts = {tag: set() for tag in TAGS}
+    requested_contexts = {}
+    for tag, row in expected.items():
+        refs = row['context_refs']
+        check(type(refs) is list and 0 < len(refs) <= 8 and
+              all(type(ref) is str for ref in refs) and len(set(refs)) == len(refs),
+              'SEC_VERSION_CONTEXT_SET')
+        requested_contexts[tag] = set(refs)
     for node in tree.findall('.//ix:nonFraction', ns):
         tag = node.get('name', '')
         if not tag.startswith('us-gaap:') or tag.split(':')[-1] not in expected:
@@ -151,11 +159,16 @@ def _facts_from_primary(primary, rows, cik):
               'SEC_VERSION_FACT_FORMAT')
         scale = int(node.get('scale', '0'))
         check(-12 <= scale <= 12, 'SEC_VERSION_FACT_FORMAT')
-        number = Decimal(value.replace(',', '')).scaleb(scale)
-        if node.get('sign') == '-':
-            number = -number
+        # Decimal.scaleb and unary negation apply ambient precision. Rebuild
+        # the coefficient tuple so every original digit survives scaling.
+        coefficient = Decimal(value.replace(',', ''))
+        parts = coefficient.as_tuple()
+        sign = 1 if node.get('sign') == '-' else parts.sign
+        number = Decimal((sign, parts.digits, parts.exponent + scale))
         observed[tag].add(number)
+        observed_contexts[tag].add(node.get('contextRef'))
     for tag, row in expected.items():
+        check(observed_contexts[tag] == requested_contexts[tag], 'SEC_VERSION_CONTEXT_SET')
         check(observed[tag] == {Decimal(row['value'])}, 'SEC_VERSION_FACT_VALUE')
 
 
