@@ -630,6 +630,55 @@ class A1PriceMonitorTests(unittest.TestCase):
         result = a1_prices.evaluate(changed, self.source, cutoff)
         self.assertTrue(all(value is None for value in result["benchmark"]["relative_strength_qqq_vs_spy"].values()))
 
+    def test_breadth_scope_keeps_its_own_checkpoint_and_session(self):
+        prices = {key: value for key, value in self.bundle["prices"].items()
+                  if key not in a1_prices.BENCHMARKS}
+        source = dict(self.source, coverage_updates=dict.fromkeys(prices, self.source["session"]))
+        checkpoint = encoded(source)
+        bundle = dict(self.bundle, schema=a1_prices.BREADTH_BUNDLE, prices=prices,
+                      a1_checkpoint_sha256=digest(checkpoint))
+        body = encoded(bundle)
+        files = {"checkpoint": checkpoint, "bundle": body}
+
+        def reference(name):
+            return dict(file_id=name, sha256=digest(files[name]), bytes=len(files[name]))
+
+        drive = Mock(owner="owner", root_id="root")
+        drive.read.side_effect = lambda name, _: files[name]
+        scope = dict(analysis_folder="analysis", source_journal="journal", owner_sha256=digest(b"owner"),
+                     bundle=reference("bundle"), checkpoint=reference("checkpoint"))
+        def persist(_, folder, raw, extension):
+            self.assertEqual((folder, extension), ("analysis", ".json"))
+            files["report"] = raw
+            return reference("report")
+
+        with patch.object(a1_prices.capture, "persist_object", side_effect=persist):
+            receipt = a1_prices.run(drive, scope, digest(body), cutoff=self.cutoff,
+                                    run_id="12", attempt="1", code_sha="c"*40, verify_lag=True)
+        report = json.loads(files["report"])
+        self.assertEqual(receipt["schema"], "a4-a1-breadth-receipt-v1")
+        self.assertEqual(receipt["report_sha256"], digest(files["report"]))
+        self.assertEqual(receipt["breadth_session"], receipt["expected_session"])
+        self.assertEqual(receipt["lag_sessions"], 0)
+        self.assertTrue(receipt["coverage_ready"])
+        self.assertIsNone(receipt["benchmark"])
+        self.assertFalse(report["native_risk_admitted"])
+        self.assertEqual(report["breadth"]["values"]["pct_above_ma50"], .5)
+        self.assertNotIn("isolated_lag_check", report)
+
+        delayed = a1_prices.evaluate(bundle, source, datetime.fromisoformat("2026-11-19T01:00:00+00:00"))
+        self.assertEqual(delayed["breadth"]["lag_sessions"], 1)
+        self.assertEqual(delayed["breadth"]["status"], "DELAYED")
+        with self.assertRaisesRegex(ValueError, "A4_A1_CHECKPOINT_SCOPE"):
+            a1_prices.evaluate(bundle, self.source, self.cutoff)
+        mixed = dict(prices)
+        mixed["QQQ"] = mixed.pop("S0")
+        with self.assertRaisesRegex(ValueError, "A4_A1_COHORT_OR_SESSIONS"):
+            a1_prices.frames(dict(bundle, prices=mixed))
+        missing = dict(prices, S0=dict(prices["S0"], raw_close=prices["S0"]["raw_close"][:-1] + [None]))
+        with self.assertRaisesRegex(ValueError, "A4_A1_BREADTH_LATEST_MISSING"):
+            a1_prices.frames(dict(bundle, prices=missing))
+
     def test_remote_write_readback_and_metadata_projection(self):
         paths = {"source_file": encoded(self.source)}
         self.bundle["a1_checkpoint_sha256"] = digest(paths["source_file"])

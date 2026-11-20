@@ -19,6 +19,8 @@ from tools.twelve_private_capture import OwnerDrive, decode, digest, encoded, re
 
 BASIS = "ALPACA_SIP_SPLIT_ADJUSTED_USD"
 BENCHMARKS = ("SPY", "QQQ")
+BREADTH_BUNDLE = "a4-a1-breadth-bundle-v1"
+PRICE_BUNDLE = "a4-a1-price-bundle-v1"
 COHORT_SIZE = 606
 HISTORY = 252
 MAX_BUNDLE = 8_000_000
@@ -38,12 +40,14 @@ def read_ref(drive, parent, ref, limit):
 
 
 def frames(bundle):
-    require(bundle.get("schema") == "a4-a1-price-bundle-v1" and bundle.get("price_basis") == BASIS,
+    schema = bundle.get("schema")
+    require(schema in (PRICE_BUNDLE, BREADTH_BUNDLE) and bundle.get("price_basis") == BASIS,
             "A4_A1_BASIS")
+    benchmarks = set(BENCHMARKS) if schema == PRICE_BUNDLE else set()
     days, prices = bundle["sessions"], bundle["prices"]
     require(isinstance(days, list) and len(days) == HISTORY and days == sorted(set(days))
-            and isinstance(prices, dict) and set(BENCHMARKS) <= set(prices)
-            and len(prices) == COHORT_SIZE + len(BENCHMARKS), "A4_A1_COHORT_OR_SESSIONS")
+            and isinstance(prices, dict) and set(BENCHMARKS).intersection(prices) == benchmarks
+            and len(prices) == COHORT_SIZE + len(benchmarks), "A4_A1_COHORT_OR_SESSIONS")
     for ticker, columns in prices.items():
         require(re.fullmatch(r"[A-Z0-9][A-Z0-9.-]{0,14}", ticker)
                 and set(columns) == {"close", "raw_close", "volume"}, "A4_A1_COLUMNS")
@@ -51,6 +55,8 @@ def frames(bundle):
             require(isinstance(vals, list) and len(vals) == HISTORY, "A4_A1_BAR_COUNT")
             require(all(v is None or (type(v) in (float, int) and math.isfinite(v)
                 and (v >= 0 if key == "volume" else v > 0)) for v in vals), "A4_A1_BAR")
+            if schema == BREADTH_BUNDLE:
+                require(vals[-1] is not None, "A4_A1_BREADTH_LATEST_MISSING")
     index = pd.DatetimeIndex(days)
     require(list(index.strftime("%Y-%m-%d")) == days, "A4_A1_DATE_FORMAT")
     return {key: pd.DataFrame({s: cols[key] for s, cols in prices.items()}, index=index, dtype=float)
@@ -106,19 +112,26 @@ def evaluate(bundle, source, cutoff, *, verify_lag=False):
             "A4_A1_NYSE_SESSIONS")
     equities = sorted(set(close.columns) - set(BENCHMARKS))
     contract = decode(native.DEFAULT_CONTRACT.read_bytes())
+    minimum_symbols = contract["history"]["minimum_breadth_symbols"]
     values, counts = native.compute_universe_components(
-        close[equities], data["volume"][equities],
-        contract["history"]["minimum_breadth_symbols"], data["raw_close"][equities])
+        close[equities], data["volume"][equities], minimum_symbols, data["raw_close"][equities])
     values_at_close = {name: None if pd.isna(values[name].iloc[-1]) else float(values[name].iloc[-1])
                        for name in BREADTH}
     breadth = dict(status="CURRENT" if source_day == calendar[-1] else "DELAYED",
                    as_of_session=source["session"], cohort_size=len(equities), values=values_at_close,
                    valid_symbols={name: int(counts[name].iloc[-1]) for name in BREADTH})
-    pair = benchmark_report(close[list(BENCHMARKS)], calendar)
     report = dict(schema="a4-a1-price-report-v1", purpose="PRIVATE_RESEARCH_ONLY",
                   a1_run_id=source["run_id"], a1_checkpoint_sha256=bundle["a1_checkpoint_sha256"],
                   verified_source_readback_sha256=bundle["readback_sha256"], cutoff=cutoff.isoformat(),
-                  price_basis=BASIS, breadth=breadth, benchmark=pair)
+                  price_basis=BASIS, breadth=breadth)
+    if bundle["schema"] == BREADTH_BUNDLE:
+        breadth.update(expected_session=calendar[-1].date().isoformat(),
+                       lag_sessions=len(calendar) - 1 - calendar.get_loc(source_day),
+                       coverage_ready=all(count >= minimum_symbols for count in breadth["valid_symbols"].values()))
+        return dict(report, schema="a4-a1-breadth-report-v1", benchmark=None,
+                    native_risk_admitted=False, historical_pit_certified=False)
+    pair = benchmark_report(close[list(BENCHMARKS)], calendar)
+    report["benchmark"] = pair
     if verify_lag:
         require(pair["common_session"] == source["session"]
                 and pair["latest_session_by_symbol"] == dict.fromkeys(BENCHMARKS, source["session"]),
@@ -150,16 +163,22 @@ def run(drive, scope, pin, *, cutoff, run_id, attempt, code_sha, verify_lag=Fals
     raw = encoded(report)
     ref = capture.persist_object(drive, scope["analysis_folder"], raw, ".json")
     require(read_ref(drive, scope["analysis_folder"], ref, 256_000) == raw, "A4_A1_REPORT_READBACK")
-    return dict(status="PRIVATE_REPORT_READBACK_VERIFIED", run_id=run_id, attempt=attempt,
+    receipt = dict(status="PRIVATE_REPORT_READBACK_VERIFIED", run_id=run_id, attempt=attempt,
                 code_sha=code_sha, report_sha256=ref["sha256"], bundle_sha256=pin,
                 source_checkpoint_sha256=scope["checkpoint"]["sha256"],
                 breadth_symbols=report["breadth"]["valid_symbols"], breadth_status=report["breadth"]["status"],
-                breadth_session=report["breadth"]["as_of_session"],
-                benchmark={k: report["benchmark"][k] for k in
-                    ("status", "expected_session", "common_session", "lag_sessions", "lagging_symbols",
-                     "common_sessions_in_window", "relative_strength_window_status")},
-                relative_strength_horizons=[int(k) for k, v in
-                    report["benchmark"]["relative_strength_qqq_vs_spy"].items() if v is not None],
+                breadth_session=report["breadth"]["as_of_session"])
+    pair = report["benchmark"]
+    if pair is None:
+        breadth = report["breadth"]
+        return dict(receipt, schema="a4-a1-breadth-receipt-v1", price_basis=report["price_basis"],
+                    expected_session=breadth["expected_session"], lag_sessions=breadth["lag_sessions"],
+                    coverage_ready=breadth["coverage_ready"], benchmark=None)
+    return dict(receipt, benchmark={key: pair[key] for key in (
+                    "status", "expected_session", "common_session", "lag_sessions", "lagging_symbols",
+                    "common_sessions_in_window", "relative_strength_window_status")},
+                relative_strength_horizons=[int(key) for key, value in
+                    pair["relative_strength_qqq_vs_spy"].items() if value is not None],
                 isolated_lag_check=report.get("isolated_lag_check"))
 
 

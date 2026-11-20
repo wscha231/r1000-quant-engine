@@ -11938,3 +11938,9 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - Independent review caught a mismatch between bare request symbols in the fixtures and the provider's documented MIC-qualified response symbols. Normalize the qualifier only when it matches the response MIC and the ticker's allowed listing. Cover both forms and reject a conflicting MIC.
 - Kibot's guest history returned 2,736 closes per ETF through 2026-11-18, with both symbols a session behind the current cutoff. Its private research grant is separate from its lack of original release and correction records. Marilux confirmed the same historical clock limitation for its final snapshots. Use these histories for descriptive checks and keep them outside the strict point-in-time lane.
 - The scheduled Native monitor rejected its older session packet and separate credit input. A source archive, even after checksum readback, has a separate role from the accepted Native session and from training admission.
+
+- A bounded update for 606 equities cannot reuse the paired 608-symbol A1
+  checkpoint contract. Bind the breadth calculation to its own complete
+  cohort, calendar and price basis. Preserve separate OHLC benchmark dates
+  and revisions. A current breadth receipt is evidence for one risk axis;
+  the Native packet and historical learning retain their independent gates.
