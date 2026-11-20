@@ -6,6 +6,7 @@ equity effects. Families are never counted as independent risk votes.
 from __future__ import annotations
 
 import math
+import pandas as pd
 from tools import free_market_context as f
 from tools import a4_liquidity_analysis as analysis
 
@@ -183,6 +184,131 @@ def diagnose(report):
     return report
 
 
+def recession_watch(report, *, primary_rows, cape=None, sessions):
+    """Explain observable recession and market-risk inputs by family."""
+    from tools.a4_regime_features import yield_curve
+
+    cutoff = report['cutoff']
+    context = report['existing_market_context']
+    panel = report['macro_direction_inputs']
+    histories = analysis.visible_histories(primary_rows, cutoff)
+    if 'yield_3m' in histories:
+        panel = {**panel, 'yield_3m': analysis.summarize(histories['yield_3m'], cutoff)}
+
+    def point(key, provider_panel=panel):
+        row = provider_panel.get(key, {})
+        if row.get('status') != 'OBSERVED':
+            return None
+        return {k: row[k] for k in (*PROVENANCE, 'value', 'unit', 'changes',
+                  'change_from_previous_observation', 'source_sha256') if k in row}
+
+    def component(value, blocker):
+        return dict(status='OBSERVED' if value is not None else 'DATA_BLOCKED',
+                    evidence=value, blocker=None if value is not None else blocker)
+
+    def family(**parts):
+        count = sum(x['status'] == 'OBSERVED' for x in parts.values())
+        status = 'OBSERVED' if count == len(parts) else 'PARTIAL' if count else 'DATA_BLOCKED'
+        return dict(status=status, components=parts)
+
+    # Require both point estimates on the latest NYSE grid row; leave gaps in
+    # the tails rather than treating an older common observation as current.
+    curve = {}
+    tenors = ('yield_10y','yield_2y','yield_3m')
+    grid = list(sessions[-64:])
+    frame = pd.DataFrame({key: {r['observation_date']: r['value'] for r in histories.get(key, [])}
+                          for key in tenors}, index=grid, dtype=float)
+    frame.index = pd.DatetimeIndex(frame.index)
+    if len(frame):
+        calculated = yield_curve(frame).iloc[-1]
+        for short in ('2y','3m'):
+            prefix = 'curve_10y_'+short
+            long_point, short_point = point('yield_10y'), point('yield_'+short)
+            if (long_point and short_point and long_point['observation_date'] == short_point['observation_date']
+                    == grid[-1] and math.isfinite(calculated[prefix+'_bp'])):
+                prior = frame.iloc[-2] if len(frame) >= 2 else None
+                metrics = {k.removeprefix(prefix+'_'): float(v) if pd.notna(v) else None
+                           for k,v in calculated.items() if k.startswith(prefix+'_')}
+                metrics['complete_lookback_21'] = len(frame)>=22 and bool(frame[['yield_10y','yield_'+short]].iloc[-22:].notna().all().all())
+                metrics['complete_lookback_63'] = len(frame)>=64 and bool(frame[['yield_10y','yield_'+short]].iloc[-64:].notna().all().all())
+                for lookback in (21,63):
+                    if not metrics[f'complete_lookback_{lookback}']:
+                        for key in ('change', 'short_fall', 'long_rise'):
+                            metrics[f'{key}_{lookback}_bp'] = None
+                if prior is None or pd.isna(prior['yield_10y']) or pd.isna(prior['yield_'+short]):
+                    metrics['re_cross'] = None
+                # The bounded frame does not establish how long an inversion
+                # lasted before the start of this context.
+                metrics.pop('inverted_sessions')
+                metrics.pop('sessions_since_re_cross')
+                curve[short] = dict(metrics=metrics, sources=[long_point, short_point])
+
+    labor = point('unemployment')
+    sahm = None
+    missing_months = []
+    if labor and labor['source_id']=='bls:UNRATE':
+        dates = pd.period_range(end=labor['observation_date'],periods=15,freq='M')
+        rows = {pd.Period(r['observation_date'],freq='M'): r for r in histories.get('unemployment', [])}
+        missing_months = [str(d) for d in dates if d not in rows or rows[d]['value'] is None]
+        if not missing_months:
+            values = pd.Series([rows[d]['value'] for d in dates],index=dates)
+            average = values.rolling(3).mean().dropna()
+            gap = round(float(average.iloc[-1]-average.iloc[-13:-1].min()), 10)
+            origins = {rows[d]['original_sha256']: rows[d] for d in dates}
+            sahm = dict(value=gap, unit='percentage_points', threshold=0.50,
+                reaches_threshold=gap>=0.50, observation_month=str(dates[-1]),
+                basis='BLS_CURRENT_VINTAGE_SAHM_PROXY',
+                sources=[{k:r[k] for k in PROVENANCE if k in r} for r in origins.values()],
+                historical_pit_certified=False)
+
+    native_axes = {r['axis']:r for r in report['market_assessment'].get('axes', []) if r.get('axis_ready')}
+    current_native = report['market_assessment']['status']=='READY_RESEARCH_ONLY'
+    broad = [{key: r[key] for key in ('cohort', 'session', 'source_sha256', 'available_at',
+                                     'advancers', 'decliners', 'unchanged', 'missing_return_count')}
+             for r in context.get('price',[]) if r['context_status']=='OBSERVED'
+             and r['advancers']+r['decliners']+r['unchanged'] > 0] if not current_native else []
+    spreads = {key:item for key,item in report['funding']['spreads'].items() if item['status']=='OBSERVED'}
+    lending = report['financing_conditions']['lending_standards']
+    survey = (dict(survey_period=lending['survey_period'], evidence_path='financing_conditions.lending_standards',
+                   basis='SLOOS_BANK_CREDIT_SUPPLY')
+              if lending['status']=='OBSERVED' else None)
+    sahm_component = component(sahm,'FIFTEEN_CONTIGUOUS_BLS_MONTHS_REQUIRED')
+    sahm_component['missing_months'] = missing_months
+    return dict(schema='a4-recession-watch-v1', cutoff=cutoff, session=report['session'],
+        interpretation='OBSERVED_RECESSION_AND_EQUITY_RISK_CONTEXT',
+        recession_probability=None, historical_training_admitted=False,
+        native_risk_status=report['market_assessment']['status'], independent_votes=None,
+        groups=dict(
+            yield_curve=family(ten_year_two_year=component(curve.get('2y'),'CURRENT_MATCHED_TREASURY_10Y_2Y_REQUIRED'),
+                ten_year_three_month=component(curve.get('3m'),'CURRENT_MATCHED_TREASURY_10Y_3M_REQUIRED')),
+            market_internals=family(
+                breadth=component(native_axes.get('market_breadth') or broad or None,'CURRENT_BREADTH_REQUIRED'),
+                trend=component(native_axes.get('trend_drawdown'),'CURRENT_SPY_TREND_REQUIRED'),
+                ad_divergence=component(None,'COMPLETE_DATED_BREADTH_POPULATION_REQUIRED')),
+            credit=family(hy_oas=component(point('hy_oas'),'CURRENT_HY_OAS_REQUIRED'),
+                ig_oas=component(point('ig_oas'),'CURRENT_IG_OAS_REQUIRED'),
+                ccc_hy_gap=component(None,'CCC_SOURCE_RIGHTS_AND_CLOCK_REQUIRED'),
+                lending_standards=component(survey,'CURRENT_SLOOS_SOURCE_REQUIRED')),
+            policy_cycle=family(administered_rate=component(point('iorb',report['funding']['series']),'CURRENT_IORB_REQUIRED'),
+                funding_pressure=component(spreads or None,'MATCHED_FUNDING_SPREADS_REQUIRED'),
+                fomc_cycle=component(None,'VERIFIED_FOMC_ANNOUNCEMENT_SEQUENCE_REQUIRED')),
+            valuation_earnings=family(cape=component(cape if cape and cape['status']=='OBSERVED' else None,
+                'SHILLER_ORIGINAL_REQUIRED' if cape is None else 'SHILLER_'+cape['status']),
+                earnings_revisions=component(None,'DATED_EARNINGS_ESTIMATE_RIGHTS_AND_VINTAGES_REQUIRED')),
+            leading_labor=family(unemployment=component(labor,'CURRENT_UNEMPLOYMENT_REQUIRED'),
+                payrolls=component(point('payrolls'),'CURRENT_PAYROLLS_REQUIRED'),
+                initial_claims=component(point('initial_claims'),'CURRENT_INITIAL_CLAIMS_REQUIRED'),
+                sahm_proxy=sahm_component,
+                official_sahm=component(None,'OFFICIAL_REALTIME_SAHM_SOURCE_REQUIRED'),
+                lei=component(None,'DATED_LEI_DEPTH_DIFFUSION_AND_RIGHTS_REQUIRED')),
+            sector_rotation=family(rotation=component(None,'MATCHED_21_63_SESSION_SECTOR_ETF_HISTORY_REQUIRED')),
+        ),
+        supplemental=dict(
+            vix=component(point('vix_30d',context.get('macro',{})) or native_axes.get('volatility'),
+                          'CURRENT_VIX_SOURCE_REQUIRED'),
+            cnn_fear_greed=component(None,'CNN_HISTORY_RIGHTS_AND_CLOCK_REQUIRED')))
+
+
 def native_review_timing(daily, sentiment, states):
     """Expose the incumbent transition and recovery guards for the latest close."""
     latest = daily.iloc[-1]
@@ -268,7 +394,8 @@ def review_handoff(report, *, expires_at, entry_close_at, release_expires_at=Non
         native_timing=native.get('review_timing'), native_truth_class=native.get('declared_input_truth_class'),
         recovery_stage=native.get('fear_recovery_stage'), horizons=horizons,
         evidence_paths=['market_assessment.axes', 'source_receipts', 'a4_observation_provenance',
-                        'macro_diagnosis.windows', 'financing_conditions', 'candidate_reassessment_snapshot'],
+                        'macro_diagnosis.windows', 'financing_conditions', 'recession_watch',
+                        'candidate_reassessment_snapshot'],
         context_status={key: report.get(key, {}).get('status', 'DATA_BLOCKED')
                         for key in ('funding', 'liquidity', 'bank_credit', 'financing_conditions')},
         exposure=dict(scope='US_EQUITY_COMMON_RISK', channels=['RISK', 'TIMING'],

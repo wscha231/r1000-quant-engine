@@ -3,11 +3,13 @@ import copy
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import Mock, patch
 import pandas as pd
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from tools import a4_macro_diagnosis as d,market_analysis_engine as m
 from tools import a4_liquidity_analysis as a
+from tools import a4_regime_context as regime
 from tests.a4_liquidity_analysis_smoke import rows,NOW,analyze,raw,h10_rows
 
 
@@ -269,6 +271,70 @@ class DiagnosisTests(unittest.TestCase):
         value = handoff()
         self.assertEqual(value['blockers'], ['ENTRY_OR_REQUEST_WINDOW_CLOSED'])
         self.assertIsNone(value['horizons'][1]['benchmarks']['SPY']['direction'])
+
+    def test_recession_report_uses_same_original_for_both_treasury_slopes(self):
+        from tests.a4_primary_macro_sources_smoke import treasury
+        raw = treasury().replace(b'</m:properties>', b'<d:BC_3MONTH>3.5</d:BC_3MONTH></m:properties>')
+        req = dict(schema=m.REQUEST_SCHEMA_V2, market='US', session='2026-11-06',
+                   available_at='2026-11-07T09:00:00Z', expires_at='2026-11-08T09:00:00Z',
+                   inputs=[dict(kind='macro_primary', feed='ust_nominal', path='treasury.xml', sha256=m.sha(raw),
+                       status='COLLECTED', collected_at='2026-11-06T22:00:00Z', observation_start='2026-01-01',
+                       observation_through='2026-11-06', source_request_year=2026)])
+        body = m.context.encoded(req)
+        report = m.analyze(body, {'treasury.xml':raw}, expected_sha=m.sha(body), cutoff=NOW, session=req['session'])
+        watch = report['recession_watch']
+        slopes = watch['groups']['yield_curve']['components']
+        self.assertAlmostEqual(slopes['ten_year_two_year']['evidence']['metrics']['bp'], 20)
+        short = slopes['ten_year_three_month']['evidence']
+        self.assertAlmostEqual(short['metrics']['bp'], 70)
+        self.assertIsNone(short['metrics']['re_cross'])
+        self.assertIsNone(short['metrics']['change_21_bp'])
+        self.assertEqual({point['original_sha256'] for point in short['sources']}, {m.sha(raw)})
+        self.assertTrue(all(point['published_at'] is None for point in short['sources']))
+        self.assertEqual(len(watch['groups']), 7)
+        self.assertIsNone(watch['recession_probability'])
+        self.assertEqual(report['review_handoff']['status'], 'DATA_BLOCKED')
+
+    def test_sahm_proxy_requires_every_month_from_visible_bls(self):
+        report = analyze([])
+        dates = pd.period_range('2025-08', '2026-10', freq='M')
+        observations = rows('UNRATE', [(d.start_time.date().isoformat(), 4 if i<12 else 5)
+                                       for i,d in enumerate(dates)])
+        for obs in observations:
+            obs['source_id'] = 'bls:UNRATE'
+        report['macro_direction_inputs']['unemployment'] = a.summarize(observations, NOW)
+        get_proxy = lambda rows: d.recession_watch(report, primary_rows=rows, sessions=['2026-11-06']
+            )['groups']['leading_labor']['components']['sahm_proxy']
+        self.assertEqual(get_proxy(observations)['evidence']['value'], 1.0)
+        self.assertTrue(get_proxy(observations)['evidence']['reaches_threshold'])
+        obs = dict(observations[2], value=None)
+        value = get_proxy([*observations[:2], obs, *observations[3:]])
+        self.assertEqual(value['status'], 'DATA_BLOCKED')
+        self.assertEqual(value['missing_months'], ['2025-10'])
+
+    def test_cape_rejects_future_capture_and_preserves_publisher_notes_and_null_latest(self):
+        sheet = Mock(nrows=11, ncols=16)
+        headers = {0:'Date', 1:'P', 3:'E', 4:'CPI', 12:'CAPE'}
+        cells = {(7,i): label for i,label in headers.items()}
+        cells.update({(8,0):2026.09, (8,12):40.0, (9,0):2026.10, (9,12):39.5,
+                      (10,1):'Price is partial', (10,4):'Latest CPI estimated'})
+        sheet.cell_value.side_effect = lambda i,j: cells.get((i,j),'')
+        raw = bytes.fromhex('D0CF11E0A1B11AE1') + b'fixture'
+        book = Mock()
+        book.sheet_by_name.return_value = sheet
+        with patch('xlrd.open_workbook', return_value=book):
+            value = regime.shiller_workbook(raw, collected_at=NOW, cutoff=NOW)
+            self.assertEqual(value['value'], 39.5)
+            self.assertEqual(value['observation_month'], '2026-10')
+            self.assertEqual(value['publisher_notes'], ['Price is partial','Latest CPI estimated'])
+            self.assertFalse(value['historical_pit_certified'])
+            self.assertIsNone(value['published_at'])
+            cells[(9,12)] = ''
+            missed = regime.shiller_workbook(raw, collected_at=NOW, cutoff=NOW)
+            self.assertEqual(missed['status'], 'MISSING')
+            self.assertIsNone(missed['value'])
+        with self.assertRaisesRegex(ValueError, 'CAPE_CLOCK'):
+            regime.shiller_workbook(raw, collected_at=NOW, cutoff='2026-11-07T00:00:00Z')
 
 
 if __name__=='__main__':unittest.main()

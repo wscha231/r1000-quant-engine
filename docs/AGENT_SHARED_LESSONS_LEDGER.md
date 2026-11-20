@@ -1,5 +1,17 @@
 # Agent Shared Lessons Ledger
 
+### 2026-11-20 KST - Keep recession observations on their own capture clocks
+
+- Both Treasury slopes are available from a matched original. Preserve the
+  exchange grid when testing crossings and prior moves. The supplemental
+  three-month parser does not change legacy source generations.
+- October 2025 unemployment is null in the BLS original used for the
+  November 18 report. Leave the 15-month Sahm proxy blocked, and retain
+  the official realtime Sahm series as a separate input requirement.
+- The original Shiller workbook retains partial-month price and CPI estimate
+  notes. Bind the CAPE value to the actual later download clock and preserve
+  the difference between a one-time observation and historical PIT.
+
 ### 2026-11-20 KST - Keep settlement horizons and market review actions distinct
 
 - The 21-session Native observation can request a review at the first pending

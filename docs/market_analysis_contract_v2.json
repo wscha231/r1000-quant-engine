@@ -8,7 +8,7 @@
   "native_risk_contract": "docs/run287_chameleon_macro_risk_contract.json",
   "risk_rules_changed": false,
   "input_limits": {"max_inputs": 64, "max_request_bytes": 262144, "max_file_bytes": 8388608, "max_total_bytes": 67108864, "max_native_metric_bytes": 33554432},
-  "new_input_kinds": ["macro_v2", "macro_primary", "financing_primary", "learning_release"],
+  "new_input_kinds": ["macro_v2", "macro_primary", "financing_primary", "valuation_cape", "learning_release"],
   "macro_primary": {
     "producer": "tools/collect_a4_primary_data.py",
     "normalizer_reader": "tools/a4_primary_sources.py",
@@ -73,6 +73,7 @@
   "macro_condition_diagnosis": "docs/A4_MACRO_CONDITION_DIAGNOSIS_V1.md; descriptive family pressures and completion blockers; no calibrated equity-return direction or native-risk override",
   "benchmark_direction_research": "SPY S&P500 and QQQ Nasdaq100 ETF proxies; seven separate horizons, absolute released-return sign versus relative macro contribution, per-feature OOS hit rate/baseline/BY evidence; no weighted return or calibrated up probability; original14-target family retained",
   "review_handoff": {"field": "review_handoff", "schema": "a4-market-review-handoff-v1", "roles_sessions": {"entry_warning_and_review": 21, "primary_selection_research": 63, "persistence_research": 126}, "authority": "RESEARCH_CONTEXT_ONLY", "entry": "Next NYSE close", "maturity": "H close-to-close intervals after entry", "expiry": "Earlier of the input request expiry and the next NYSE close", "missing_effect": "Keep independent stock and cash research available", "consumer_contract": "docs/A4_MACRO_CONDITION_DIAGNOSIS_V1.md"},
+  "recession_watch": {"field": "recession_watch", "schema": "a4-recession-watch-v1", "authority": "RESEARCH_CONTEXT_ONLY", "source_contract": "docs/A4_REGIME_RESEARCH_V1.md", "cape_source_id": "shiller:ie_data", "cape_max_bytes": 4194304, "changes_risk_readiness": false, "training_admitted": false},
   "review_comparison": {"books": ["MAIN", "CONCENTRATED"], "baseline": "MONTH_END_AND_COMPANY_EVENTS", "candidate": "SAME_BASELINE_WITH_REVIEWED_A4_EVENTS", "cost_bps_one_way": [25, 50, 100], "benchmark": "MATCHED_SPY_TOTAL_RETURN", "shared": ["PIT_INPUTS", "NYSE_CALENDAR", "NEXT_CLOSE_FILLS", "CASH_POLICY", "STARTING_LEDGER"], "metrics": ["NET_CAGR", "MAX_DRAWDOWN", "ALERT_LEAD_SESSIONS", "FALSE_ALARMS", "REENTRY_DELAY_SESSIONS", "RECOVERY_SESSIONS", "REBOUND_PARTICIPATION", "TURNOVER", "WINNER_RETENTION"]},
   "qe_research_context": "Official dated policy/implementation evidence and independent policy episodes required; reserve or asset growth, TGA changes, rate cuts and QT cessation alone do not certify QE; no fitted QE likelihood from current balance context",
   "source_register": "tools/a4_liquidity_analysis.py:SERIES",

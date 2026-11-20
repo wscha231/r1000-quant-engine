@@ -107,7 +107,10 @@ def verify_request(raw, expected_sha, cutoff, session):
         if kind in {"macro", "macro_v2"}:
             need(type(spec.get("source_id")) is str, "MACRO_SOURCE_ID_REQUIRED")
         kinds = {"macro", "cot_tff", "price_context", "sce_export", "risk_metrics", "risk_calendar", "risk_context"}
-        need(kind in kinds or (v2 and kind in {"macro_v2", "macro_primary", "financing_primary", "learning_release", "learning_original"}), "INPUT_KIND")
+        need(kind in kinds or (v2 and kind in {"macro_v2", "macro_primary", "financing_primary", "valuation_cape",
+                                               "learning_release", "learning_original"}), "INPUT_KIND")
+        if kind == "valuation_cape":
+            need(spec.get("source_id") == "shiller:ie_data", "CAPE_SOURCE_IDENTITY")
         if kind == 'financing_primary':
             from tools.a4_financing_sources import FEEDS as FINANCING_FEEDS
             need(spec.get('feed') in FINANCING_FEEDS and type(spec.get('observation_through')) is str,
@@ -207,6 +210,8 @@ def native_risk(blobs, session, cutoff, *, include_review_timing=False):
 
 
 def input_limit(spec):
+    if spec['kind'] == 'valuation_cape':
+        return 4 * 1024**2
     if spec['kind']=='financing_primary':
         from tools.a4_financing_sources import input_limit as financing_limit
         return financing_limit(spec['feed'])
@@ -225,7 +230,8 @@ def analyze(raw_request, supplied, *, expected_sha, cutoff, session):
     enhanced_originals = []
     primary_rows = []
     financing_rows = []
-    learning_release = None
+    learning_release, cape = None, None
+    treasury_3m = []
     need(all(type(x) is bytes for x in supplied.values()), "INPUT_BYTES_TYPE")
     need(sum(len(x) for x in supplied.values()) <= MAX_TOTAL_BYTES, "TOTAL_INPUT_BUDGET")
     for spec in req["inputs"]:
@@ -249,6 +255,10 @@ def analyze(raw_request, supplied, *, expected_sha, cutoff, session):
             parameters=dict(request_year=spec.get('source_request_year')) if adapter is economic else {}
             records, _ = normalize(raw, spec["feed"], collected_at=collected,
                 start=spec["observation_start"], through=spec["observation_through"],**parameters)
+            if spec['feed'] == 'ust_nominal':
+                from tools.a4_regime_context import treasury_three_month
+                treasury_3m = treasury_three_month(raw, collected_at=collected,
+                    start=spec['observation_start'], through=spec['observation_through'])
             need(len(primary_rows)+len(financing_rows)+len(records) <= 150000, "A4_OBSERVATION_BUDGET")
             primary_rows.extend(records)
         elif kind == 'financing_primary':
@@ -260,6 +270,9 @@ def analyze(raw_request, supplied, *, expected_sha, cutoff, session):
             financing_rows.extend(records)
         elif kind == "learning_release":
             learning_release = (raw, spec)
+        elif kind == "valuation_cape":
+            from tools.a4_regime_context import shiller_workbook
+            cape = shiller_workbook(raw, collected_at=collected, cutoff=cutoff)
         elif kind == 'learning_original':
             pass  # Hash-bound original only; never a current risk operand.
         elif kind == "cot_tff":
@@ -331,14 +344,19 @@ def analyze(raw_request, supplied, *, expected_sha, cutoff, session):
             learning.forecast_release(result, release["trial"], release["policy"], spec["policy_sha256"],**options)
             release_expires_at = release["policy"]["expires_at"]
             result.pop("content_sha256", None)
-        from tools.a4_macro_diagnosis import diagnose, review_handoff
+        from tools.a4_macro_diagnosis import diagnose, recession_watch, review_handoff
         diagnose(result)
         decision = free.iso_date(session)
         schedule = clock.mcal.get_calendar("NYSE").schedule(
-            start_date=decision, end_date=decision + timedelta(days=14))
-        need(len(schedule) >= 2 and schedule.index[0].date() == decision, "A4_REVIEW_ENTRY_CALENDAR")
+            start_date=decision-timedelta(days=120), end_date=decision+timedelta(days=14))
+        current = schedule.loc[:session]
+        following = schedule.loc[schedule.index > pd.Timestamp(decision)]
+        need(not current.empty and current.index[-1].date() == decision and not following.empty,
+             "A4_REVIEW_ENTRY_CALENDAR")
+        result["recession_watch"] = recession_watch(result, primary_rows=[*primary_rows,*treasury_3m], cape=cape,
+            sessions=current.index.strftime("%Y-%m-%d").tolist())
         result["review_handoff"] = review_handoff(result, expires_at=req["expires_at"],
-            entry_close_at=schedule.market_close.iloc[1].isoformat(), release_expires_at=release_expires_at)
+            entry_close_at=following.market_close.iloc[0].isoformat(), release_expires_at=release_expires_at)
     result["content_sha256"] = context.digest(result)
     return result
 
@@ -384,9 +402,10 @@ def implementation_identity():
     paths.append(Path(a4_primary_macro_sources.__file__))
     from tools import a4_financing_sources,a4_financing_analysis
     paths.extend([Path(a4_financing_sources.__file__),Path(a4_financing_analysis.__file__)])
-    from tools import a4_macro_diagnosis
-    paths.append(Path(a4_macro_diagnosis.__file__))
+    from tools import a4_macro_diagnosis, a4_regime_context, a4_regime_features
+    paths.extend(Path(module.__file__) for module in (a4_macro_diagnosis, a4_regime_context, a4_regime_features))
     paths.append(CONTRACT_PATH.with_name('A4_MACRO_CONDITION_DIAGNOSIS_V1.md'))
+    paths.append(CONTRACT_PATH.with_name('A4_REGIME_RESEARCH_V1.md'))
     return {p.name: sha(bounded(p, MAX_FILE_BYTES)) for p in paths}
 
 
@@ -511,6 +530,16 @@ def render_report(value):
                 spy, qqq = (row['benchmarks'][target] for target in ('SPY', 'QQQ'))
                 lines.append(f"| {row['horizon_sessions']} | {row['role']} | "
                              f"{spy['direction'] or spy['status']} | {qqq['direction'] or qqq['status']} |")
+        if watch := value.get('recession_watch'):
+            lines += ['', '## Recession and market-risk observations', '',
+                '| Indicator group | Coverage | Open evidence requirements |', '| --- | --- | --- |']
+            for name, family in watch['groups'].items():
+                blockers = ', '.join(row['blocker'] for row in family['components'].values() if row['blocker'])
+                lines.append(f"| {name} | {family['status']} | {blockers} |")
+            cape = watch['groups']['valuation_earnings']['components']['cape']['evidence']
+            if cape is not None:
+                lines += ['', f"Shiller CAPE {cape['value']:.2f} for {cape['observation_month']}.",
+                          'Actual capture '+cape['available_at']+'.']
         if value.get('benchmark_outlook'):
             lines += ['', '## Benchmark direction research', '',
                 'SPY proxies the S&P 500; QQQ proxies the Nasdaq-100, not the Nasdaq Composite.',
