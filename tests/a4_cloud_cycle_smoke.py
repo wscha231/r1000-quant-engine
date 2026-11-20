@@ -141,6 +141,80 @@ class CloudTests(unittest.TestCase):
         self.assertIsNotNone(binary,'Bash is required for the hosted shell regressions')
         return binary
 
+    def test_failed_current_preparation_runs_a_fresh_blocked_diagnostic(self):
+        step=next(s for s in self.hosted_steps() if s.get('id')=='daily_crisis')
+        script=re.sub(r'\$\{\{\s*github.run_id\s*\}\}','123',step['run'])
+        script=re.sub(r'\$\{\{\s*github.run_attempt\s*\}\}','1',script)
+        prefix='python() { printf "%s\\n" "$@" > invoked-args.txt; return 2; }\n'
+        cases=[({},False,'outputs/market_analysis_inputs'),
+            (dict(NATIVE_REQUIRED='true',NATIVE_OUTCOME='failure',A4_NATIVE_INPUT_ROOT='attempt/native'),True,'attempt/native'),
+            (dict(NATIVE_REQUIRED='true',NATIVE_OUTCOME='skipped',A4_NATIVE_INPUT_ROOT='attempt/native'),True,'attempt/native'),
+            (dict(PRIMARY_REQUIRED='true',PRIMARY_OUTCOME='failure',A4_INPUT_ROOT='attempt/primary'),True,'attempt/primary'),
+            (dict(PRIMARY_REQUIRED='true',PRIMARY_OUTCOME='success',DATA_CENTER_OUTCOME='failure',A4_INPUT_ROOT='attempt/center'),True,'attempt/center'),
+            (dict(NATIVE_REQUIRED='true',NATIVE_OUTCOME='success',PRIMARY_REQUIRED='true',
+                  PRIMARY_OUTCOME='success',DATA_CENTER_OUTCOME='success',A4_INPUT_ROOT='attempt/center'),False,'attempt/center')]
+        for fields,blocked,expected_root in cases:
+            with self.subTest(fields=fields),tempfile.TemporaryDirectory() as folder:
+                root=Path(folder);reports=root/'outputs/daily_crisis_monitor';reports.mkdir(parents=True)
+                for name in ('summary.json','crisis_action_status.md'):(reports/name).write_bytes(b'OLD_SUCCESS')
+                history=reports/'state_history.json';history.write_bytes(b'ORIGINAL_HISTORY')
+                clean={k:v for k,v in os.environ.items() if not k.startswith(('A4_','NATIVE_','PRIMARY_','DATA_CENTER_'))}
+                result=subprocess.run([self.shell_binary(),'-c',prefix+script],cwd=root,
+                    env={**clean,**fields},capture_output=True,text=True,timeout=15)
+                self.assertEqual(result.returncode,2)
+                args=(root/'invoked-args.txt').read_text().splitlines()
+                self.assertEqual('--market-analysis-upstream-blocked' in args,blocked)
+                self.assertEqual(args[args.index('--market-analysis-root')+1],expected_root)
+                self.assertFalse((reports/'summary.json').exists())
+                self.assertFalse((reports/'crisis_action_status.md').exists())
+                self.assertEqual(history.read_bytes(),b'ORIGINAL_HISTORY')
+
+    def test_current_diagnostic_sync_checks_readback_and_excludes_blocked_history(self):
+        from tools.run_daily_crisis_monitor import render_report
+        step=next(s for s in self.hosted_steps() if s['name']=='Sync daily crisis status to Google Drive')
+        prefix='''timeout() { shift; "$@"; }
+python() { "$FIXTURE_PYTHON" "$@"; }
+rclone() {
+  printf '%s\\n' "$*" >> invoked-sync.txt
+  if [ "$1" = copy ]; then return "$COPY_EXIT"; fi
+  return "$CHECK_EXIT"
+}
+'''
+        cases=[('failure',0,0,False,0,'valid'),('success',0,0,True,0,'valid'),
+               ('failure',1,0,False,1,'valid'),('failure',0,1,False,1,'valid'),
+               ('failure',0,0,False,1,'truncated_json'),('failure',0,0,False,1,'mismatched_markdown'),
+               ('failure',0,0,False,1,'wrong_schema'),('failure',0,0,False,1,'wrong_type')]
+        for outcome,copy_exit,check_exit,history_included,exit_code,mode in cases:
+            with self.subTest(outcome=outcome,copy=copy_exit,check=check_exit,mode=mode),tempfile.TemporaryDirectory() as folder:
+                root=Path(folder);reports=root/'outputs/daily_crisis_monitor';reports.mkdir(parents=True)
+                payload=dict(schema_version='daily-crisis-monitor-v2',current_report_status='BLOCKED',
+                    data_health='DATA_BLOCKED',state=None,blockers=['CURRENT_A4_UPSTREAM_BLOCKED'],
+                    research_only=True,auto_trade_allowed=False,paper_action_candidates=[])
+                markdown=render_report(payload).encode('utf-8')
+                if mode=='wrong_schema':payload['schema_version']='unexpected'
+                summary=b'{"state":' if mode=='truncated_json' else json.dumps([] if mode=='wrong_type' else payload).encode()
+                (reports/'summary.json').write_bytes(summary)
+                (reports/'crisis_action_status.md').write_bytes(b'OLD_SUCCESS' if mode=='mismatched_markdown' else markdown)
+                (reports/'state_history.json').write_bytes(b'ORIGINAL_HISTORY')
+                result=subprocess.run([self.shell_binary(),'-c',prefix+step['run']],cwd=root,
+                    env={**os.environ,'GDRIVE_READY':'yes','GDRIVE_ROOT_FOLDER_ID':'',
+                         'GDRIVE_FOLDER_NAME':'fixture','DAILY_MONITOR_OUTCOME':outcome,
+                         'FIXTURE_PYTHON':sys.executable,'PYTHONPATH':str(ROOT),
+                         'COPY_EXIT':str(copy_exit),'CHECK_EXIT':str(check_exit)},capture_output=True,text=True,timeout=15)
+                self.assertEqual(result.returncode,exit_code,result.stderr)
+                self.assertEqual((reports/'state_history.json').read_bytes(),b'ORIGINAL_HISTORY')
+                if mode!='valid':
+                    self.assertFalse((root/'invoked-sync.txt').exists())
+                    self.assertIn('incomplete current diagnostic; sync refused',result.stderr)
+                    continue
+                calls=(root/'invoked-sync.txt').read_text().splitlines()
+                self.assertEqual(len(calls),1 if copy_exit else 2)
+                for call in calls:
+                    self.assertIn('--include /summary.json',call)
+                    self.assertIn('--include /crisis_action_status.md',call)
+                    self.assertEqual('--include /state_history.json' in call,history_included)
+                if not copy_exit:self.assertIn('--one-way',calls[-1])
+
     def hosted_steps(self):
         workflow=yaml.safe_load((ROOT/'.github/workflows/daily_crisis_monitor.yml').read_text(encoding='utf-8'))
         return workflow['jobs']['monitor']['steps']
