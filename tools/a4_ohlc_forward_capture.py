@@ -56,9 +56,13 @@ def validate_response(raw, sessions, cutoff):
     instruments = {}
     seen = set()
     for row in doc['data']:
-        symbol, day = row['symbol'], row['date']
+        listed_symbol, day = row['symbol'], row['date']
+        mic = row['exchange_mic']
+        require(isinstance(listed_symbol, str), 'A4_OHLC_BAR_IDENTITY')
+        qualifier, separator, symbol = listed_symbol.rpartition(':')
         identity = row['instrument_id']
-        require(symbol in SYMBOLS and day in sessions and row['exchange_mic'] in LISTINGS[symbol]
+        require(symbol in LISTINGS and mic in LISTINGS[symbol]
+                and (not separator or qualifier == mic) and day in sessions
                 and type(identity) is str and ID.fullmatch(identity)
                 and instruments.setdefault(symbol, identity) == identity
                 and row['currency_code']=='USD' and row['adjustment']=='raw'

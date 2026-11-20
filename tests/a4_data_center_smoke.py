@@ -668,8 +668,9 @@ class OHLCForwardTests(unittest.TestCase):
         self.latest = next(reversed(self.sessions))
 
     def row(self, symbol, date, minute=5, *, close='100.0'):
-        return dict(symbol=symbol, date=date, currency_code='USD', adjustment='raw',
-                    exchange_mic='ARCX' if symbol=='SPY' else 'XNAS',
+        mic = 'ARCX' if symbol == 'SPY' else 'XNAS'
+        return dict(symbol=f'{mic}:{symbol}', date=date, currency_code='USD', adjustment='raw',
+                    exchange_mic=mic,
                     instrument_id=self.symbols[symbol], revision_id=symbol+'-'+date+'-'+str(minute),
                     published_at=(self.sessions[date]+timedelta(minutes=minute)).isoformat(),close=close)
 
@@ -684,11 +685,15 @@ class OHLCForwardTests(unittest.TestCase):
         early = ohlc.session_window(ohlc.utc('2026-11-27T18:01:00Z'))
         self.assertEqual(early['2026-11-27'],ohlc.utc('2026-11-27T18:00:00Z'))
         sample = self.row('SPY', self.latest)
-        for row in (dict(sample, exchange_mic='XNYS'), dict(sample, adjustment='total_return'),
+        for row in (dict(sample, exchange_mic='XNYS'), dict(sample, symbol='XNYS:SPY'),
+                    dict(sample, symbol=':SPY'), dict(sample, adjustment='total_return'),
                     dict(sample, published_at='2026-11-20T20:57:00Z'),
                     dict(sample, published_at='2026-11-20T22:31:00Z')):
             with self.assertRaises(ValueError):
                 ohlc.validate_response(self.raw([row]), self.sessions, self.now)
+        bare = dict(sample, symbol='SPY')
+        normalized, _ = ohlc.validate_response(self.raw([bare]), self.sessions, self.now)
+        self.assertIn(self.latest, normalized['SPY'])
         with self.assertRaisesRegex(ValueError,'REPLY_SCOPE'):
             ohlc.validate_response(self.raw([sample], next_cursor='opaque'), self.sessions,self.now)
         with self.assertRaisesRegex(ValueError,'CONFLICTING_PUBLICATION'):
