@@ -100,7 +100,8 @@ def _pre_fit_source_bindings(requests, universe, schema):
     price_instruments = set()
     issuer_instruments = {}
     instrument_owners = {}
-    for member in universe.values():
+    price_owners = {}
+    for (feature_date, _), member in universe.items():
         ids = member["reader_instrument_ids"]
         issuer = member["issuer_id"]
         price_instruments.add(ids["prices"])
@@ -108,6 +109,8 @@ def _pre_fit_source_bindings(requests, universe, schema):
         if scoped:
             owner = instrument_owners.setdefault(ids["financial"], issuer)
             _binding_need(owner == issuer, "financial_instrument_issuer_conflict")
+            price_owner = price_owners.setdefault((feature_date, ids["prices"]), issuer)
+            _binding_need(price_owner == issuer, "price_instrument_issuer_conflict")
 
     price_hash = None
     price_generation = None

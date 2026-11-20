@@ -1437,6 +1437,15 @@ def test_pre_fit_separate_issuer_generations():
         _pre_fit_check("financial_instrument_issuer_conflict" in str(exc), str(exc))
     else:
         raise AssertionError("cross-issuer financial instrument accepted")
+    shared_price = copy.deepcopy(keyed)
+    first, second = list(shared_price)[:2]
+    shared_price[second]["reader_instrument_ids"]["prices"] = shared_price[first]["reader_instrument_ids"]["prices"]
+    try:
+        sources(requests, shared_price)
+    except ValueError as exc:
+        _pre_fit_check("price_instrument_issuer_conflict" in str(exc), str(exc))
+    else:
+        raise AssertionError("one price instrument used for two issuers on the same date")
     try:
         MOD.replay_pre_fit_training_sources(result, ".")
     except ValueError as exc:
