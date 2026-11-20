@@ -374,18 +374,34 @@ jobs:
 
       - name: Run daily crisis monitor
         id: daily_crisis
-        if: (vars.A4_NATIVE_SOURCE_MANIFEST_SHA256 == '' && vars.A4_CREDIT_REQUEST_SHA256 == '') || steps.a4_native_prepare.outcome == 'success'
+        if: ${{ !cancelled() }}
+        env:
+          NATIVE_REQUIRED: ${{ vars.A4_NATIVE_SOURCE_MANIFEST_SHA256 != '' || vars.A4_CREDIT_REQUEST_SHA256 != '' }}
+          NATIVE_OUTCOME: ${{ steps.a4_native_prepare.outcome }}
+          PRIMARY_REQUIRED: ${{ vars.A4_PRIMARY_COLLECTION_ENABLED }}
+          PRIMARY_OUTCOME: ${{ steps.a4_primary_collect.outcome }}
+          DATA_CENTER_OUTCOME: ${{ steps.a4_data_center.outcome }}
         run: |
           set -euo pipefail
           mkdir -p outputs/daily_crisis_monitor
+          # Only these generated local reports are replaced. Never delete or
+          # republish an old history as the result of a blocked attempt.
+          rm -f outputs/daily_crisis_monitor/summary.json outputs/daily_crisis_monitor/crisis_action_status.md
+          health_args=()
+          if { [ "${NATIVE_REQUIRED:-false}" = true ] && [ "${NATIVE_OUTCOME:-}" != success ]; } ||
+             { [ "${PRIMARY_REQUIRED:-false}" = true ] && { [ "${PRIMARY_OUTCOME:-}" != success ] || [ "${DATA_CENTER_OUTCOME:-}" != success ]; }; }; then
+            health_args+=(--market-analysis-upstream-blocked)
+          fi
+          # A failed preparation has an attempted root, never a restored success.
+          INPUT_ROOT="${A4_INPUT_ROOT:-${A4_NATIVE_INPUT_ROOT:-outputs/market_analysis_inputs}}"
           # Keep legacy state/financial output in the existing private sync tree.
           python tools/run_daily_crisis_monitor.py \
             --latest-run outputs \
             --output-dir outputs/daily_crisis_monitor \
-            --market-analysis-request "${A4_INPUT_ROOT:-outputs/market_analysis_inputs}/request.json" \
-            --market-analysis-root "${A4_INPUT_ROOT:-outputs/market_analysis_inputs}" \
-            --market-analysis-request-sha-file "${A4_INPUT_ROOT:-outputs/market_analysis_inputs}/request.sha256" \
-            --update-history > "outputs/daily_crisis_monitor/console-${{ github.run_id }}-${{ github.run_attempt }}.log" 2>&1
+            --market-analysis-request "$INPUT_ROOT/request.json" \
+            --market-analysis-root "$INPUT_ROOT" \
+            --market-analysis-request-sha-file "$INPUT_ROOT/request.sha256" \
+            --update-history "${health_args[@]}" > "outputs/daily_crisis_monitor/console-${{ github.run_id }}-${{ github.run_attempt }}.log" 2>&1
 
       - name: Build public A4 metadata receipts
         id: a4_public_receipts
@@ -404,7 +420,7 @@ jobs:
             --attempt "${{ github.run_id }}-${{ github.run_attempt }}" --code-sha "$GITHUB_SHA"
 
       - name: Upload daily crisis artifact
-        if: always() && steps.a4_public_receipts.outcome == 'success' && ((vars.A4_NATIVE_SOURCE_MANIFEST_SHA256 == '' && vars.A4_CREDIT_REQUEST_SHA256 == '') || steps.a4_native_prepare.outcome == 'success')
+        if: always() && steps.a4_public_receipts.outcome == 'success' && steps.daily_crisis.outcome != 'skipped'
         uses: actions/upload-artifact@v4
         with:
           name: daily-crisis-monitor-${{ github.run_id }}
@@ -452,21 +468,46 @@ jobs:
           retention-days: 30
 
       - name: Sync daily crisis status to Google Drive
-        if: always() && ((vars.A4_NATIVE_SOURCE_MANIFEST_SHA256 == '' && vars.A4_CREDIT_REQUEST_SHA256 == '') || steps.a4_native_prepare.outcome == 'success')
+        if: ${{ !cancelled() && steps.daily_crisis.outcome != 'skipped' }}
         env:
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
           GDRIVE_FOLDER_NAME: r1000_top30_institutional
+          DAILY_MONITOR_OUTCOME: ${{ steps.daily_crisis.outcome }}
         run: |
+          set -euo pipefail
+          test -s outputs/daily_crisis_monitor/summary.json
+          test -s outputs/daily_crisis_monitor/crisis_action_status.md
+          # A killed writer can leave two nonempty but incomplete files.
+          # Publish only a decodable report and its exact current rendering.
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from tools.run_daily_crisis_monitor import render_report
+          root = Path("outputs/daily_crisis_monitor")
+          try:
+              payload = json.loads((root / "summary.json").read_bytes())
+              if not isinstance(payload, dict) or payload.get("schema_version") != "daily-crisis-monitor-v2":
+                  raise ValueError("schema")
+              if render_report(payload).encode("utf-8") != (root / "crisis_action_status.md").read_bytes():
+                  raise ValueError("report pair")
+          except (OSError, ValueError, TypeError, AttributeError, KeyError):
+              raise SystemExit("[daily-crisis] incomplete current diagnostic; sync refused") from None
+          PY
           if [ "${GDRIVE_READY:-no}" != "yes" ] || ! command -v rclone >/dev/null 2>&1; then
-            echo "[daily-crisis] gdrive unavailable; skip sync"
-            exit 0
+            echo "[daily-crisis] current diagnostic readback unavailable" >&2
+            exit 2
           fi
           if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
             DEST="gdrive:daily_crisis_monitor"
           else
             DEST="gdrive:${GDRIVE_FOLDER_NAME}/daily_crisis_monitor"
           fi
-          rclone copy outputs/daily_crisis_monitor "$DEST/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
+          files=(--include /summary.json --include /crisis_action_status.md)
+          if [ "${DAILY_MONITOR_OUTCOME:-}" = success ] && [ -f outputs/daily_crisis_monitor/state_history.json ]; then
+            files+=(--include /state_history.json)
+          fi
+          timeout 5m rclone copy outputs/daily_crisis_monitor "$DEST/" "${files[@]}" --checksum --transfers 2 --checkers 2 --stats 30s --stats-one-line
+          timeout 2m rclone check outputs/daily_crisis_monitor "$DEST/" "${files[@]}" --one-way --checkers 2
 
       - name: Require A4 computation and durable readback
         if: always() && (vars.A4_RESEARCH_ENABLED == 'true' || vars.A4_PRIMARY_COLLECTION_ENABLED == 'true' || vars.A4_FINANCING_COLLECTION_ENABLED == 'true' || vars.A4_NATIVE_SOURCE_MANIFEST_SHA256 != '' || vars.A4_CREDIT_REQUEST_SHA256 != '')

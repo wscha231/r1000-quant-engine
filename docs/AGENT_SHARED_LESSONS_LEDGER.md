@@ -11952,3 +11952,28 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   cohort, calendar and price basis. Preserve separate OHLC benchmark dates
   and revisions. A current breadth receipt is evidence for one risk axis;
   the Native packet and historical learning retain their independent gates.
+
+### 2026-11-21 — Current A4 failure must veto legacy review before state changes
+
+- Scheduled run44668953238/job136065019699 refused a stale Native handoff,
+  while fresh primary capture and private research diagnostics were still
+  produced. A continued step's API conclusion does not replace its actual
+  outcome. Keep the session refusal; never renew old source dates or loosen
+  the ten-axis gate to recover a green run.
+- A synthetic cross-domain reproduction found that healthy legacy inputs
+  could emit GREEN/no-op and advance hysteresis before a configured current
+  A4 DATA_BLOCKED report was attached. A nonzero CLI exit was too late. Load
+  current A4 once and apply its failure before transitions, actions or history
+  writes. This reproduced boundary defect is not evidence that a live trade
+  or historical loss occurred.
+- Failed required preparation must publish a current blocked diagnostic,
+  with partial current research preserved and all investment authority closed.
+  Use the attempted input root, remove only the two local generated reports
+  before computation, and never sync retained history on a blocked attempt.
+  Copy and readback failure must remain visible. This repair does not refresh
+  the Source handoff, create a current portfolio, or validate predictive skill.
+- Independent review reproduced a killed-writer case where two nonempty but
+  incomplete files could pass the sync precheck. Parse the expected JSON schema
+  and compare its exact rendered Markdown before any transport; checksums alone
+  certify copied bytes, not a complete report. Exercise corrupt and mismatched
+  pairs in the actual workflow shell without remote transport.
