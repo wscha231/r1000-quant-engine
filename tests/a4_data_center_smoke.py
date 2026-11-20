@@ -14,7 +14,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from tools import a4_data_center as d,a4_primary_sources as p,collect_a4_primary_data as c
 from tools import a4_index_direction as index
 from tools import a4_firstrate_sample_direction as sample
-from tools import a4_a1_price_monitor as a1_prices
+from tools import a4_a1_price_monitor as a1_prices, a4_ohlc_forward_capture as ohlc
 from tools.macro_history_sources import encoded,digest
 from tools.macro_research_checkpoint import LocalTransport
 from tests.a4_primary_sources_smoke import NOW,archive,nyfed,retained_credit_input
@@ -658,6 +658,82 @@ class A1PriceMonitorTests(unittest.TestCase):
                 a1_prices.run(drive, scope, scope["bundle"]["sha256"], cutoff=self.cutoff,
                               run_id="10", attempt="1", code_sha="e"*40)
         blocked.assert_not_called()
+
+
+class OHLCForwardTests(unittest.TestCase):
+    def setUp(self):
+        self.now = ohlc.utc('2026-11-20T22:30:00Z')
+        self.sessions = ohlc.session_window(self.now)
+        self.symbols = {'SPY':'fixture-spy', 'QQQ':'fixture-qqq'}
+        self.latest = next(reversed(self.sessions))
+
+    def row(self, symbol, date, minute=5, *, close='100.0'):
+        mic = 'ARCX' if symbol == 'SPY' else 'XNAS'
+        return dict(symbol=f'{mic}:{symbol}', date=date, currency_code='USD', adjustment='raw',
+                    exchange_mic=mic,
+                    instrument_id=self.symbols[symbol], revision_id=symbol+'-'+date+'-'+str(minute),
+                    published_at=(self.sessions[date]+timedelta(minutes=minute)).isoformat(),close=close)
+
+    def raw(self, rows, **meta):
+        return encoded(dict(data=rows, meta=dict(as_of=self.now.isoformat(), errors=[], **meta)))
+
+    def test_scope_calendar_and_clock(self):
+        self.assertEqual(self.latest, '2026-11-20')
+        self.assertEqual(len(self.sessions),5)
+        for quiet in ('2026-11-20T20:58:00Z','2026-11-21T22:30:00Z','2026-11-26T22:30:00Z'):
+            self.assertEqual(ohlc.session_window(ohlc.utc(quiet)), {})
+        early = ohlc.session_window(ohlc.utc('2026-11-27T18:01:00Z'))
+        self.assertEqual(early['2026-11-27'],ohlc.utc('2026-11-27T18:00:00Z'))
+        sample = self.row('SPY', self.latest)
+        for row in (dict(sample, exchange_mic='XNYS'), dict(sample, symbol='XNYS:SPY'),
+                    dict(sample, symbol=':SPY'), dict(sample, adjustment='total_return'),
+                    dict(sample, published_at='2026-11-20T20:57:00Z'),
+                    dict(sample, published_at='2026-11-20T22:31:00Z')):
+            with self.assertRaises(ValueError):
+                ohlc.validate_response(self.raw([row]), self.sessions, self.now)
+        bare = dict(sample, symbol='SPY')
+        normalized, _ = ohlc.validate_response(self.raw([bare]), self.sessions, self.now)
+        self.assertIn(self.latest, normalized['SPY'])
+        with self.assertRaisesRegex(ValueError,'REPLY_SCOPE'):
+            ohlc.validate_response(self.raw([sample], next_cursor='opaque'), self.sessions,self.now)
+        with self.assertRaisesRegex(ValueError,'CONFLICTING_PUBLICATION'):
+            ohlc.validate_response(self.raw([sample,dict(sample,revision_id='another')]),
+                                   self.sessions,self.now)
+
+    def test_one_side_delayed_and_corrections_retained_in_owner_only_readback(self):
+        old = list(self.sessions)[-2]
+        raw = self.raw([self.row('SPY',self.latest,20,close='101'),self.row('SPY',self.latest),
+                        self.row('SPY',old),self.row('QQQ',old)])
+        objects = {'license-fixture': b'test only'}
+        drive = Mock(root_id='owner-root', owner='owner-fixture')
+        drive.read.side_effect = lambda key, limit: objects[key]
+        scope = dict(root_folder=drive.root_id, capture_folder='owner-folder',
+                     rights=dict(file_id='license-fixture', bytes=9, sha256=digest(b'test only')))
+        def persist(_drive, folder, body, suffix):
+            self.assertEqual(folder, scope['capture_folder'])
+            key = digest(body)
+            objects[key] = body
+            return dict(file_id=key, bytes=len(body), sha256=key)
+        provider=Mock(return_value=raw)
+        with patch.object(ohlc.private, 'persist_object', side_effect=persist):
+            result=ohlc.capture(drive,scope,self.sessions,key='test-key',cutoff=self.now,read_clock=lambda:self.now,
+                                provider=provider,run_id='1',attempt='1',code_sha='1'*40)
+        provider.assert_called_once()
+        self.assertEqual(provider.call_args.args[0]['revisions'],'all')
+        self.assertEqual(result['common_session'],old)
+        self.assertEqual(result['data_status'],'ONE_SIDE_DELAYED')
+        self.assertEqual(result['lagging_symbols'],['QQQ'])
+        self.assertEqual(result['lag_sessions'],{'SPY':0,'QQQ':1})
+        self.assertEqual(result['latest_session_by_symbol'],{'SPY':self.latest, 'QQQ':old})
+        manifest=json.loads(objects[result['manifest_sha256']])
+        revisions=manifest['revisions']['SPY'][self.latest]
+        self.assertEqual([r['close'] for r in revisions], ['100.0','101'])
+        self.assertEqual(result['first_close_published_by_symbol']['SPY'],revisions[0]['published_at'])
+        self.assertFalse(manifest['learning_admitted'])
+        self.assertEqual(manifest['return_basis'],'RAW_AS_TRADED_USD')
+        self.assertNotIn('"101"', json.dumps(result))
+        self.assertNotIn('revisions', result)
+        self.assertNotIn('file_id', result)
 
 
 if __name__=='__main__':unittest.main()

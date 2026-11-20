@@ -10,6 +10,10 @@ on:
         description: Verify the pinned A1 price report without running the full daily monitor
         type: boolean
         default: false
+      ohlc_capture_only:
+        description: Archive and verify private SPY and QQQ revisions without the full daily monitor
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -17,7 +21,7 @@ permissions:
 jobs:
   a1_price_research:
     name: Verify A1 breadth and benchmark prices
-    if: ${{ vars.A4_A1_PRICE_BUNDLE_SHA256 != '' || (github.event_name == 'workflow_dispatch' && inputs.a1_price_check_only) }}
+    if: ${{ !inputs.ohlc_capture_only && (vars.A4_A1_PRICE_BUNDLE_SHA256 != '' || (github.event_name == 'workflow_dispatch' && inputs.a1_price_check_only)) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
@@ -54,8 +58,47 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  ohlc_forward_capture:
+    name: Verify private OHLC benchmark archive
+    if: ${{ github.ref_name == github.event.repository.default_branch && vars.A4_OHLC_CAPTURE_ENABLED == 'true' && (github.event_name == 'schedule' || inputs.ohlc_capture_only) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: a4-ohlc-forward-single-writer
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            tools
+            docs
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements_github.txt
+      - run: pip install -r requirements_github.txt
+      - name: Capture and read back private revision history
+        env:
+          A4_OHLC_API_KEY: ${{ secrets.A4_OHLC_API_KEY }}
+          A4_OHLC_SCOPE: ${{ secrets.A4_OHLC_SCOPE }}
+          MACRO_DRIVE_CONFIG: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+        run: |
+          set -euo pipefail
+          curl -fsSL https://downloads.rclone.org/rclone-current-linux-amd64.zip -o "$RUNNER_TEMP/rclone.zip"
+          unzip -oq "$RUNNER_TEMP/rclone.zip" -d "$RUNNER_TEMP/a4-ohlc-rclone"
+          sudo install -m 0755 "$RUNNER_TEMP"/a4-ohlc-rclone/rclone-*/rclone /usr/local/bin/rclone
+          python -m tools.a4_ohlc_forward_capture --receipt "$RUNNER_TEMP/a4-ohlc-receipt.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: a4-ohlc-metadata-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/a4-ohlc-receipt.json
+          if-no-files-found: error
+          retention-days: 30
+
   monitor:
-    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.a1_price_check_only }}
+    if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.a1_price_check_only && !inputs.ohlc_capture_only) }}
     runs-on: ubuntu-latest
     timeout-minutes: ${{ (vars.A4_PRIMARY_COLLECTION_ENABLED == 'true' || vars.A4_FINANCING_COLLECTION_ENABLED == 'true') && 60 || 30 }}
     concurrency:
