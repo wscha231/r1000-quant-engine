@@ -11952,3 +11952,16 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   cohort, calendar and price basis. Preserve separate OHLC benchmark dates
   and revisions. A current breadth receipt is evidence for one risk axis;
   the Native packet and historical learning retain their independent gates.
+
+### 2026-11-20 — Keep reported SEC version dates separate from learning admission
+
+- An SEC header's DATE AS OF CHANGE, authenticated first-document bytes and a
+  daily dissemination index can support a bounded later-date research witness.
+  Use the later official filing/dissemination day for after-hours submissions;
+  do not invent an intraday first-public clock or relabel forward-only inputs.
+- Caller-authenticated metadata/review hashes and exact issuer/accession/UTC
+  requests remain separate from the new read receipt. Revalidate original
+  consolidated facts, units and scale so resealing a derived packet cannot
+  replace the actual document. Research readback grants no training/ER/portfolio
+  authority. Preserve incumbent worktree changes and prepare a private patch
+  while a different finite Source lease excludes these Reader paths.
