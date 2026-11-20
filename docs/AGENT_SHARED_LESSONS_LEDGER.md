@@ -1,5 +1,12 @@
 # Agent Shared Lessons Ledger
 
+### 2026-11-20 — Register new Reader tests in the independent QA inventory
+
+When a new Reader test enters the PR validation runner, include the test and
+the implementation it exercises in the A6 proof inventory. Run the inventory
+and stale-packet tests locally. The hosted check for #806 found both the old
+test count and the missing file in the isolated QA fixture.
+
 ### 2026-11-20 — Bind each issuer to its own financial generation in ER pre-fit metadata
 
 A cohort may span separate issuer archives. In a v2 pre-fit binding, keep one
