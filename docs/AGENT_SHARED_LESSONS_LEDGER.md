@@ -12,6 +12,10 @@
   notes. Bind the CAPE value to the actual later download clock and preserve
   the difference between a one-time observation and historical PIT.
 
+- PR 802 showed that adding report implementation files also requires
+  literal coverage in the checkout-byte witness. Pin LF for new document
+  operands and rerun the witness with Windows autocrlf enabled.
+
 ### 2026-11-20 KST - Keep settlement horizons and market review actions distinct
 
 - The 21-session Native observation can request a review at the first pending
