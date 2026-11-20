@@ -75,3 +75,33 @@ existing private restore and readback route for the hosted `A4_ONLY` cycle.
 Supply a fresh reviewed packet as inputs change. The harness covers the
 offline preparation path and leaves operational data approval to the
 independent reviewer.
+
+## Private forward OHLC price and revision archive
+
+The existing Daily Crisis Monitor has an optional, isolated SPY/QQQ capture
+job. It requires the account's explicitly confirmed personal-use entitlement
+and a checked private Drive destination. Configure `A4_OHLC_API_KEY` as an
+Actions secret. Supply `A4_OHLC_SCOPE` as a secret JSON object with
+`root_folder`, its direct `capture_folder` child and a `rights` reference
+`{file_id, bytes, sha256}` under that child. The existing
+`RCLONE_CONFIG_GDRIVE` provides the owner's OAuth configuration. The writer
+checks that the app owner is the sole owner of the root, child and files,
+then reads back both the original response and the immutable manifest.
+
+The job runs on the existing schedule after the NYSE close when
+`A4_OHLC_CAPTURE_ENABLED=true` on the default branch. For a scoped verification
+use `ohlc_capture_only=true` in that workflow. The isolated dispatch skips the
+legacy monitor and the separate A1 price job. A holiday or unfinished New
+York session skips the provider request. One request covers the current
+session and four prior NYSE sessions, preserving versions that arrive later.
+The exact time cutoff is sent to the provider and verified in its reply.
+The public artifact contains metadata, session/delay indicators, clocks and
+hashes. Original responses and revision values stay in the private archive.
+
+These are raw as-traded USD closes. The archive does not manufacture an
+adjusted or total-return series. The existing learner requires a reviewed
+return basis, applicable event/adjustment history, publication clock evidence,
+the fixed policy and mature sample counts. An older current snapshot whose
+first versions were never retained cannot be used as an historical
+point-in-time input. Fix an eligible value at its decision cutoff when
+building a separate reviewed learning packet.

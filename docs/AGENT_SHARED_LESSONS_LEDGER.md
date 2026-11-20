@@ -11930,3 +11930,9 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 
 - A daily caller comparing the week or month with its previous decision can fire on the first session. A reviewed period-end comparison checks the next NYSE session, including holiday-shortened weeks. A mid-month event leaves the scheduled month-end review due. Consume only material confirmations known by the decision cutoff and retain next-close execution.
 - In PR 801 the Python 3.13 synthetic checks exhausted their 30-minute budget after three successful suites. Reuse the immutable NYSE session grid at the exact UTC cutoff and requested length. Return a fresh mapping to each consumer and verify both sides of an early close.
+
+### 2026-11-20 — Distinguish ETF archive rights from historical training evidence
+
+- The supplier confirmed private SPY and QQQ collection, retention and statistical research for the covered free account. Its original publication and correction history starts on 2026-09-22. Preserve that dated grant privately and pin its hash. Earlier daily bars and today's corrected levels cannot supply earlier point-in-time versions.
+- Preserve both the provider publication clock and the actual capture clock. A trailing session window can collect later corrections, while the NYSE calendar blocks holiday and pre-close requests. Record each symbol's lag and leave raw as-traded bars outside learning until the return basis and sample maturity are validated.
+- The scheduled Native monitor rejected its older session packet and separate credit input. A source archive, even after checksum readback, has a separate role from the accepted Native session and from training admission.
