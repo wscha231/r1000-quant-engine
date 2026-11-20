@@ -856,6 +856,11 @@ class ResearchDataReader:
                 required_sessions=required_sessions, consumer_id=consumer_id,
                 restore_to=restore_to, resources=resources)
 
+    def read_sec_filing_version(self, *args, **kwargs):
+        """Read externally pinned SEC date-version evidence; never relabel a generation."""
+        from tools.sec_filing_version_research import read_sec_filing_version
+        return read_sec_filing_version(*args, **kwargs)
+
     def read_components(self, dataset_id, data_generation_id, *, decision_time,
                         purpose, components, consumer_id, financial_trust=None):
         """One bounded research read, with one window per distinct instrument.
