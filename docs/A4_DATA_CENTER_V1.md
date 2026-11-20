@@ -259,3 +259,20 @@ requires its own verified pin. The price report is private research.
 Use the workflow's `a1_price_check_only` input to test the same price job
 independently. The test omits the latest QQQ close in memory and records the
 earlier common date and one additional session of delay for QQQ.
+
+When the reviewed A1 checkpoint covers only the 606 market-breadth securities,
+use `a4-a1-breadth-bundle-v1` with the same price-array fields and exactly that
+checkpoint's 606 symbols. The split-adjusted close, raw close and volume must
+all be present on the checkpoint's last session. The reader verifies the same
+owner, pins, exact NYSE grid and checkpoint scope and publishes only breadth
+metadata. Its receipt includes the session delay and whether all breadth
+measures meet the existing coverage minimum. The benchmark field is null, so
+manual breadth verification does not generate a benchmark lag fixture.
+
+Read SPY and QQQ dates and individual delays from the existing independent
+OHLC capture receipt. The A1 breadth bundle uses split-adjusted prices for
+its indicators and retains raw closes for dollar volume. OHLC archives raw
+as-traded prices. The two records keep their own session, clocks, hashes and
+price basis. Neither record alone authorizes the current Native risk packet or
+historical model inputs. The existing paired 608-symbol bundle retains its
+relative-strength and lag checks.
