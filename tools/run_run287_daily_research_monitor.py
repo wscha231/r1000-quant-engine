@@ -879,6 +879,56 @@ def export_review_intake(intake: dict, handoff: dict, evidence_root: Path, now: 
         "execute": False, "A5_decision_completed": False}
 
 
+def operating_paper_frontier(source: dict, expected_session: str) -> dict:
+    """Read an upstream run's gap diagnostic; never admit a current portfolio."""
+    result = {"status": "NO_VERIFIED_PAPER_FRONTIER_REPORT", "paper_as_of": None,
+              "next_missing_session": None, "missing_nyse_session_count": None,
+              "portfolio_approved": False, "paper_mutated_by_monitor": False}
+    if source.get("artifact_hash_verified") is not True:
+        return result
+    p = source.get("data", {}).get("paper_gap")
+    if not isinstance(p, dict):
+        return result
+    if (p.get("schema_version") != "run287-paper-gap-preflight-v1"
+            or p.get("read_only") is not True
+            or p.get("paper_ledger_mutated") is not False
+            or p.get("target_mutated") is not False
+            or p.get("trade_authorization_granted") is not False
+            or p.get("requested_session") != expected_session):
+        return result
+    status = p.get("status")
+    if status == "BLOCKED_UNVERIFIED_PAPER_FRONTIER_OR_CALENDAR":
+        return {**result, "status": "PAPER_FRONTIER_UNVERIFIED"}
+    if status not in {"BLOCKED_SESSION_GAP", "READY_EXACT_SUCCESSOR",
+                      "ALREADY_AT_REQUESTED_SESSION"}:
+        return result
+    prior = p.get("paper_as_of")
+    count = p.get("missing_nyse_session_count")
+    next_date = p.get("next_missing_session")
+    head = p.get("verified_remote_terminal_sha256")
+    if (date_state(prior, expected_session) not in {"CURRENT", "STALE"}
+            or not isinstance(head, str) or not re.fullmatch(r"[a-f0-9]{64}", head)
+            or type(count) is not int or count < 0 or count > 10000):
+        return result
+    if status == "ALREADY_AT_REQUESTED_SESSION":
+        if prior != expected_session or next_date is not None or count != 0:
+            return result
+        state = "PAPER_DATE_REPORTED_NOT_CURRENT_PORTFOLIO"
+    else:
+        if (date_state(prior, expected_session) != "STALE"
+                or date_state(next_date, expected_session) not in {"CURRENT", "STALE"}
+                or next_date <= prior or count < 1
+                or (status == "READY_EXACT_SUCCESSOR" and count != 1)
+                or (status == "BLOCKED_SESSION_GAP" and count < 2)):
+            return result
+        state = ("PAPER_CHRONOLOGICAL_GAP"
+                 if status == "BLOCKED_SESSION_GAP" else "PAPER_ONE_SESSION_PENDING")
+    return {**result, "status": state, "paper_as_of": prior,
+            "next_missing_session": next_date, "missing_nyse_session_count": count,
+            "verified_remote_terminal_sha256": head,
+            "source_class": "RUN_ARTIFACT_DIAGNOSTIC_NOT_ACCEPTED_BOOK"}
+
+
 def evaluate(sources: dict, session: str, now: datetime, contract: dict, *, previous=None,
              private_etf_payload=None) -> dict:
     alerts, observations = [], {}
@@ -906,6 +956,11 @@ def evaluate(sources: dict, session: str, now: datetime, contract: dict, *, prev
     observations["operating_recovery"] = {k: recovery.get(k) for k in ("status", "next_action")}
     if str(recovery.get("status", "")).startswith("BLOCKED"):
         alerts.append("operating:" + str(recovery["status"]))
+    paper = operating_paper_frontier(sources.get("operating", {}), session)
+    observations["operating_paper_frontier"] = paper
+    if paper["status"] in {"PAPER_CHRONOLOGICAL_GAP", "PAPER_ONE_SESSION_PENDING",
+                           "PAPER_FRONTIER_UNVERIFIED"}:
+        alerts.append("operating:" + paper["status"])
     tactical = data("tactical").get("summary", {})
     if contract.get("etf_rotation"):
         rotation = data("tactical").get("etf_rotation", {"status": "MISSING_RECEIPT"})
@@ -1055,6 +1110,14 @@ def render(report: dict) -> str:
             f"Expected US close: {report['expected_us_session']} · {report['status']}", "",
             "Current investment ranking: **withheld**. This is source monitoring and research input, not an accepted portfolio publication.",
             "", "| Source | Collection | Run |", "|---|---|---|"]
+    paper = report.get("observations", {}).get("operating_paper_frontier", {})
+    rows[6:6] = [
+        f"Paper chronology: **{paper.get('status', 'UNKNOWN')}** · "
+        f"ledger as-of {paper.get('paper_as_of') or 'unverified'} · "
+        f"next missing {paper.get('next_missing_session') or 'unverified'} · "
+        f"backlog {paper.get('missing_nyse_session_count') if paper.get('missing_nyse_session_count') is not None else 'unknown'}.",
+        "Current market research is separate from accepted paper and actual broker state.", "",
+    ]
     for key, source in report["sources"].items():
         run = source.get("run", {})
         link = f"https://github.com/{report['repository']}/actions/runs/{run.get('id', '')}"
