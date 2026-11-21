@@ -346,6 +346,39 @@ def verify_capture_artifact_availability(
         or run["head_repository"].get("full_name") != REPOSITORY
     ):
         raise SafeCommandError("price evidence producer run is not eligible")
+    # The same workflow also publishes ordinary daily artifacts under this
+    # name.  Its completed CAPTURE job, not the filename alone, establishes
+    # that the source used the isolated capture-only mode.
+    job_listing = require_mapping(
+        gh_json(
+            f"repos/{REPOSITORY}/actions/runs/{evidence_run_id}"
+            "/jobs?per_page=100"
+        ),
+        "price evidence producer jobs",
+    )
+    jobs = job_listing.get("jobs")
+    if (
+        type(job_listing.get("total_count")) is not int
+        or job_listing["total_count"] != 2
+        or not isinstance(jobs, list)
+        or len(jobs) != 2
+        or any(not isinstance(job, dict) for job in jobs)
+    ):
+        raise SafeCommandError("capture job evidence is incomplete")
+    job_by_name = {str(job.get("name")): job for job in jobs}
+    if (
+        set(job_by_name) != {"capture_catchup_evidence", "refresh"}
+        or any(
+            type(job.get("id")) is not int
+            or job["id"] <= 0
+            or job.get("run_id") != int(evidence_run_id)
+            or job.get("status") != "completed"
+            for job in jobs
+        )
+        or job_by_name["capture_catchup_evidence"].get("conclusion") != "success"
+        or job_by_name["refresh"].get("conclusion") != "skipped"
+    ):
+        raise SafeCommandError("capture-only job proof is not valid")
     artifact_name = f"daily-operating-selection-refresh-{evidence_run_id}"
     manifest = require_mapping(
         gh_json(
