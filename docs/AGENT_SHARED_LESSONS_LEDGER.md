@@ -11952,3 +11952,9 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   cohort, calendar and price basis. Preserve separate OHLC benchmark dates
   and revisions. A current breadth receipt is evidence for one risk axis;
   the Native packet and historical learning retain their independent gates.
+
+### 2026-11-21 — Emit the exact paper catch-up frontier before daily trading research
+
+- The November 20 daily run restored seven verified immutable paper heads and a July 27 terminal, then failed while requesting November 19 (BLOCKED_SESSION_GAP, next required July 28). Current exact-close price availability was not evidence of chronological paper continuity.
+- After restoring the authoritative Drive immutable head, run a read-only NYSE-calendar preflight before current-session price refresh, candidate selection, or simulated account mutation. Record the terminal hash, as-of date, next missing session, and backlog depth; stale/forked/non-Drive heads must fail closed.
+- This preflight supplies actionable failure diagnostics only. It does not create price evidence, backdate decisions, batch-authorize sessions, satisfy an owner scope attestation, repair historical pattern evidence, or alter Actual Broker/Approved Target. Preserve the one-session-per-authorization contract until a separately reviewed protected batch authority is explicitly approved.
