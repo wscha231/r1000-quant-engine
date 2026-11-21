@@ -293,6 +293,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/run287_catchup_price_capture_smoke.py", []),
     ("tests/run287_catchup_target_evidence_smoke.py", []),
     ("tests/run287_catchup_drive_readiness_smoke.py", []),
+    ("tests/run287_paper_gap_preflight_smoke.py", []),
     ("tests/run287_github_secret_scope_smoke.py", []),
     ("tests/public_portfolio_dashboard_smoke.py", []),
     ("tests/top_manager_discovery_signals_smoke.py", []),
