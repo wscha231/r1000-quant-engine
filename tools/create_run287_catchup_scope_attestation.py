@@ -313,6 +313,99 @@ def require_clean_critical_sources() -> None:
         )
 
 
+def verify_capture_artifact_availability(
+    evidence_run_id: str, evidence_artifact_digest: str
+) -> None:
+    """Check that a historical artifact is retrievable before creating a scope.
+
+    This is only an availability preflight.  The actual transactional workflow
+    independently verifies its exact run, attempt, source identity, member
+    bytes, selected session, and digest.  Nothing here grants mutation rights.
+    """
+    if not RUN_ID_RE.fullmatch(evidence_run_id):
+        raise SafeCommandError("price evidence run id is invalid")
+    if not DIGEST_RE.fullmatch(evidence_artifact_digest):
+        raise SafeCommandError("price evidence artifact digest is invalid")
+    run = require_mapping(
+        gh_json(f"repos/{REPOSITORY}/actions/runs/{evidence_run_id}"),
+        "price evidence run",
+    )
+    if (
+        str(run.get("id")) != evidence_run_id
+        or run.get("workflow_id") != WORKFLOW_ID
+        or run.get("path") != WORKFLOW_PATH
+        or run.get("event") not in {"workflow_dispatch", "schedule"}
+        or run.get("head_branch") != DEFAULT_BRANCH
+        or run.get("status") != "completed"
+        or run.get("conclusion") not in {"success", "failure"}
+        or type(run.get("run_attempt")) is not int
+        or run["run_attempt"] != 1
+        or not isinstance(run.get("repository"), dict)
+        or run["repository"].get("full_name") != REPOSITORY
+        or not isinstance(run.get("head_repository"), dict)
+        or run["head_repository"].get("full_name") != REPOSITORY
+    ):
+        raise SafeCommandError("price evidence producer run is not eligible")
+    # The same workflow also publishes ordinary daily artifacts under this
+    # name.  Its completed CAPTURE job, not the filename alone, establishes
+    # that the source used the isolated capture-only mode.
+    job_listing = require_mapping(
+        gh_json(
+            f"repos/{REPOSITORY}/actions/runs/{evidence_run_id}"
+            "/jobs?per_page=100"
+        ),
+        "price evidence producer jobs",
+    )
+    jobs = job_listing.get("jobs")
+    if (
+        type(job_listing.get("total_count")) is not int
+        or job_listing["total_count"] != 2
+        or not isinstance(jobs, list)
+        or len(jobs) != 2
+        or any(not isinstance(job, dict) for job in jobs)
+    ):
+        raise SafeCommandError("capture job evidence is incomplete")
+    job_by_name = {str(job.get("name")): job for job in jobs}
+    if (
+        set(job_by_name) != {"capture_catchup_evidence", "refresh"}
+        or any(
+            type(job.get("id")) is not int
+            or job["id"] <= 0
+            or job.get("run_id") != int(evidence_run_id)
+            or job.get("status") != "completed"
+            for job in jobs
+        )
+        or job_by_name["capture_catchup_evidence"].get("conclusion") != "success"
+        or job_by_name["refresh"].get("conclusion") != "skipped"
+    ):
+        raise SafeCommandError("capture-only job proof is not valid")
+    artifact_name = f"daily-operating-selection-refresh-{evidence_run_id}"
+    manifest = require_mapping(
+        gh_json(
+            f"repos/{REPOSITORY}/actions/runs/{evidence_run_id}"
+            f"/artifacts?name={artifact_name}"
+        ),
+        "price evidence artifact listing",
+    )
+    found = manifest.get("artifacts")
+    if (
+        type(manifest.get("total_count")) is not int
+        or manifest["total_count"] != 1
+        or not isinstance(found, list)
+        or len(found) != 1
+        or not isinstance(found[0], dict)
+        or found[0].get("name") != artifact_name
+        or type(found[0].get("id")) is not int
+        or found[0]["id"] <= 0
+        or found[0].get("expired") is not False
+        or found[0].get("digest") != evidence_artifact_digest
+    ):
+        raise SafeCommandError(
+            "price evidence artifact missing, expired, or changed; "
+            "refresh through existing capture-only workflow before owner attestation"
+        )
+
+
 def fetch_verified_scope(expected_default_sha: str) -> dict[str, Any]:
     user = require_mapping(gh_json("user"), "authenticated user")
     if {
@@ -493,6 +586,10 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
+        verify_capture_artifact_availability(
+            args.price_evidence_run_id,
+            args.price_evidence_artifact_digest,
+        )
         scope_result = fetch_verified_scope(
             args.expected_default_branch_sha
         )
