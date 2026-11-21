@@ -375,28 +375,47 @@ def test_capture_artifact_availability_precedes_secret_scope() -> None:
     }
     run_api = f"repos/{REPOSITORY}/actions/runs/{EVIDENCE_RUN_ID}"
     artifact_api = run_api + f"/artifacts?name={artifact_name}"
+    job_api = run_api + "/jobs?per_page=100"
+    jobs = {
+        "total_count": 2,
+        "jobs": [
+            {"id": 101, "run_id": int(EVIDENCE_RUN_ID), "name": "capture_catchup_evidence",
+             "status": "completed", "conclusion": "success"},
+            {"id": 102, "run_id": int(EVIDENCE_RUN_ID), "name": "refresh",
+             "status": "completed", "conclusion": "skipped"},
+        ],
+    }
 
-    def endpoint(name: str, *, run_data=None, artifacts=None):
-        assert name in {run_api, artifact_api}, (
+    def endpoint(name: str, *, run_data=None, artifacts=None, job_data=None):
+        assert name in {run_api, artifact_api, job_api}, (
             "availability preflight must not access secret metadata"
         )
-        return (run if run_data is None else run_data) if name == run_api else (
-            {"total_count": 1, "artifacts": [artifact]}
-            if artifacts is None else artifacts
-        )
+        if name == run_api:
+            return run if run_data is None else run_data
+        if name == job_api:
+            return jobs if job_data is None else job_data
+        return ({"total_count": 1, "artifacts": [artifact]}
+                if artifacts is None else artifacts)
 
     with patch(
         "tools.create_run287_catchup_scope_attestation.gh_json",
         side_effect=endpoint,
     ) as calls:
         verify_capture_artifact_availability(EVIDENCE_RUN_ID, EVIDENCE_DIGEST)
-        assert calls.call_count == 2
+        assert calls.call_count == 3
 
     cases = [
         {"artifacts": {"total_count": 0, "artifacts": []}},
         {"artifacts": {"total_count": 1, "artifacts": [{**artifact, "expired": True}]}},
         {"artifacts": {"total_count": 1, "artifacts": [{**artifact, "digest": "sha256:" + "0" * 64}]}},
         {"artifacts": {"total_count": 2, "artifacts": [artifact, artifact]}},
+        {"job_data": {"total_count": 1, "jobs": jobs["jobs"][:1]}},
+        {"job_data": {"total_count": 2, "jobs": [{**jobs["jobs"][0],
+                       "conclusion": "skipped"}, jobs["jobs"][1]]}},
+        {"job_data": {"total_count": 2, "jobs": [jobs["jobs"][0], {**jobs["jobs"][1],
+                       "conclusion": "failure"}]}},
+        {"job_data": {"total_count": 2, "jobs": [{**jobs["jobs"][0],
+                       "run_id": 1}, jobs["jobs"][1]]}},
         {"run_data": {**run, "run_attempt": 2}},
         {"run_data": {**run, "head_branch": "untrusted"}},
         {"run_data": {**run, "conclusion": "cancelled"}},
