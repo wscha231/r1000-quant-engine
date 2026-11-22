@@ -137,6 +137,8 @@ class ModelTests(unittest.TestCase):
         self.assertIsNone(result['a4_report_content_sha256'])
         self.assertIsNone(result['a4_request_sha256'])
         self.assertIsNone(result['macro_reason_evidence'])
+        self.assertIsNone(result['composite_review_context'])
+        self.assertIsNone(result['market_review_handoff'])
         self.assertEqual(result['market_regime_assessment'],'NOT_SELECTED')
         self.assertFalse(result['orders_generated']);self.assertFalse(result['accepted_target_written'])
         self.assertTrue(all(r['cost_assumptions'] is not None for r in result['changes'] if r['weight']>0))
@@ -553,6 +555,62 @@ class ModelTests(unittest.TestCase):
         self.assertFalse(value["actual_holdings_claimed"])
         self.assertFalse(value["accepted_target_written"])
         self.assertIn("CASH",a5.render(value))
+
+    def test_joint_review_carries_native_signals_without_changing_the_proposal(self):
+        native=runtime.run(self.p,self.r,self.policy)
+        native['a3_model_input_candidates']=self.p['evaluations']
+        original=copy.deepcopy(native)
+        market=copy.deepcopy(self.report)
+        market['composite_review_context']={'schema':'a4-composite-review-context-v1',
+            'families':{'options':{'gamma_status':'GAMMA_NOT_VERIFIED'}}}
+        market['review_handoff']={'candidate':'RISK_WORSENING','portfolio_effect_allowed':False}
+        market.pop('content_sha256');market['content_sha256']=context.digest(market)
+        value=a5._explain_result(native,self.risk,market,policy=self.policy)
+        self.assertEqual(native,original)
+        self.assertEqual(value['proposed_weights'],native['proposal']['proposed_weights'])
+        self.assertEqual(value['cash'],native['proposal']['cash'])
+        rows={r['asset_id']:r for r in native['multi_asset_leadership_latest']}
+        for change in value['changes']:
+            row=rows[change['asset_id']];evidence=change['decision_evidence']
+            self.assertEqual(evidence['native_review_status'],row['portfolio_status'])
+            self.assertEqual(evidence['risk_adjusted_expected_alpha_rank'],row['rank'])
+            self.assertEqual(evidence['discovery_rank'],row['discovery_rank'])
+            self.assertEqual(evidence['market_relative']['rs']['60'],row['RS60'])
+            self.assertEqual(evidence['market_relative']['benchmark_id'],self.policy['benchmark_id'])
+            self.assertEqual(evidence['trading']['volume_acceleration'],row['volume_acceleration'])
+            self.assertEqual(evidence['thesis']['thesis_status'],row['thesis_status'])
+            self.assertIsNone(evidence['sector_relative']['value'])
+            self.assertEqual(evidence['accepted_exit_reviews'],[])
+            self.assertFalse(evidence['new_decision_computed'])
+        self.assertIn('Joint review evidence',a5.render(value))
+        value['composite_review_context']['families']['options']['gamma_status']='changed copy'
+        self.assertEqual(market['composite_review_context']['families']['options']['gamma_status'],'GAMMA_NOT_VERIFIED')
+
+    def test_hold_reduce_and_exit_reviews_remain_distinct_from_accepted_reductions(self):
+        from research.multi_asset_v1.decisions import classify
+        base=dict(RS20=-.03,RS60=.02,RS120=.1,RS240=.2,RS20_change_5d=-.01,RS60_change_5d=-.01)
+        for thesis,features,expected in (('INTACT',base,'HOLD'),
+                ('NEGATIVE',{**base,'RS120':-.01},'REDUCE_REVIEW'),('INVALID',base,'EXIT_REVIEW')):
+            evaluation=dict(thesis_status=thesis,valuation_acceptable=True)
+            leadership,status=classify(features,evaluation,held=True)
+            self.assertEqual(status,expected)
+            row=dict(asset_id='US:FTI',portfolio_status=status,leadership_state=leadership,**features,**evaluation)
+            out=a5.decision_evidence(row,evaluation,{},
+                {'review_handoff':{'candidate':'RISK_WORSENING'}},self.policy)
+            self.assertEqual(out['native_review_status'],expected)
+            self.assertEqual(out['accepted_exit_reviews'],[])
+            self.assertFalse(out['market_context_is_security_exit_approval'])
+            if expected=='HOLD':self.assertTrue(out['review_tensions'])
+        for taxonomy in ('THESIS_EXIT','RISK_EXIT','REPLACEMENT_EXIT','LIFECYCLE_EXIT'):
+            audit=dict(asset_id='US:FTI',taxonomy=taxonomy,review_sha256='b'*64,prior_weight=.1,max_weight=0)
+            other=dict(asset_id='US:CCJ',taxonomy='THESIS_EXIT',review_sha256='c'*64)
+            proposal={'exit_reviews':[audit,other]}
+            out=a5.decision_evidence(row,evaluation,proposal,
+                {'review_handoff':{'candidate':'RISK_EASING'}},self.policy)
+            self.assertEqual(out['accepted_exit_reviews'],[audit])
+            self.assertTrue(out['review_tensions'])
+            out['accepted_exit_reviews'][0]['max_weight']=.5
+            self.assertEqual(audit['max_weight'],0)
 
     def test_previous_proposal_needs_external_pin_and_does_not_become_positions(self):
         native=runtime.run(self.p,self.r,self.policy)

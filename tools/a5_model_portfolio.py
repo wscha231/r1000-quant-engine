@@ -5,6 +5,7 @@ Missing inputs produce a blocked diagnostic, not an invented cash allocation.
 """
 from __future__ import annotations
 
+import copy
 import math
 import re
 import sys
@@ -61,6 +62,35 @@ def validate_report(report, payload, policy):
     require(risk.get("a4_report_content_sha256")==report["content_sha256"] and
             risk.get("a4_request_sha256")==report["request_sha256"],"A5_REVIEWED_RISK_A4_BINDING")
     require(digest(risk) in policy.get("reviewed_pins",{}).get("risk",[]),"A5_RISK_NOT_REVIEWED")
+
+
+def decision_evidence(row, original, proposal, report, policy):
+    """Present native evidence and accepted review audits without reclassifying."""
+    market_review = None if report is None else report.get('review_handoff', {}).get('candidate')
+    status = row.get('portfolio_status')
+    tensions = []
+    if status == 'HOLD' and market_review == 'RISK_WORSENING':
+        tensions.append('HELD_THESIS_AND_COMMON_MARKET_RISK_REQUIRE_JOINT_REVIEW')
+    if status in {'EXIT_REVIEW', 'REDUCE_REVIEW'} and market_review in {'RISK_EASING', 'REENTRY_REVIEW'}:
+        tensions.append('COMPANY_EXIT_REVIEW_NOT_CANCELLED_BY_MARKET_RECOVERY')
+    evidence = dict(native_review_status=status, leadership_state=row.get('leadership_state'),
+        discovery_rank=row.get('discovery_rank'), risk_adjusted_expected_alpha_rank=row.get('rank'),
+        market_relative=dict(benchmark_id=original.get('benchmark_id') or (policy or {}).get('benchmark_id'),
+            method='LOG_TOTAL_RETURN_DIFFERENCE', horizon_unit='NYSE_SESSIONS',
+            return_basis=row.get('return_basis'), benchmark_return_basis=row.get('benchmark_return_basis'),
+            rs={str(h): row.get('RS'+str(h)) for h in (20,60,120,240)},
+            change_5_sessions={str(h): row.get('RS'+str(h)+'_change_5d') for h in (20,60)},
+            standalone_sell_signal=False),
+        sector_relative=dict(status='VERIFIED_SECTOR_BENCHMARK_NOT_CONNECTED', value=None),
+        trading={key:row.get(key) for key in ('volume','volume_acceleration','dollar_volume_20d','liquidity_pass')},
+        thesis={key:row.get(key) for key in ('thesis_id','thesis_status','valuation_acceptable',
+            'expected_drawdown','downside_probability','signal_confidence','thesis_confidence')},
+        evaluation_sha256=row.get('evaluation_sha256') or (digest(original) if original else None),
+        cost_assumptions=original.get('cost_assumptions'), net_of_costs=original.get('net_of_costs'),
+        accepted_exit_reviews=[r for r in proposal.get('exit_reviews',[]) if r['asset_id']==row.get('asset_id')],
+        common_market_review=market_review, review_tensions=tensions,
+        market_context_is_security_exit_approval=False, new_decision_computed=False)
+    return copy.deepcopy(evidence)
 
 
 def _explain_result(result, risk, report, *, previous=None, policy=None):
@@ -132,7 +162,8 @@ def _explain_result(result, risk, report, *, previous=None, policy=None):
             reasons=reasons,portfolio_status=row.get("portfolio_status","NO_LONGER_IN_REQUESTED_COHORT"),
             expected_return_12m=row.get("expected_return_12m"),expected_alpha_12m=row.get("expected_alpha_12m"),
             cost_assumptions=original.get("cost_assumptions"),net_of_costs=original.get("net_of_costs"),
-            model_id=original.get("model_id"),validation_sha256=original.get("validation_sha256")))
+            model_id=original.get("model_id"),validation_sha256=original.get("validation_sha256"),
+            decision_evidence=decision_evidence({**row,'asset_id':aid},original,proposal,None if baseline else report,policy)))
         if stock and policy["stock_cash_research"]["horizon"]=="63_NYSE_SESSIONS":
             changes[-1].pop("expected_return_12m")
             changes[-1].pop("expected_alpha_12m")
@@ -148,6 +179,8 @@ def _explain_result(result, risk, report, *, previous=None, policy=None):
         a4_request_sha256=None if baseline else report["request_sha256"],
         macro_reason_evidence=None if baseline else dict(funding=report["funding"],liquidity=report["liquidity"],
             bank_credit=report["bank_credit"],horizon_outlook=report["horizon_outlook"]),
+        composite_review_context=None if baseline else copy.deepcopy(report.get('composite_review_context')),
+        market_review_handoff=None if baseline else copy.deepcopy(report.get('review_handoff')),
         native_result_sha256=result["result_sha256"],feature_sha256=result["feature_sha256"],
         policy_sha256=result["policy_sha256"],a3_reference_coverage=result.get("a3_reference_coverage"),**SAFETY)
     if stock:
@@ -581,6 +614,20 @@ def render(proposal):
     for r in proposal["changes"]:
         lines.append(f"| {r['asset_id']} | {r['weight']:.2%} | {r['change']:+.2%} | {', '.join(r['reasons'])} |")
     lines += [f"| CASH | {proposal['cash']:.2%} | | {', '.join(proposal['cash_reasons'])} |",""]
+    if any('decision_evidence' in row for row in proposal['changes']):
+        lines += ['## Joint review evidence', '',
+            'Native review labels are separate from approved exits and from actual trades. RS values are log total-return differences.', '',
+            '| Security | Native review | Leadership | RS 20 / 60 / 120 / 240 | Thesis | Accepted exit review |',
+            '| --- | --- | --- | --- | --- | --- |']
+        for row in proposal['changes']:
+            evidence=row.get('decision_evidence',{})
+            relative=evidence.get('market_relative',{}).get('rs',{})
+            values=' / '.join('MISSING' if relative.get(str(h)) is None else f'{relative[str(h)]:+.4f}' for h in (20,60,120,240))
+            audits=', '.join(r['taxonomy'] for r in evidence.get('accepted_exit_reviews',[])) or 'NONE'
+            lines.append(f"| {row['asset_id']} | {evidence.get('native_review_status')} | {evidence.get('leadership_state')} | {values} | {evidence.get('thesis',{}).get('thesis_status')} | {audits} |")
+        review=proposal.get('market_review_handoff') or {}
+        lines += ['', 'Common market review: '+str(review.get('candidate')),
+            'Market stress alone does not approve a security exit. Sector-relative evidence requires a separately verified benchmark.', '']
     return "\n".join(lines)
 
 
