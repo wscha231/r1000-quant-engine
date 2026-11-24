@@ -11980,6 +11980,10 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   and revisions. A current breadth receipt is evidence for one risk axis;
   the Native packet and historical learning retain their independent gates.
 
+### 2026-11-25 — Bind SEC fact comparisons to the declared taxonomy
+
+- The 2026 FASB US GAAP namespace uses the release year. Rejecting it as an invalid date discarded authentic quarterly facts before the issuer, unit and value checks could run. Recognize the published URI, retain those checks, and apply the separate caller-reviewed accession and decision-time scope to every Reader request.
+
 ### 2026-11-20 — Keep reported SEC version dates separate from learning admission
 
 - An SEC header's DATE AS OF CHANGE, authenticated first-document bytes and a
