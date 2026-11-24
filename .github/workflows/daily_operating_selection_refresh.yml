@@ -1268,6 +1268,24 @@ jobs:
             restore_dir paper_archive/run287_risk_outcome_price_cache outputs/run287_risk_outcome_price_cache
           fi
 
+      - name: Preflight verified paper frontier before daily price refresh
+        if: steps.market.outputs.ready == 'yes' && steps.market.outputs.catchup_mode != 'yes'
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/daily_operating_selection_refresh
+          REMOTE_READY=no
+          if [ "${GDRIVE_READY:-no}" = "yes" ] && \
+             [ "${PAPER_IMMUTABLE_REMOTE_HEADS_PRESENT:-no}" = "yes" ] && \
+             [ "${PAPER_DURABLE_RESTORE_MODE:-}" = "IMMUTABLE_HEAD" ]; then
+            REMOTE_READY=yes
+          fi
+          python tools/run287_paper_gap_preflight.py \
+            --selection outputs/full_rebuild_logs/daily_paper_immutable_head_selection.json \
+            --requested-session "$LAST_NYSE_SESSION_DATE" \
+            --remote-terminal-sha256 "${PAPER_IMMUTABLE_REMOTE_TERMINAL_HASH:-}" \
+            --durable-ready "$REMOTE_READY" \
+            --output outputs/daily_operating_selection_refresh/paper_gap_preflight.json
+
       - name: Enforce durable Drive for chronological catch-up
         if: steps.market.outputs.ready == 'yes' && steps.market.outputs.catchup_mode == 'yes'
         env:
