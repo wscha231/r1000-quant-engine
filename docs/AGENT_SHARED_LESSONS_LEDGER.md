@@ -6516,6 +6516,10 @@ Expected contract:
   quarantine, Drive, target, order, ledger, accepted-head, production, live
   trading, and automatic promotion state mutated: false.
 
+### 2026-11-25 — Bind scheduled OHLC to the workflow run clock
+
+Run 45338721207 started after midnight in New York and skipped the completed November 23 session. Use the workflow creation time to identify the weekday 22:30 UTC slot, permit up to 12 hours of runner delay, and use the actual request clock for publication and revision validation. Holiday slots and expired runs are skipped. This binds the intended research session without admitting the underlying source or advancing portfolio authority.
+
 ## 2026-09-04 - Price catch-up and historical pattern evidence are separate contracts
 
 - Agent: Codex GPT-5.6.
