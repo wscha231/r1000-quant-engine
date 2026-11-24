@@ -12,7 +12,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from tools.run_broker_trade_journal import run  # noqa: E402
+from tools.run_broker_trade_journal import build_round_trips, run  # noqa: E402
 
 
 class Args:
@@ -109,8 +109,36 @@ def test_broker_trade_journal_pairs_round_trips_and_excludes_forward_labels() ->
         assert (out / "summary.json").exists()
 
 
+def test_partial_fifo_sales_conserve_fees_across_closed_and_open_lots() -> None:
+    fills = pd.DataFrame([
+        ("2026-01-05", "BUY", 10, 2.50),
+        ("2026-01-06", "BUY", 6, 3.00),
+        ("2026-01-07", "SELL", 4, 1.00),
+        ("2026-01-08", "SELL", 3, 0.75),
+        ("2026-01-09", "SELL", 5, 1.25),
+    ], columns=["date", "side", "quantity", "fee_usd"])
+    fills = fills.assign(ticker="AAA", fill_price=100.0, signal_date=fills["date"])
+    closed, opened = build_round_trips(fills, pd.DataFrame(), "main")
+    # The last sale exhausts the first lot and takes two shares from the second.
+    if closed["entry_fee_usd"].tolist() != [1.0, 0.75, 0.75, 1.0]:
+        raise AssertionError("FIFO entry fee allocation")
+    if closed["exit_fee_usd"].tolist() != [1.0, 0.75, 0.75, 0.5]:
+        raise AssertionError("FIFO exit fee allocation")
+    if opened["quantity_open"].tolist() != [4] or opened["entry_fee_unrealized_usd"].tolist() != [2.0]:
+        raise AssertionError("remaining second lot")
+    if closed["net_pnl_usd"].sum() != -6.5:
+        raise AssertionError("fees on matched shares at a constant price")
+
+    dust = fills.iloc[[0, 2]].astype({"quantity": float}).copy()
+    dust.loc[dust.index[1], "quantity"] = 10.0 - 5e-10
+    dust_closed, dust_open = build_round_trips(dust, pd.DataFrame(), "main")
+    if not dust_open.empty or dust_closed["entry_fee_usd"].tolist() != [2.5]:
+        raise AssertionError("a closed fractional lot must exhaust its entry fee")
+
+
 def main() -> int:
     test_broker_trade_journal_pairs_round_trips_and_excludes_forward_labels()
+    test_partial_fifo_sales_conserve_fees_across_closed_and_open_lots()
     print("broker_trade_journal_smoke: PASS")
     return 0
 
