@@ -12,7 +12,8 @@
     "exposure_index": null,
     "completion_workflows": {
       "Free Data Daily Update": "free_data_daily_update.yml",
-      "Daily Crisis Monitor": "daily_crisis_monitor.yml"
+      "Daily Crisis Monitor": "daily_crisis_monitor.yml",
+      "Daily Operating Selection Refresh": "daily_operating_selection_refresh.yml"
     },
     "previous_monitor": {
       "workflow": "run287_daily_research_monitor.yml",
@@ -154,10 +155,11 @@
     "operating": {
       "workflow": "daily_operating_selection_refresh.yml",
       "allowed_events": ["schedule", "workflow_dispatch"],
-      "optional_members": ["recovery"],
+      "optional_members": ["recovery", "paper_gap"],
       "artifact_prefix": "daily-operating-selection-refresh-",
       "members": {
         "recovery": "outputs/run287_risk_outcome_parent_preflight/receipt.json",
+        "paper_gap": "outputs/daily_operating_selection_refresh/paper_gap_preflight.json",
         "upstream": "outputs/run287_exact_packet_upstream/attempts/{run_id}-{run_attempt}/status.json",
         "market": "outputs/daily_market_snapshot/summary.json",
         "prices": "outputs/daily_market_snapshot/market_snapshot.csv"
