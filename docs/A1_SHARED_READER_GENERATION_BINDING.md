@@ -507,3 +507,46 @@ complete-consumer APIs to generate a terminal-v2 receipt from gzip objects;
 it explicitly proves that the cohort content hash is absent from raw_objects.
 Its cohort/mapping/facts and patched cohort pin are test data, not real Source
 or rights evidence. This regression is prepared, not yet executed.
+
+## Separately pinned SEC reported-version date research
+
+`ResearchDataReader.read_sec_filing_version` is an opt-in, local research
+boundary independent of existing price and CompanyFacts generations. It takes
+an externally authenticated `SECDateVersionResearchScope`, exact V2 evidence,
+the selected-facts and dissemination packets, a separately pinned prior review,
+and exactly three selected original byte objects. No scope factory, collector,
+transport fallback, manifest, approval receipt or admission is created.
+
+The caller pins each metadata hash, consumer and exact issuer/accession/UTC
+cutoff tuple. Requests are bounded to nine filings,27 fact rows and23 declared
+cutoff links. The current implementation accepts the reviewed three GAAP
+concepts (revenue, operating income and diluted EPS) with their original unit,
+sign, scale, duration and consolidated context. It verifies the selected complete
+first-document member, the narrowly defined empty terminal-script presentation
+difference, SEC header/CIK/accession/period/change date and unique daily-index line.
+Changed values cannot be accepted merely by resealing a derived facts packet.
+
+Cutoffs require explicit UTC `Z`. They must fall on an Eastern civil date
+strictly after the latest filed/dissemination day, reported change date and
+retained conservative dissemination proxy date. A changed date can precede the
+next-day official filing date; the latter is never omitted. Same-day requests,
+substituted issuers/accessions, conflicting periods/units and missing proofs
+refuse. Original intraday first-public availability remains null.
+
+The immutable `ReadResult` reports `SEC_DATE_VERSION_RESEARCH_ONLY`, exact
+source/row hashes and a read receipt. Its `data_generation_id` is null;
+historical PIT, training, Source, ER/A5, selector/economic and market-join
+permissions remain false. This permits only the explicitly scoped research
+calculation/feature replay. It neither relabels the existing forward-only
+generation nor opens `purpose=training` or `purpose=backtest`.
+The external Source still authenticates review meaning and caller authority.
+
+Selected numeric facts must have direct text only: nested markup, ix:exclude,
+continuedAt and unknown transformation namespaces refuse. Concept and unit
+QNames resolve in each element's own namespace scope, including local prefix
+redefinitions; only actual US-GAAP, ISO4217 USD and XBRL shares are accepted.
+
+Each requested fact context must be unique and observed in the original after
+validation; extra missing references cannot accompany a valid context. Numeric
+scale uses the exact Decimal sign/digits/exponent tuple without ambient-context
+rounding, including signed values beyond28 significant digits.
