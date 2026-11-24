@@ -60,6 +60,9 @@ jobs:
 
   ohlc_forward_capture:
     name: Verify private OHLC benchmark archive
+    permissions:
+      contents: read
+      actions: read
     if: ${{ github.ref_name == github.event.repository.default_branch && vars.A4_OHLC_CAPTURE_ENABLED == 'true' && (github.event_name == 'schedule' || inputs.ohlc_capture_only) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -79,6 +82,20 @@ jobs:
           cache: pip
           cache-dependency-path: requirements_github.txt
       - run: pip install -r requirements_github.txt
+      - name: Identify scheduled capture slot
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          created="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .created_at)"
+          [[ "$created" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]
+          from=$(date -u -d "${created:0:10} -1 day" +%F)
+          to=$(date -u -d "${created:0:10} +1 day" +%F)
+          gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/daily_crisis_monitor.yml/runs" \
+            -f event=schedule -f branch="$GITHUB_REF_NAME" -f created="$from..$to" -f per_page=100 \
+            --jq '{total_count,runs:[.workflow_runs[]|{id,created_at}]}' > "$RUNNER_TEMP/a4-ohlc-runs.json"
+          echo "A4_SCHEDULED_RUN_CREATED_AT=$created" >> "$GITHUB_ENV"
       - name: Capture and read back private revision history
         env:
           A4_OHLC_API_KEY: ${{ secrets.A4_OHLC_API_KEY }}
@@ -89,7 +106,12 @@ jobs:
           curl -fsSL https://downloads.rclone.org/rclone-current-linux-amd64.zip -o "$RUNNER_TEMP/rclone.zip"
           unzip -oq "$RUNNER_TEMP/rclone.zip" -d "$RUNNER_TEMP/a4-ohlc-rclone"
           sudo install -m 0755 "$RUNNER_TEMP"/a4-ohlc-rclone/rclone-*/rclone /usr/local/bin/rclone
-          python -m tools.a4_ohlc_forward_capture --receipt "$RUNNER_TEMP/a4-ohlc-receipt.json"
+          args=()
+          if [[ "$GITHUB_EVENT_NAME" == schedule ]]; then
+            args+=(--scheduled-run-created-at "${A4_SCHEDULED_RUN_CREATED_AT:?missing run clock}"
+                   --scheduled-run-index "$RUNNER_TEMP/a4-ohlc-runs.json")
+          fi
+          python -m tools.a4_ohlc_forward_capture --receipt "$RUNNER_TEMP/a4-ohlc-receipt.json" "${args[@]}"
       - uses: actions/upload-artifact@v4
         with:
           name: a4-ohlc-metadata-${{ github.run_id }}-${{ github.run_attempt }}

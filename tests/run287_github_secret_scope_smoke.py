@@ -33,6 +33,7 @@ from tools.create_run287_catchup_scope_attestation import (  # noqa: E402
     build_attestation,
     combine_secret_pages,
     require_clean_critical_sources,
+    verify_capture_artifact_availability,
 )
 from tools.run287_catchup_scope_consumption import (  # noqa: E402
     GITHUB_ACTIONS_BOT_ID,
@@ -348,6 +349,98 @@ def verify(
         now=now or CHECKED_AT + timedelta(seconds=30),
         prior_verification=prior,
     )
+
+
+def test_capture_artifact_availability_precedes_secret_scope() -> None:
+    # The owner must never post a 15-minute scope for an artifact already
+    # expired/deleted.  Only safe run/artifact metadata is inspected here.
+    artifact_name = f"daily-operating-selection-refresh-{EVIDENCE_RUN_ID}"
+    run = {
+        "id": int(EVIDENCE_RUN_ID),
+        "workflow_id": WORKFLOW_ID,
+        "path": WORKFLOW_PATH,
+        "event": "workflow_dispatch",
+        "head_branch": DEFAULT_BRANCH,
+        "status": "completed",
+        "conclusion": "success",
+        "run_attempt": 1,
+        "repository": {"full_name": REPOSITORY},
+        "head_repository": {"full_name": REPOSITORY},
+    }
+    artifact = {
+        "name": artifact_name,
+        "id": 123,
+        "expired": False,
+        "digest": EVIDENCE_DIGEST,
+    }
+    run_api = f"repos/{REPOSITORY}/actions/runs/{EVIDENCE_RUN_ID}"
+    artifact_api = run_api + f"/artifacts?name={artifact_name}"
+    job_api = run_api + "/jobs?per_page=100"
+    jobs = {
+        "total_count": 2,
+        "jobs": [
+            {"id": 101, "run_id": int(EVIDENCE_RUN_ID), "name": "capture_catchup_evidence",
+             "status": "completed", "conclusion": "success"},
+            {"id": 102, "run_id": int(EVIDENCE_RUN_ID), "name": "refresh",
+             "status": "completed", "conclusion": "skipped"},
+        ],
+    }
+
+    def endpoint(name: str, *, run_data=None, artifacts=None, job_data=None):
+        assert name in {run_api, artifact_api, job_api}, (
+            "availability preflight must not access secret metadata"
+        )
+        if name == run_api:
+            return run if run_data is None else run_data
+        if name == job_api:
+            return jobs if job_data is None else job_data
+        return ({"total_count": 1, "artifacts": [artifact]}
+                if artifacts is None else artifacts)
+
+    with patch(
+        "tools.create_run287_catchup_scope_attestation.gh_json",
+        side_effect=endpoint,
+    ) as calls:
+        verify_capture_artifact_availability(EVIDENCE_RUN_ID, EVIDENCE_DIGEST)
+        assert calls.call_count == 3
+
+    cases = [
+        {"artifacts": {"total_count": 0, "artifacts": []}},
+        {"artifacts": {"total_count": 1, "artifacts": [{**artifact, "expired": True}]}},
+        {"artifacts": {"total_count": 1, "artifacts": [{**artifact, "digest": "sha256:" + "0" * 64}]}},
+        {"artifacts": {"total_count": 2, "artifacts": [artifact, artifact]}},
+        {"job_data": {"total_count": 1, "jobs": jobs["jobs"][:1]}},
+        {"job_data": {"total_count": 2, "jobs": [{**jobs["jobs"][0],
+                       "conclusion": "skipped"}, jobs["jobs"][1]]}},
+        {"job_data": {"total_count": 2, "jobs": [jobs["jobs"][0], {**jobs["jobs"][1],
+                       "conclusion": "failure"}]}},
+        {"job_data": {"total_count": 2, "jobs": [{**jobs["jobs"][0],
+                       "run_id": 1}, jobs["jobs"][1]]}},
+        {"run_data": {**run, "run_attempt": 2}},
+        {"run_data": {**run, "head_branch": "untrusted"}},
+        {"run_data": {**run, "conclusion": "cancelled"}},
+    ]
+    for fields in cases:
+        with patch(
+            "tools.create_run287_catchup_scope_attestation.gh_json",
+            side_effect=lambda name: endpoint(name, **fields),
+        ):
+            try:
+                verify_capture_artifact_availability(EVIDENCE_RUN_ID, EVIDENCE_DIGEST)
+            except SafeCommandError:
+                pass
+            else:
+                raise AssertionError(f"unavailable capture artifact accepted: {fields}")
+    for run_id, digest in (("0", EVIDENCE_DIGEST), (EVIDENCE_RUN_ID, "bad")):
+        with patch(
+            "tools.create_run287_catchup_scope_attestation.gh_json"
+        ) as calls:
+            try:
+                verify_capture_artifact_availability(run_id, digest)
+            except SafeCommandError:
+                assert calls.call_count == 0
+            else:
+                raise AssertionError("malformed capture pin accepted")
 
 
 def test_attestation_builder_and_pagination() -> None:
@@ -983,6 +1076,7 @@ def test_consumption_cli_handoff() -> None:
 def main() -> int:
     test_scope_matrix()
     test_cli_handoff()
+    test_capture_artifact_availability_precedes_secret_scope()
     test_attestation_builder_and_pagination()
     test_attestation_verification_matrix()
     test_attestation_cli_handoff()

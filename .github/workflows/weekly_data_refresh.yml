@@ -100,26 +100,30 @@ jobs:
           retention-days: 90
 
       - name: Commit weekly refresh outputs
-        if: always()
+        if: success() && env.FINNHUB_STATUS == '0' && env.THEME_STATUS == '0'
         run: |
+          set -euo pipefail
           git config user.name  "github-actions-bot"
           git config user.email "actions@github.com"
+          features=aggressive/state/finnhub/r1000_features.parquet
+          theme=aggressive/state/theme_discovery/latest.json
+          test -s "$features" && test -s "$theme" || { echo "::error::Weekly outputs incomplete"; exit 1; }
+          git pull --rebase --autostash
           mkdir -p cloud_results/theme_discovery
-          if [ -f aggressive/state/theme_discovery/latest.json ]; then
-            cp aggressive/state/theme_discovery/latest.json \
-              "cloud_results/theme_discovery/$(date +%Y%m%d).json"
+          published_theme="cloud_results/theme_discovery/$(date +%Y%m%d).json"
+          cp "$theme" "$published_theme"
+          git add -f -- "$features"
+          git add -- "$published_theme"
+          if git diff --cached --quiet; then
+            echo "Weekly repository publication: NO_CHANGE"
+            exit 0
           fi
-          git pull --rebase --autostash || true
-          git add -f aggressive/state/finnhub/r1000_features.parquet 2>/dev/null || true
-          git add cloud_results/theme_discovery/ 2>/dev/null || true
-          git diff --cached --quiet || \
-            git commit -m "chore(bot): weekly data refresh $(date +%Y-%m-%d) [skip ci]"
-          for i in 1 2 3 4; do
-            if git push; then
-              break
-            fi
-            sleep $((2 ** i))
-          done
+          git commit -m "chore(bot): weekly data refresh $(date +%Y-%m-%d) [skip ci]"
+          if ! git push; then
+            echo "::error::Weekly repository publication rejected or unconfirmed. Inspect remote head and the retained artifact before retry."
+            exit 1
+          fi
+          echo "Weekly repository publication: PUSH_CONFIRMED"
 
       - name: Telegram weekly digest
         if: always()
@@ -138,11 +142,11 @@ jobs:
             -d "chat_id=${TELEGRAM_CHAT_ID}" \
             -d "text=${MSG}" \
             -d "disable_web_page_preview=true" \
-            > /dev/null || echo "[telegram] notification failed"
+            > /dev/null || echo "::warning::Weekly Telegram notification failed"
 
       - name: Fail on critical weekly refresh errors
         if: always()
         run: |
-          if [ "${FINNHUB_STATUS:-0}" != "0" ] || [ "${THEME_STATUS:-0}" != "0" ]; then
+          if [ "${FINNHUB_STATUS:-missing}" != "0" ] || [ "${THEME_STATUS:-missing}" != "0" ]; then
             exit 1
           fi
