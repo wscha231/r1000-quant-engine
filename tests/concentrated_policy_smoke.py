@@ -303,7 +303,28 @@ def test_latest_concentrated_reloads_written_grid_artifact() -> None:
         assert len(selected) >= 1
 
 
+def test_required_early_momentum_reaches_concentrated_score() -> None:
+    import unittest
+    from r1000_features import compute_early_cycle_inflection_score
+    from r1000_pipeline import prepare_concentrated_frame
+
+    check = unittest.TestCase()
+    frame = pd.DataFrame(dict(ticker=["M", "Z", "V"], score=0., dist_ma200=-.025,
+                              mom_12m=-.1, mom_3m=[None, 0., .075],
+                              selection_confirmation_score=0., minervini_momentum_alive_score=0.))
+    feature = compute_early_cycle_inflection_score(frame)
+    check.assertEqual(feature["early_cycle_inflection_score"].tolist(), [0., .2, .5])
+    for missing in [frame.drop(columns="mom_3m"), frame.assign(mom_3m="unavailable")]:
+        check.assertTrue(compute_early_cycle_inflection_score(missing)["early_cycle_inflection_score"].eq(0.).all())
+    cfg = EngineConfig()
+    cfg.portfolio_defensive_rotation_enabled = False
+    scores = prepare_concentrated_frame(cfg, feature).set_index("ticker")["concentrated_score"]
+    check.assertLess(scores["M"], scores["Z"])
+    check.assertLess(scores["Z"], scores["V"])
+
+
 def main() -> int:
+    test_required_early_momentum_reaches_concentrated_score()
     test_entry_quality_fallback_from_gate_pass()
     test_entry_quality_fallback_blocks_weak_rows()
     test_audit_surfaces_entry_quality_source()
