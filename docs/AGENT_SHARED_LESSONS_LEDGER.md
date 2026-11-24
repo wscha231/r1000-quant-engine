@@ -11727,6 +11727,10 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - The first real direct-script audit failed before output creation: imported smoke tests had inserted repository root, masking research-module import failure from tools/. Preserve the failed receipt and3.6017712s, bootstrap the resolved repository root, and exercise a real subprocess from outside the repository with no PYTHONPATH before reusing a fresh create-only output namespace.
 
 
+### 2026-11-25 — Conserve the original entry fee across FIFO exits
+
+- Deduct each partial exit’s share of a lot’s remaining entry fee. The final matched exit takes the residual fee when the journal treats the lot as closed. Reconcile closed plus open entry fees against original buy fills before using the derived round trips for learning. The replay NAV and immutable fills retain their original values.
+
 ### 2026-11-13 — Compare frozen original A5 targets through E2 net NAV
 
 - The existing allocation objective comparison was not realized performance. Serialize only externally pinned original A5 comparisons with their identity/decision/source hashes. Preserve all-cash dates explicitly; skip HOLD intents so price drift does not turn a hold into a rebalance. These paired fixed targets share original incumbent states and cannot certify two closed-loop learned policies.
