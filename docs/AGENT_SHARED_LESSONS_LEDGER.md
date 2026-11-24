@@ -2738,6 +2738,25 @@ Expected contract:
   - `outputs/run287_sec_guidance_foreign_gap_index_20260714/`
   - `outputs/run287_sec_management_guidance_scout_20260714/`
   - `outputs/run287_sec_management_guidance_scout_20260714_hardened_v2/`
+### 2026-11-22 — Keep composite review evidence distinct from approved exits
+
+- Reuse the existing A2 log-RS/volume, A3 thesis/net ER, A4 risk and A5 audited
+  exits. Adding options or a sentiment presentation must not recalculate
+  allocations, count correlated inputs as extra votes or manufacture dealer
+  gamma. Legacy Cboe CSV support does not prove a current source entitlement.
+- The native sentiment engine retains internal greed through missing inputs.
+  Mask the current greed conclusion until its own conditions are ready; keep
+  recovery guard missingness separate from a false pause flag.
+- Independent review reproduced overall Native readiness with a missing trend
+  axis and a CFTC report with only2 of10 supplied rows observed. Family-level
+  coverage must remain PARTIAL. The candidate rank is risk-adjusted expected
+  alpha, distinct from the discovery rank and from raw expected alpha.
+- Initial local checks stopped on missing declared calendar/requests packages;
+  install the existing requirements while retaining pandas2.x. A new test
+  initially addressed `observations` instead of the existing snapshot `rows`
+  field; correct the fixture assertion, not the production schema. Preserve
+  those failed attempts separately from the subsequent validation results.
+
 ### 2026-07-14 - Held-security risk must be measured separately from broad-market regime
 
 - Agent: Codex
@@ -11980,21 +11999,27 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   sign/digits/exponent directly to preserve exact scaled amounts. Keep the
   original failing regressions and rerun normal/optimized original readback.
 
-### 2026-11-22 — Keep composite review evidence distinct from approved exits
+### 2026-11-21 — Current A4 failure must veto legacy review before state changes
 
-- Reuse the existing A2 log-RS/volume, A3 thesis/net ER, A4 risk and A5 audited
-  exits. Adding options or a sentiment presentation must not recalculate
-  allocations, count correlated inputs as extra votes or manufacture dealer
-  gamma. Legacy Cboe CSV support does not prove a current source entitlement.
-- The native sentiment engine retains internal greed through missing inputs.
-  Mask the current greed conclusion until its own conditions are ready; keep
-  recovery guard missingness separate from a false pause flag.
-- Independent review reproduced overall Native readiness with a missing trend
-  axis and a CFTC report with only2 of10 supplied rows observed. Family-level
-  coverage must remain PARTIAL. The candidate rank is risk-adjusted expected
-  alpha, distinct from the discovery rank and from raw expected alpha.
-- Initial local checks stopped on missing declared calendar/requests packages;
-  install the existing requirements while retaining pandas2.x. A new test
-  initially addressed `observations` instead of the existing snapshot `rows`
-  field; correct the fixture assertion, not the production schema. Preserve
-  those failed attempts separately from the subsequent validation results.
+- Scheduled run44668953238/job136065019699 refused a stale Native handoff,
+  while fresh primary capture and private research diagnostics were still
+  produced. A continued step's API conclusion does not replace its actual
+  outcome. Keep the session refusal; never renew old source dates or loosen
+  the ten-axis gate to recover a green run.
+- A synthetic cross-domain reproduction found that healthy legacy inputs
+  could emit GREEN/no-op and advance hysteresis before a configured current
+  A4 DATA_BLOCKED report was attached. A nonzero CLI exit was too late. Load
+  current A4 once and apply its failure before transitions, actions or history
+  writes. This reproduced boundary defect is not evidence that a live trade
+  or historical loss occurred.
+- Failed required preparation must publish a current blocked diagnostic,
+  with partial current research preserved and all investment authority closed.
+  Use the attempted input root, remove only the two local generated reports
+  before computation, and never sync retained history on a blocked attempt.
+  Copy and readback failure must remain visible. This repair does not refresh
+  the Source handoff, create a current portfolio, or validate predictive skill.
+- Independent review reproduced a killed-writer case where two nonempty but
+  incomplete files could pass the sync precheck. Parse the expected JSON schema
+  and compare its exact rendered Markdown before any transport; checksums alone
+  certify copied bytes, not a complete report. Exercise corrupt and mismatched
+  pairs in the actual workflow shell without remote transport.

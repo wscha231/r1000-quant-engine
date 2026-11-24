@@ -475,6 +475,21 @@ def build_monitor(args: argparse.Namespace) -> dict[str, Any]:
             health.update(current_report_status="BLOCKED", data_health="DATA_BLOCKED",
                           history_update_allowed=False, blockers=["CURRENT_CONFIG_PROOF_REQUIRED"])
     health = legacy_context_health(health, long_crisis, history, now, raw_state)
+    # Resolve the configured current A4 input before any legacy transition.
+    # A failed current source cannot be outweighed by an older healthy path;
+    # retaining its partial research context does not authorize actions/history.
+    market_payload: dict[str, Any] = {}
+    attach_market_analysis(market_payload, args, now)
+    market_report = market_payload.get("market_analysis")
+    current_blockers = []
+    if market_report is not None and market_report.get("status") != "READY_RESEARCH_ONLY":
+        current_blockers.append("CURRENT_A4_ANALYSIS_NOT_READY")
+    if getattr(args, "market_analysis_upstream_blocked", False):
+        current_blockers.append("CURRENT_A4_UPSTREAM_BLOCKED")
+    if current_blockers:
+        health.update(current_report_status="BLOCKED", data_health="DATA_BLOCKED",
+                      history_update_allowed=False,
+                      blockers=list(dict.fromkeys([*health["blockers"], *current_blockers])))
     long_crisis = dict(long_crisis)
     long_crisis["diagnostic_scope"] = "AS_OF_SOURCE_SESSION_ONLY"
     long_crisis["current_report_eligible"] = health["current_report_status"] != "BLOCKED"
@@ -547,7 +562,7 @@ def build_monitor(args: argparse.Namespace) -> dict[str, Any]:
             "DEGRADED_DATA": "block new risk and apply conservative review cap",
         },
     }
-    attach_market_analysis(payload, args, now)
+    payload.update(market_payload)
     (output_dir / "crisis_action_status.md").write_text(render_report(payload), encoding="utf-8")
     (output_dir / "summary.json").write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     if args.update_history and health["current_report_status"] != "BLOCKED":
@@ -704,6 +719,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--market-analysis-root", help="Bounded local mirror of existing Source originals")
     parser.add_argument("--expected-market-analysis-request-sha256")
     parser.add_argument("--market-analysis-request-sha-file", help="Source integrity pin; not Source/PIT approval")
+    parser.add_argument("--market-analysis-upstream-blocked", action="store_true",
+                        help="Publish a current blocked diagnostic after failed required A4 preparation; never advance history")
     parser.add_argument("--update-history", action="store_true")
     parser.add_argument("--report-slot", choices=("INTRADAY", "AFTER_CLOSE"))
     parser.add_argument("--report-session", type=report_session)
