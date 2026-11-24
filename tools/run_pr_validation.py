@@ -49,6 +49,7 @@ CHILD_ENV = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
 # weekly leader sidecar, broker position/execution policy, operating
 # target books, and the leakage audit. Some aggregate suites take many minutes.
 DEFAULT_TESTS: list[tuple[str, list[str]]] = [
+    ("tests/sec_filing_version_research_smoke.py", []),
     ("tests/a4_rtdsm_extension_smoke.py", []),
     ("tests/a4_rtdsm_sources_smoke.py", []),
     ("tests/a4_primary_sources_smoke.py", []),
