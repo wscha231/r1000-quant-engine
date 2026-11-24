@@ -4,7 +4,7 @@ on:
   schedule:
     - cron: '25 8 * * *'  # 17:25 Asia/Seoul; report latest settled US session.
   workflow_run:
-    workflows: ['Free Data Daily Update', 'Daily Crisis Monitor']
+    workflows: ['Free Data Daily Update', 'Daily Crisis Monitor', 'Daily Operating Selection Refresh']
     types: [completed]
   workflow_dispatch:
   pull_request:

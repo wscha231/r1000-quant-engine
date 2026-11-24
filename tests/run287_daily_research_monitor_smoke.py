@@ -148,6 +148,49 @@ def score_source(fixture=None, *, absolute=False, alter=None):
 
 
 class MonitorTests(unittest.TestCase):
+    def test_paper_gap_report_stays_separate_from_current_research(self):
+        self.assertIn("paper_gap", CONTRACT["sources"]["operating"]["optional_members"])
+        self.assertEqual(CONTRACT["reassessment"]["completion_workflows"][
+            "Daily Operating Selection Refresh"], "daily_operating_selection_refresh.yml")
+        source = evidence()
+        source["operating"]["data"]["paper_gap"] = {
+            "schema_version": "run287-paper-gap-preflight-v1",
+            "status": "BLOCKED_SESSION_GAP",
+            "read_only": True, "paper_ledger_mutated": False,
+            "target_mutated": False, "trade_authorization_granted": False,
+            "requested_session": "2026-09-04", "paper_as_of": "2026-07-27",
+            "next_missing_session": "2026-07-28", "missing_nyse_session_count": 24,
+            "verified_remote_terminal_sha256": "a" * 64,
+        }
+        original = copy.deepcopy(source)
+        report = monitor.evaluate(source, "2026-09-04", NOW, CONTRACT)
+        self.assertEqual(source, original)
+        state = report["observations"]["operating_paper_frontier"]
+        self.assertEqual(state["status"], "PAPER_CHRONOLOGICAL_GAP")
+        self.assertEqual(state["next_missing_session"], "2026-07-28")
+        self.assertEqual(state["missing_nyse_session_count"], 24)
+        self.assertFalse(state["portfolio_approved"])
+        self.assertFalse(state["paper_mutated_by_monitor"])
+        self.assertFalse(report["current_portfolio_ready"])
+        self.assertFalse(report["current_investment_ranking_ready"])
+        self.assertIn("operating:PAPER_CHRONOLOGICAL_GAP", report["alerts"])
+        self.assertIn("Paper chronology:", monitor.render(report))
+        no_hash = copy.deepcopy(source)
+        no_hash["operating"]["artifact_hash_verified"] = False
+        self.assertEqual(monitor.evaluate(no_hash, "2026-09-04", NOW, CONTRACT)
+                         ["observations"]["operating_paper_frontier"]["status"],
+                         "NO_VERIFIED_PAPER_FRONTIER_REPORT")
+        forged = copy.deepcopy(source)
+        forged["operating"]["data"]["paper_gap"]["requested_session"] = "2026-09-03"
+        self.assertEqual(monitor.evaluate(forged, "2026-09-04", NOW, CONTRACT)
+                         ["observations"]["operating_paper_frontier"]["status"],
+                         "NO_VERIFIED_PAPER_FRONTIER_REPORT")
+        inconsistent = copy.deepcopy(source)
+        inconsistent["operating"]["data"]["paper_gap"]["missing_nyse_session_count"] = 1
+        self.assertEqual(monitor.evaluate(inconsistent, "2026-09-04", NOW, CONTRACT)
+                         ["observations"]["operating_paper_frontier"]["status"],
+                         "NO_VERIFIED_PAPER_FRONTIER_REPORT")
+
     def test_current_score_graph_joins_without_creating_a_rank_or_portfolio(self):
         source = evidence()
         source["operating"] = score_source(absolute=True)

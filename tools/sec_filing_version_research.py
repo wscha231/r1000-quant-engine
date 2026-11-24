@@ -98,8 +98,10 @@ def _facts_from_primary(primary, rows, cik):
     units = {e.get('id'): e for e in unit_nodes}
     check(len(contexts) == len(context_nodes) and len(units) == len(unit_nodes),
           'SEC_VERSION_XML')
-    check(re.fullmatch(r'https?://fasb.org/us-gaap/\d{4}-\d\d-\d\d',
-                      tree.nsmap.get('us-gaap', '')), 'SEC_VERSION_XML')
+    namespace = tree.nsmap.get('us-gaap', '')
+    check(namespace == 'http://fasb.org/us-gaap/2026' or
+          re.fullmatch(r'https?://fasb\.org/us-gaap/[0-9]{4}-[0-9]{2}-[0-9]{2}', namespace),
+          'SEC_VERSION_XML')
     check(len(contexts) <= 10000 and len(units) <= 1000, 'SEC_VERSION_RESOURCE')
     expected = {r['tag']: r for r in rows}
     observed = {tag: set() for tag in TAGS}

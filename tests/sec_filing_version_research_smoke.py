@@ -234,6 +234,24 @@ class SECDateVersionTests(unittest.TestCase):
         self.refuse(self.edit_member(fixture(),b'unitRef="USD">100',
             b'unitRef="USD" continuedAt="continuation">100'))
 
+    def test_2026_annual_taxonomy_preserves_request_scope_and_fact_validation(self):
+        f = self.edit_member(fixture(), b'http://fasb.org/us-gaap/2021-01-31',
+                             b'http://fasb.org/us-gaap/2026')
+        result = self.call(f)
+        self.assertEqual([row['value'] for row in result.rows], ['-0.2', '20', '100'])
+        self.assertIs(result.receipt['eligible_for_er'], False)
+        self.assertIs(result.receipt['eligible_for_a5'], False)
+        self.refuse(f, decision_time='2026-11-24T00:00:00Z')
+        f['rows'][2]['value'] = '999'
+        self.refuse(f)
+
+    def test_unrecognized_annual_taxonomy_refuses(self):
+        for namespace in (b'http://fasb.org/us-gaap/2026/draft',
+                          b'http://example.org/us-gaap/2026'):
+            with self.subTest(namespace=namespace):
+                self.refuse(self.edit_member(fixture(), b'http://fasb.org/us-gaap/2021-01-31',
+                                             namespace))
+
     def test_scoped_concept_prefix_redefinition_refuses(self):
         self.refuse(self.edit_member(fixture(),b'name="us-gaap:OperatingIncomeLoss"',
             b'xmlns:us-gaap="https://example.invalid/not-gaap" name="us-gaap:OperatingIncomeLoss"'))
