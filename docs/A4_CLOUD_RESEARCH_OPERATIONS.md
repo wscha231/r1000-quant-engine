@@ -174,6 +174,13 @@ blindly rerun transactional legacy steps; follow their existing contracts.
 
 ## Independent A5 model proposals
 
+In combined scope the hosted workflow reads the A5 request and its referenced
+files from the restored `outputs/market_analysis_inputs` directory. It reads
+the A4 market request and current originals from the selected market input
+directory, including the current data-center attempt when enabled. A direct
+caller can select the A5 packet directory with `--a5-input-root`. Omitting it
+retains the single-directory behavior. A4-only runs ignore this option.
+
 The optional `a5_request.json` uses schema `a5-model-proposal-request-v1` with
 hash-bound `inputs`, `registry`, `policy` and optional `previous_proposal` paths.
 `A5_MODEL_POLICY_SHA256` independently pins the original policy file. Inputs

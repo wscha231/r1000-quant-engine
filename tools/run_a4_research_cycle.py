@@ -99,16 +99,20 @@ def load_forward_context(root,release_policy):
 
 def run_cycle(*, input_root, state_root, output_dir, cutoff,
               learning_policy_sha256=None,a5_policy_sha256=None,code_sha=None,learning_input_root=None,
-              scope="A4_A5"):
+              scope="A4_A5",a5_input_root=None):
     market.need(scope in SCOPES,"A4_RESEARCH_SCOPE")
     root,state,out=Path(input_root),Path(state_root),Path(output_dir)
     learn_root=Path(learning_input_root) if learning_input_root is not None else root
-    market.need(not any(p.is_symlink() for path in (root,state,out,learn_root) for p in (path,*path.parents)),"A4_ROOT_SYMLINK")
+    model_root=Path(a5_input_root) if scope=="A4_A5" and a5_input_root is not None else root
+    market.need(not any(p.is_symlink() for path in (root,state,out,learn_root,model_root) for p in (path,*path.parents)),"A4_ROOT_SYMLINK")
     resolved=[p.resolve() for p in (root,state,out)]
     market.need(all(not a.is_relative_to(b) and not b.is_relative_to(a)
                     for i,a in enumerate(resolved) for b in resolved[:i]),"A4_INPUT_STATE_OUTPUT_OVERLAP")
-    market.need(all(not learn_root.resolve().is_relative_to(p.resolve()) and not p.resolve().is_relative_to(learn_root.resolve())
-                    for p in (state,out)),"A4_LEARNING_STATE_OUTPUT_OVERLAP")
+    for packet_root,reason in ((learn_root,"A4_LEARNING_STATE_OUTPUT_OVERLAP"),
+                               (model_root,"A5_INPUT_STATE_OUTPUT_OVERLAP")):
+        packet_path=packet_root.resolve()
+        market.need(all(not packet_path.is_relative_to(p) and not p.is_relative_to(packet_path)
+                        for p in resolved[1:]),reason)
     market.need(not out.exists(),"A4_ATTEMPT_ALREADY_EXISTS")
     out.mkdir(parents=True)
     try:
@@ -119,8 +123,8 @@ def run_cycle(*, input_root, state_root, output_dir, cutoff,
     if scope=="A4_A5":
         from tools import a5_model_portfolio as a5
         try:
-            a5_request=market.clock.decode(market.bounded(root/"a5_request.json",256*1024))
-            replay_cutoff=a5.decision_cutoff(root,a5_request,expected_policy_sha256=a5_policy_sha256,execution_at=cutoff)
+            a5_request=market.clock.decode(market.bounded(model_root/"a5_request.json",256*1024))
+            replay_cutoff=a5.decision_cutoff(model_root,a5_request,expected_policy_sha256=a5_policy_sha256,execution_at=cutoff)
         except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
             a5_request=None
     try:
@@ -213,7 +217,7 @@ def run_cycle(*, input_root, state_root, output_dir, cutoff,
         portfolio=a5.blocked(cutoff,["CURRENT_A5_MODEL_REQUEST_AND_REVIEWED_INPUTS_REQUIRED"])
         try:
             market.need(a5_request is not None,"A5_FIXED_DECISION_NOT_VERIFIED")
-            portfolio=a5.load_and_build(root,a5_request,report,expected_policy_sha256=a5_policy_sha256,code_sha=code_sha,
+            portfolio=a5.load_and_build(model_root,a5_request,report,expected_policy_sha256=a5_policy_sha256,code_sha=code_sha,
                                         execution_at=cutoff)
         except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
             pass
@@ -255,6 +259,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input-root",required=True)
     parser.add_argument("--learning-input-root",default=None)
+    parser.add_argument("--a5-input-root",help="Restored A5 packet directory for combined scope; defaults to --input-root")
     parser.add_argument("--state-root",required=True)
     parser.add_argument("--output-dir",required=True)
     parser.add_argument("--cutoff",default=None)
@@ -265,7 +270,8 @@ def main():
         result=run_cycle(input_root=args.input_root,state_root=args.state_root,output_dir=args.output_dir,
                          cutoff=cutoff,learning_policy_sha256=os.environ.get("A4_LEARNING_POLICY_SHA256"),
                          a5_policy_sha256=os.environ.get("A5_MODEL_POLICY_SHA256") if args.scope=="A4_A5" else None,
-                         code_sha=os.environ.get("GITHUB_SHA"),learning_input_root=args.learning_input_root,scope=args.scope)
+                         code_sha=os.environ.get("GITHUB_SHA"),learning_input_root=args.learning_input_root,
+                         a5_input_root=args.a5_input_root,scope=args.scope)
         print(json.dumps({k:result[k] for k in ("status","scope","a4_cycle_status","market_status",
                                               "learning_status","learning_blockers","quantitative_outlook_status")}))
         return 0 if result["status"]=="COMPLETE_RESEARCH_ONLY" else 2
