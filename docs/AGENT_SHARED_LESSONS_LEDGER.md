@@ -10601,6 +10601,10 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   Use one eligibility mask with positional assignment; preserve valid zero,
   negative outcomes and duplicate-index generic API behavior.
 
+### 2026-11-25 — Preserve missing mandatory momentum before early-cycle scoring
+
+The early-cycle gate gave identical positive credit to missing and observed-flat three-month momentum. Preserve missing values through its existing availability mask. Downstream feature-store/model artifacts carry the updated reuse version. A 595-row archived research snapshot had no missing three-month inputs; the controlled native consumer regression establishes the defect independently of any historic performance impact.
+
 ## 2026-11-10 - Causal next-close state is a synthetic rebaseline
 
 - Reuse one incumbent ledger for fills, strict marks, cash/NAV and immutable
