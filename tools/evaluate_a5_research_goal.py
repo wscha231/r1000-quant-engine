@@ -11,6 +11,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+from mission_contract import mission_identity
+from r1000_config import PORTFOLIO_MISSION_TARGETS
 from tools import nav_metrics_v2 as nav
 from tools.execution_cost_model import EXECUTION_COST_MODE_FIXED
 
@@ -33,6 +35,20 @@ def goal_outcome(kind, book, spy):
             stretch = "PASS" if book["cagr"] >= 0.40 else "MISS"
     return dict(status="PASS" if base_met else "MISS", return_goal_met=beats_spy,
                 drawdown_goal_met=drawdown_ok, stretch_status=stretch)
+
+
+def _project_mission(kind, book):
+    """Compare the verified research-window net NAV with the project's absolute targets."""
+    identity = mission_identity(PORTFOLIO_MISSION_TARGETS)
+    target = identity["mission_contract_values"][kind]
+    cagr_met = book["cagr"] >= target["cagr_min"]
+    drawdown_met = book["max_dd"] >= target["max_dd_min"]
+    return dict(status="PASS" if cagr_met and drawdown_met else "MISS",
+                basis="MATCHED_RESEARCH_WINDOW_NET_NAV",
+                mission_contract_id=identity["mission_contract_id"],
+                mission_contract_sha256=identity["mission_contract_sha256"],
+                cagr_min=target["cagr_min"], max_dd_min=target["max_dd_min"],
+                cagr_met=cagr_met, drawdown_met=drawdown_met)
 
 
 def _cash_at_close(packet, nav_rows):
@@ -173,7 +189,7 @@ def _qqq_comparison(packet, book):
 def assess(packet, *, portfolio_kind, expected_manifest_sha256, end_session):
     """The external pin must come from the review of the named historical inputs."""
     base = dict(portfolio_kind=portfolio_kind, goal_policy=GOAL_POLICY,
-                research_only=True, promotion_allowed=False)
+                research_only=True, promotion_allowed=False, project_mission=None)
     try:
         manifest = packet["manifest"]
         nav.require(nav.digest(manifest) == expected_manifest_sha256, "GOAL_MANIFEST_PIN")
@@ -267,6 +283,7 @@ def assess(packet, *, portfolio_kind, expected_manifest_sha256, end_session):
         except (KeyError, TypeError, ValueError, OverflowError) as error:
             monthly = dict(status="DATA_BLOCKED", reason=str(error))
         return dict(base, **outcome,
+                    project_mission=_project_mission(portfolio_kind, book),
                     total_return=book["total_return"], cagr=book["cagr"], max_dd=book["max_dd"],
                     spy_total_return=spy["total_return"], spy_cagr=spy["cagr"], spy_max_dd=spy["max_dd"],
                     start_session=book["start_date"], end_session=book["end_date"],
@@ -293,7 +310,8 @@ def main():
         result = assess(packet, portfolio_kind=args.portfolio_kind, end_session=args.end_session,
                         expected_manifest_sha256=args.reviewed_manifest_sha256)
     except (ValueError, OSError) as error:
-        result = dict(portfolio_kind=args.portfolio_kind, status="DATA_BLOCKED", reason=str(error))
+        result = dict(portfolio_kind=args.portfolio_kind, status="DATA_BLOCKED", reason=str(error),
+                      project_mission=None)
     print(json.dumps(result, allow_nan=False))
     return 2 if result["status"] == "DATA_BLOCKED" else 0
 
