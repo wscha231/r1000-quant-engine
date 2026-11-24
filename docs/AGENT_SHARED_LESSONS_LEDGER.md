@@ -11980,6 +11980,10 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   and revisions. A current breadth receipt is evidence for one risk axis;
   the Native packet and historical learning retain their independent gates.
 
+### 2026-11-25 — Bind SEC fact comparisons to the declared taxonomy
+
+- The 2026 FASB US GAAP namespace uses the release year. Rejecting it as an invalid date discarded authentic quarterly facts before the issuer, unit and value checks could run. Recognize the published URI, retain those checks, and apply the separate caller-reviewed accession and decision-time scope to every Reader request.
+
 ### 2026-11-25 — Preserve consumed maturity acknowledgements
 
 - A private review must replay its last consumed cohort response and the frozen denominator before sending new maturity events. A changed batch hash can accompany unchanged rows when another horizon matures. Compare each row’s actual values and availability, retain missing observations, and reuse the create-only output on an identical retry.
