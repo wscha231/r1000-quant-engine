@@ -11979,3 +11979,7 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   contexts. Decimal.scaleb and unary minus use ambient precision; construct
   sign/digits/exponent directly to preserve exact scaled amounts. Keep the
   original failing regressions and rerun normal/optimized original readback.
+
+### 2026-11-25 — Preserve missing mandatory momentum before early-cycle scoring
+
+The early-cycle gate gave identical positive credit to missing and observed-flat three-month momentum. Preserve missing values through its existing availability mask. Downstream feature-store/model artifacts carry the updated reuse version. A 595-row archived research snapshot had no missing three-month inputs; the controlled native consumer regression establishes the defect independently of any historic performance impact.
