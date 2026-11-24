@@ -424,6 +424,8 @@ python() { "$FIXTURE_PYTHON" "$@"; }
             old=root/"attempts/old";old.mkdir(parents=True)
             (old/"cycle.json").write_bytes(b'{"status":"old_success"}')
             result=cycle.run_cycle(input_root=inputs,state_root=state,output_dir=root/"attempts/new",cutoff=NOW)
+            self.assertFalse(result["a5_executed"])
+            self.assertEqual(result["a5_status"],"BLOCKED")
             self.assertEqual(result["status"],"PARTIAL_RESEARCH")
             self.assertEqual(result["market_status"],"DATA_BLOCKED")
             self.assertFalse(result["durable_remote_verified"])
@@ -551,6 +553,8 @@ python() { "$FIXTURE_PYTHON" "$@"; }
             arguments=dict(input_root=inputs,state_root=state,learning_policy_sha256=request['policy']['sha256'],
                            a5_policy_sha256=model['policy']['sha256'],code_sha='a'*40)
             first=cycle.run_cycle(**arguments,output_dir=base/'first',cutoff=NOW)
+            self.assertTrue(first['a5_executed'])
+            self.assertEqual(first['a5_status'],'BLOCKED')
             self.assertEqual(first['learning_status'],'RESEARCH_CYCLE_COMPLETE',first)
             paths=list((state/'predictions').iterdir());self.assertEqual(len(paths),1)
             captured=json.loads(paths[0].read_bytes())['predictions']
