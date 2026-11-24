@@ -5339,6 +5339,18 @@ Expected contract:
 - Fullrun executed: false. Durable daily catch-up executed: false. Production
   enabled: false. Live trading enabled: false.
 
+### 2026-11-21 — Emit the exact paper catch-up frontier before daily trading research
+
+- The November 20 daily run restored seven verified immutable paper heads and a July 27 terminal, then failed while requesting November 19 (BLOCKED_SESSION_GAP, next required July 28). Current exact-close price availability was not evidence of chronological paper continuity.
+- After restoring the authoritative Drive immutable head, run a read-only NYSE-calendar preflight before current-session price refresh, candidate selection, or simulated account mutation. Record the terminal hash, as-of date, next missing session, and backlog depth; stale/forked/non-Drive heads must fail closed.
+- This preflight supplies actionable failure diagnostics only. It does not create price evidence, backdate decisions, batch-authorize sessions, satisfy an owner scope attestation, repair historical pattern evidence, or alter Actual Broker/Approved Target. Preserve the one-session-per-authorization contract until a separately reviewed protected batch authority is explicitly approved.
+
+### 2026-11-21 KST — Expired catch-up artifact must block owner scope before posting
+
+- A historical capture workflow run can remain SUCCESS after all its named artifacts are absent. Live Actions run 36989287810 completed successfully on October 2, yet the November 21 artifact listing returned total_count=0. The previously recorded artifact ID/digest is historical evidence only; it is not proof of a currently retrievable approved input.
+- Make the existing owner attestation helper verify the exact producer run/attempt and matching, unexpired artifact name/digest **before** checking secret-scope metadata or posting #324 authorization. A missing original must stop and route to the existing capture-only workflow, not a fabricated digest, old cache, or expired approval.
+- The capture-only workflow requires force_run=false, its requested session to equal the latest completed NYSE session, and all economic mutation inputs blank/false. Secret-name metadata HTTP 403 remains an owner-connection repair, not a reason to weaken the attestation, publisher, or ledger gates. Only exact-session accepted Drive readback advances paper chronology.
+
 ## 2026-07-24 - H4b chronological catch-up and durable publication hardening
 
 - A historical market session is not a normal forced daily run. It must be a
@@ -11980,14 +11992,27 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   sign/digits/exponent directly to preserve exact scaled amounts. Keep the
   original failing regressions and rerun normal/optimized original readback.
 
-### 2026-11-21 — Emit the exact paper catch-up frontier before daily trading research
+### 2026-11-21 — Current A4 failure must veto legacy review before state changes
 
-- The November 20 daily run restored seven verified immutable paper heads and a July 27 terminal, then failed while requesting November 19 (BLOCKED_SESSION_GAP, next required July 28). Current exact-close price availability was not evidence of chronological paper continuity.
-- After restoring the authoritative Drive immutable head, run a read-only NYSE-calendar preflight before current-session price refresh, candidate selection, or simulated account mutation. Record the terminal hash, as-of date, next missing session, and backlog depth; stale/forked/non-Drive heads must fail closed.
-- This preflight supplies actionable failure diagnostics only. It does not create price evidence, backdate decisions, batch-authorize sessions, satisfy an owner scope attestation, repair historical pattern evidence, or alter Actual Broker/Approved Target. Preserve the one-session-per-authorization contract until a separately reviewed protected batch authority is explicitly approved.
-
-### 2026-11-21 KST — Expired catch-up artifact must block owner scope before posting
-
-- A historical capture workflow run can remain SUCCESS after all its named artifacts are absent. Live Actions run 36989287810 completed successfully on October 2, yet the November 21 artifact listing returned total_count=0. The previously recorded artifact ID/digest is historical evidence only; it is not proof of a currently retrievable approved input.
-- Make the existing owner attestation helper verify the exact producer run/attempt and matching, unexpired artifact name/digest **before** checking secret-scope metadata or posting #324 authorization. A missing original must stop and route to the existing capture-only workflow, not a fabricated digest, old cache, or expired approval.
-- The capture-only workflow requires force_run=false, its requested session to equal the latest completed NYSE session, and all economic mutation inputs blank/false. Secret-name metadata HTTP 403 remains an owner-connection repair, not a reason to weaken the attestation, publisher, or ledger gates. Only exact-session accepted Drive readback advances paper chronology.
+- Scheduled run44668953238/job136065019699 refused a stale Native handoff,
+  while fresh primary capture and private research diagnostics were still
+  produced. A continued step's API conclusion does not replace its actual
+  outcome. Keep the session refusal; never renew old source dates or loosen
+  the ten-axis gate to recover a green run.
+- A synthetic cross-domain reproduction found that healthy legacy inputs
+  could emit GREEN/no-op and advance hysteresis before a configured current
+  A4 DATA_BLOCKED report was attached. A nonzero CLI exit was too late. Load
+  current A4 once and apply its failure before transitions, actions or history
+  writes. This reproduced boundary defect is not evidence that a live trade
+  or historical loss occurred.
+- Failed required preparation must publish a current blocked diagnostic,
+  with partial current research preserved and all investment authority closed.
+  Use the attempted input root, remove only the two local generated reports
+  before computation, and never sync retained history on a blocked attempt.
+  Copy and readback failure must remain visible. This repair does not refresh
+  the Source handoff, create a current portfolio, or validate predictive skill.
+- Independent review reproduced a killed-writer case where two nonempty but
+  incomplete files could pass the sync precheck. Parse the expected JSON schema
+  and compare its exact rendered Markdown before any transport; checksums alone
+  certify copied bytes, not a complete report. Exercise corrupt and mismatched
+  pairs in the actual workflow shell without remote transport.

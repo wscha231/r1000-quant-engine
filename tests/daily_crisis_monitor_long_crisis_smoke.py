@@ -125,7 +125,7 @@ class LegacyCurrentnessTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
 
-    def run_case(self, session="2026-10-16", now="2026-10-17T00:45:00+00:00", *, mutate=None, update=True, report_now=None, history_mutate=None, inference_error=None, config_payload=None, coverage_raw=None):
+    def run_case(self, session="2026-10-16", now="2026-10-17T00:45:00+00:00", *, mutate=None, update=True, report_now=None, history_mutate=None, inference_error=None, config_payload=None, coverage_raw=None, market_args=None):
         observed = datetime.fromisoformat(now)
         values = dict(market_trend_damage_score=0.1, qqq_below_ma200=0.0, qqq_ma200=100.0,
                       hy_oas_zscore_252d=0.1, vix_zscore_252d=0.1, liquidity_confirmation_score=0.1,
@@ -187,6 +187,7 @@ class LegacyCurrentnessTests(unittest.TestCase):
             long_crisis_thresholds=str(config), expected_thresholds_sha256=config_sha,
             current_source_expectations=str(coverage_path), expected_current_source_expectations_sha256=coverage_sha,
             expected_snapshot_sha256=snapshot_sha, report_now=report_now)
+        vars(args).update(market_args or {})
         with patch.object(clock, "trusted_now", return_value=observed), \
              patch.object(monitor, "infer_raw_state", side_effect=inference_error, return_value=("GREEN", ["fixture source diagnostic"], copy.deepcopy(meta))), \
              patch.object(monitor, "apply_hysteresis", wraps=monitor.apply_hysteresis) as hysteresis:
@@ -225,6 +226,63 @@ class LegacyCurrentnessTests(unittest.TestCase):
         for name in ("auto_trade_allowed", "source_clock_authenticated", "canonical_regime_authorized",
                      "source_promotion_allowed", "pit_promotion_allowed"):
             self.assertIs(out[name], False)
+
+    def test_current_a4_outage_vetoes_healthy_legacy_before_history_or_actions(self):
+        from tools import market_analysis_engine as market
+        report = market.blocked("SYNTHETIC_NATIVE_INPUT_MISSING",
+                                cutoff="2026-10-17T00:45:00+00:00", session="2026-10-16")
+        # A partial current diagnostic remains evidence, not a reason to reopen G0.
+        report["financing_conditions"] = {"status": "OBSERVED", "fixture": True}
+        before = copy.deepcopy(report)
+        def attach(payload, args, now):
+            payload["market_analysis"] = report
+        with patch.object(monitor, "attach_market_analysis", side_effect=attach) as loader:
+            result = self.run_case()
+        loader.assert_called_once()
+        self.assert_current_blocked(result, "CURRENT_A4_ANALYSIS_NOT_READY")
+        self.assertEqual(result[0]["market_analysis"], before)
+        self.assertEqual(report, before)
+        self.assertFalse(result[0]["long_crisis"]["current_report_eligible"])
+
+    def test_missing_or_corrupt_configured_a4_request_uses_native_refusal(self):
+        root = self.root/"market_inputs"
+        root.mkdir()
+        for raw in (None, b'{"schema":'):
+            with self.subTest(raw=raw):
+                request = root/"request.json"
+                if raw is not None:
+                    request.write_bytes(raw)
+                result = self.run_case(market_args=dict(market_analysis_request=str(request),
+                    market_analysis_root=str(root), expected_market_analysis_request_sha256="a"*64))
+                self.assert_current_blocked(result, "CURRENT_A4_ANALYSIS_NOT_READY")
+                self.assertEqual(result[0]["market_analysis"]["status"], "DATA_BLOCKED")
+
+    def test_explicit_upstream_outage_vetoes_even_ready_current_research(self):
+        from tools import market_analysis_engine as market
+        report = market.blocked("SYNTHETIC", cutoff="2026-10-17T00:45:00+00:00", session="2026-10-16")
+        report["status"] = "READY_RESEARCH_ONLY"
+        def attach(payload, args, now):
+            payload["market_analysis"] = copy.deepcopy(report)
+        with patch.object(monitor, "attach_market_analysis", side_effect=attach):
+            result = self.run_case(market_args=dict(market_analysis_upstream_blocked=True))
+        self.assert_current_blocked(result, "CURRENT_A4_UPSTREAM_BLOCKED")
+        self.assertEqual(result[0]["market_analysis"], report)
+
+    def test_ready_current_research_does_not_change_existing_legacy_review(self):
+        from tools import market_analysis_engine as market
+        report = market.blocked("SYNTHETIC", cutoff="2026-10-17T00:45:00+00:00", session="2026-10-16")
+        report["status"] = "READY_RESEARCH_ONLY"
+        with patch.object(monitor, "attach_market_analysis", side_effect=lambda payload, args, now:
+                          payload.update(market_analysis=copy.deepcopy(report))):
+            out, before, after, calls = self.run_case()
+        self.assertEqual(out["state"], "GREEN")
+        self.assertEqual(calls, 1)
+        self.assertNotEqual(before, after)
+        self.assertFalse(out["canonical_regime_authorized"])
+
+    def test_upstream_outage_without_a_request_still_freezes_legacy_history(self):
+        self.assert_current_blocked(self.run_case(market_args=dict(market_analysis_upstream_blocked=True)),
+                                    "CURRENT_A4_UPSTREAM_BLOCKED")
 
     def test_missing_or_malformed_source_date_is_not_execution_date(self):
         for session in (None, "", "2026-99-99", "2026-10-16T00:00:00Z"):
