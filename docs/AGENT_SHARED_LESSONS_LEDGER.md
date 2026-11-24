@@ -6516,6 +6516,10 @@ Expected contract:
   quarantine, Drive, target, order, ledger, accepted-head, production, live
   trading, and automatic promotion state mutated: false.
 
+### 2026-11-25 — Bind scheduled OHLC to the workflow run clock
+
+Run 45338721207 started after midnight in New York and skipped the completed November 23 session. Use the workflow creation time to identify the weekday 22:30 UTC slot, permit up to 12 hours of runner delay, and use the actual request clock for publication and revision validation. Holiday slots and expired runs are skipped. This binds the intended research session without admitting the underlying source or advancing portfolio authority.
+
 ## 2026-09-04 - Price catch-up and historical pattern evidence are separate contracts
 
 - Agent: Codex GPT-5.6.
@@ -7375,6 +7379,10 @@ Expected contract:
 
 - The Windows full 37-test inventory run stopped at README because seven tracked text fixtures are CRLF while the unchanged generator emits LF. All eight generated outputs matched HEAD Git bytes; Parquet bytes matched exactly.
 - Preserve fixtures and gates. Record full normal as failed and full -O as NOT_RUN; report focused pin controls and their plain-assert limits separately. Require exact-head Linux full inventory and all required CI before acceptance.
+
+### 2026-11-25 — Keep weekly publication failure visible
+
+Run 45302593087 retained the weekly artifact but exhausted four rejected GH013 pushes and reported success. Advance the repository publication step only after successful producers and upload. Distinguish no change, confirmed push and unconfirmed or rejected push; inspect the remote branch and retained artifact before any retry.
 
 ## 2026-10-06 - Bind weekly evidence before annualization
 

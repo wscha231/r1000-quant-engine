@@ -2899,7 +2899,38 @@ fake_rclone() {
             checks.assertEqual(result.returncode == 0, succeeds, result.stderr)
 
 
+def test_weekly_publication_distinguishes_artifact_and_push():
+    import os
+    import yaml
+    checks = unittest.TestCase()
+    path = ROOT / ".github/workflows/weekly_data_refresh.yml"
+    job = yaml.safe_load(path.read_text(encoding="utf-8"))["jobs"]["weekly_refresh"]
+    step = next(s for s in job["steps"] if s.get("name") == "Commit weekly refresh outputs")
+    checks.assertEqual(step["if"], "success() && env.FINNHUB_STATUS == '0' && env.THEME_STATUS == '0'")
+    stub = """
+git() {
+  case "$1" in
+    diff) [[ "$SCENARIO" == unchanged ]] ;;
+    push) echo PUSH_ATTEMPT; [[ "$SCENARIO" == accepted ]] ;;
+    *) return 0 ;;
+  esac
+}
+"""
+    with tempfile.TemporaryDirectory() as tmp:
+        for name in ("aggressive/state/finnhub/r1000_features.parquet", "aggressive/state/theme_discovery/latest.json"):
+            fixture = Path(tmp, name)
+            fixture.parent.mkdir(parents=True, exist_ok=True)
+            fixture.write_bytes(b"fixture")
+        for scenario, code, attempts in (("rejected", 1, 1), ("accepted", 0, 1), ("unchanged", 0, 0)):
+            result = subprocess.run([bash_executable()], input=stub + step["run"], cwd=tmp,
+                                    env={**os.environ, "SCENARIO": scenario}, text=True, capture_output=True)
+            checks.assertEqual(result.returncode, code, result.stderr)
+            checks.assertEqual(result.stdout.count("PUSH_ATTEMPT"), attempts)
+            checks.assertEqual("PUSH_CONFIRMED" in result.stdout, scenario == "accepted")
+
+
 def main() -> int:
+    test_weekly_publication_distinguishes_artifact_and_push()
     test_legacy_migration_workflow_is_dispatch_only_and_manifest_last()
     test_full_rebuild_routes_only_from_scoped_breadth_gate()
     test_workflow_yaml_files_parse()
