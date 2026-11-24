@@ -5339,6 +5339,18 @@ Expected contract:
 - Fullrun executed: false. Durable daily catch-up executed: false. Production
   enabled: false. Live trading enabled: false.
 
+### 2026-11-21 — Emit the exact paper catch-up frontier before daily trading research
+
+- The November 20 daily run restored seven verified immutable paper heads and a July 27 terminal, then failed while requesting November 19 (BLOCKED_SESSION_GAP, next required July 28). Current exact-close price availability was not evidence of chronological paper continuity.
+- After restoring the authoritative Drive immutable head, run a read-only NYSE-calendar preflight before current-session price refresh, candidate selection, or simulated account mutation. Record the terminal hash, as-of date, next missing session, and backlog depth; stale/forked/non-Drive heads must fail closed.
+- This preflight supplies actionable failure diagnostics only. It does not create price evidence, backdate decisions, batch-authorize sessions, satisfy an owner scope attestation, repair historical pattern evidence, or alter Actual Broker/Approved Target. Preserve the one-session-per-authorization contract until a separately reviewed protected batch authority is explicitly approved.
+
+### 2026-11-21 KST — Expired catch-up artifact must block owner scope before posting
+
+- A historical capture workflow run can remain SUCCESS after all its named artifacts are absent. Live Actions run 36989287810 completed successfully on October 2, yet the November 21 artifact listing returned total_count=0. The previously recorded artifact ID/digest is historical evidence only; it is not proof of a currently retrievable approved input.
+- Make the existing owner attestation helper verify the exact producer run/attempt and matching, unexpired artifact name/digest **before** checking secret-scope metadata or posting #324 authorization. A missing original must stop and route to the existing capture-only workflow, not a fabricated digest, old cache, or expired approval.
+- The capture-only workflow requires force_run=false, its requested session to equal the latest completed NYSE session, and all economic mutation inputs blank/false. Secret-name metadata HTTP 403 remains an owner-connection repair, not a reason to weaken the attestation, publisher, or ledger gates. Only exact-session accepted Drive readback advances paper chronology.
+
 ## 2026-07-24 - H4b chronological catch-up and durable publication hardening
 
 - A historical market session is not a normal forced daily run. It must be a
@@ -6503,6 +6515,10 @@ Expected contract:
 - Fullrun executed: false. Workflow dispatched or rerun: false. Migration,
   quarantine, Drive, target, order, ledger, accepted-head, production, live
   trading, and automatic promotion state mutated: false.
+
+### 2026-11-25 — Bind scheduled OHLC to the workflow run clock
+
+Run 45338721207 started after midnight in New York and skipped the completed November 23 session. Use the workflow creation time to identify the weekday 22:30 UTC slot, permit up to 12 hours of runner delay, and use the actual request clock for publication and revision validation. Holiday slots and expired runs are skipped. This binds the intended research session without admitting the underlying source or advancing portfolio authority.
 
 ## 2026-09-04 - Price catch-up and historical pattern evidence are separate contracts
 
