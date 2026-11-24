@@ -6516,6 +6516,10 @@ Expected contract:
   quarantine, Drive, target, order, ledger, accepted-head, production, live
   trading, and automatic promotion state mutated: false.
 
+### 2026-11-25 — Bind scheduled OHLC to the workflow run clock
+
+Run 45338721207 started after midnight in New York and skipped the completed November 23 session. Use the workflow creation time to identify the weekday 22:30 UTC slot, permit up to 12 hours of runner delay, and use the actual request clock for publication and revision validation. Holiday slots and expired runs are skipped. This binds the intended research session without admitting the underlying source or advancing portfolio authority.
+
 ## 2026-09-04 - Price catch-up and historical pattern evidence are separate contracts
 
 - Agent: Codex GPT-5.6.
@@ -7375,6 +7379,10 @@ Expected contract:
 
 - The Windows full 37-test inventory run stopped at README because seven tracked text fixtures are CRLF while the unchanged generator emits LF. All eight generated outputs matched HEAD Git bytes; Parquet bytes matched exactly.
 - Preserve fixtures and gates. Record full normal as failed and full -O as NOT_RUN; report focused pin controls and their plain-assert limits separately. Require exact-head Linux full inventory and all required CI before acceptance.
+
+### 2026-11-25 — Keep weekly publication failure visible
+
+Run 45302593087 retained the weekly artifact but exhausted four rejected GH013 pushes and reported success. Advance the repository publication step only after successful producers and upload. Distinguish no change, confirmed push and unconfirmed or rejected push; inspect the remote branch and retained artifact before any retry.
 
 ## 2026-10-06 - Bind weekly evidence before annualization
 
@@ -10593,6 +10601,10 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   Use one eligibility mask with positional assignment; preserve valid zero,
   negative outcomes and duplicate-index generic API behavior.
 
+### 2026-11-25 — Preserve missing mandatory momentum before early-cycle scoring
+
+The early-cycle gate gave identical positive credit to missing and observed-flat three-month momentum. Preserve missing values through its existing availability mask. Downstream feature-store/model artifacts carry the updated reuse version. A 595-row archived research snapshot had no missing three-month inputs; the controlled native consumer regression establishes the defect independently of any historic performance impact.
+
 ## 2026-11-10 - Causal next-close state is a synthetic rebaseline
 
 - Reuse one incumbent ledger for fills, strict marks, cash/NAV and immutable
@@ -11975,6 +11987,10 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   cohort, calendar and price basis. Preserve separate OHLC benchmark dates
   and revisions. A current breadth receipt is evidence for one risk axis;
   the Native packet and historical learning retain their independent gates.
+
+### 2026-11-25 — Bind SEC fact comparisons to the declared taxonomy
+
+- The 2026 FASB US GAAP namespace uses the release year. Rejecting it as an invalid date discarded authentic quarterly facts before the issuer, unit and value checks could run. Recognize the published URI, retain those checks, and apply the separate caller-reviewed accession and decision-time scope to every Reader request.
 
 ### 2026-11-20 — Keep reported SEC version dates separate from learning admission
 

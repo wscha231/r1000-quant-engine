@@ -6951,7 +6951,7 @@ def compute_early_cycle_inflection_score(df: pd.DataFrame) -> pd.DataFrame:
         return d
     dist_ma200 = numeric_series_or_default(d, "dist_ma200", np.nan)
     mom_12m = numeric_series_or_default(d, "mom_12m", np.nan)
-    mom_3m = numeric_series_or_default(d, "mom_3m", 0.0)
+    mom_3m = numeric_series_or_default(d, "mom_3m", np.nan)
     eps_rev = numeric_series_or_default(d, "eps_revision_proxy", 0.0)
     any_flip = numeric_series_or_default(d, "any_profit_sign_flip_pos", 0.0)
     ind_breadth = numeric_series_or_default(d, "industry_breadth_above_ma200", np.nan)
