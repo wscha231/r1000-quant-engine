@@ -213,10 +213,12 @@ def run_cycle(*, input_root, state_root, output_dir, cutoff,
         blockers.append("LEARNING_INPUT_POLICY_STATE_OR_ORIGINALS_NOT_VERIFIED")
         plan=learning.cadence(cutoff)
     portfolio=None
+    a5_executed=False
     if a5 is not None:
         portfolio=a5.blocked(cutoff,["CURRENT_A5_MODEL_REQUEST_AND_REVIEWED_INPUTS_REQUIRED"])
         try:
             market.need(a5_request is not None,"A5_FIXED_DECISION_NOT_VERIFIED")
+            a5_executed=True
             portfolio=a5.load_and_build(model_root,a5_request,report,expected_policy_sha256=a5_policy_sha256,code_sha=code_sha,
                                         execution_at=cutoff)
         except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
@@ -235,7 +237,7 @@ def run_cycle(*, input_root, state_root, output_dir, cutoff,
         scope=scope,completion_scope="A4_CYCLE" if scope=="A4_ONLY" else "A4_A5_CYCLE",
         a5_status=portfolio["status"] if portfolio is not None else "NOT_REQUESTED",
         a5_blockers=portfolio.get("reasons",[]) if portfolio is not None else [],
-        a5_executed=a5 is not None,fixed_forecast_count=len(predictions),
+        a5_executed=a5_executed,fixed_forecast_count=len(predictions),
         quantitative_outlook_status=("BLOCKED" if blockers else
                                      "REVIEWED_FIXED_RELEASE" if predictions else "INSUFFICIENT_EVIDENCE"),
         cadence=plan,events=events,source_collection_requests=0,

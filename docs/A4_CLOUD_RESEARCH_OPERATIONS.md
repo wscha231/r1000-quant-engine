@@ -48,8 +48,10 @@ Direct library and CLI callers retain the compatible `A4_A5` default; request
 the independent path with `--scope A4_ONLY`. `cycle.json` records the scope,
 `a4_cycle_status`, `completion_scope`, `a5_executed` and `a5_status`. A4-only
 attempts report `NOT_REQUESTED` for A5; a missing A5 packet cannot block their
-A4 cycle. The combined path still requires a valid A5 proposal for its overall
-completion. Missing/stale native data, incomplete enhanced analysis or failed
+A4 cycle. In combined scope, `a5_executed` records entry to the native A5
+consumer after the request and decision clock pass preflight. A consumer
+call can still return `a5_status=BLOCKED`. The combined path requires a valid A5
+proposal for its overall completion. Missing/stale native data, incomplete enhanced analysis or failed
 learning-policy/original checks keep either A4 cycle partial.
 
 Cycle completion describes the requested computation, not qualification of the

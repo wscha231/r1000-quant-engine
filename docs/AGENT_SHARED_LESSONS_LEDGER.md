@@ -280,6 +280,9 @@ Training still requires an independently qualified historical financial Reader.
 
 ### 2026-11-13 KST — Finish A4 independently of the optional A5 proposal
 
+- Combined scope requests A5 even when its original request is missing. Count
+  execution at the native consumer call. A blocked diagnostic with empty
+  weights can be produced before that call or by the consumer itself.
 - The combined cloud cycle required an A5 proposal for overall completion and
   read its replay clock even during A4-only work. Preserve that compatible
   combined path, but make the hosted scope default explicitly A4_ONLY. Skip
