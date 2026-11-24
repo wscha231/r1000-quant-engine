@@ -11979,3 +11979,7 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   contexts. Decimal.scaleb and unary minus use ambient precision; construct
   sign/digits/exponent directly to preserve exact scaled amounts. Keep the
   original failing regressions and rerun normal/optimized original readback.
+
+### 2026-11-25 — Keep weekly publication failure visible
+
+Run 45302593087 retained the weekly artifact but exhausted four rejected GH013 pushes and reported success. Advance the repository publication step only after successful producers and upload. Distinguish no change, confirmed push and unconfirmed or rejected push; inspect the remote branch and retained artifact before any retry.
