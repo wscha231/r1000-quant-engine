@@ -721,12 +721,24 @@ class OHLCForwardTests(unittest.TestCase):
         import os
         with TemporaryDirectory() as directory:
             target = Path(directory) / 'receipt.json'
-            args = ['capture', '--receipt', str(target), '--scheduled-run-created-at', self.now.isoformat()]
+            args = ['capture', '--receipt', str(target), '--scheduled-run-created-at', self.now.isoformat(),
+                    '--scheduled-run-index', str(Path(directory) / 'runs.json')]
             with patch.object(sys, 'argv', args), patch.dict(os.environ, GITHUB_RUN_ATTEMPT='2'), \
                     patch.object(ohlc, 'capture') as capture:
                 ohlc.main()
             capture.assert_not_called()
             self.assertEqual(json.loads(target.read_text())['status'], 'SKIPPED_SCHEDULED_RETRY')
+
+    def test_distinct_run_ids_and_incomplete_indexes_cannot_replay_one_slot(self):
+        created = ohlc.utc('2026-11-24T06:12:25Z')
+        row = {'id': 11, 'created_at': created.isoformat()}
+        previous = {'id': 10, 'created_at': '2026-11-22T23:15:00Z'}
+        self.assertTrue(ohlc.unique_scheduled_run({'total_count': 2, 'runs': [row, previous]}, 11, created))
+        duplicate = {'id': 12, 'created_at': '2026-11-23T22:31:00Z'}
+        self.assertFalse(ohlc.unique_scheduled_run({'total_count': 2, 'runs': [row, duplicate]}, 11, created))
+        for count, rows in [(2,[row]), (1,[previous]), (2,[row,row])]:
+            with self.subTest(rows=rows), self.assertRaises(ValueError):
+                ohlc.unique_scheduled_run({'total_count':count,'runs':rows}, 11, created)
 
     def test_scheduled_slot_survives_midnight_but_expires_before_next_session(self):
         cases = (

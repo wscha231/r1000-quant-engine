@@ -96,7 +96,11 @@ York session skips the provider request. One request covers the current
 session and four prior NYSE sessions, preserving versions that arrive later.
 Scheduled runs bind the 22:30 UTC slot to the immutable GitHub run creation
 time. A runner may start up to 12 hours after that slot, including after New
-York midnight. An expired slot, holiday or scheduled retry skips capture.
+York midnight. An expired slot, holiday, scheduled retry or second scheduled run ID in
+the same inferred slot skips capture. The complete same-workflow run index
+must contain the original run with its exact creation timestamp. GitHub's
+creation clock identifies the latest eligible slot; it cannot reconstruct an
+earlier intended date when the scheduler itself is more than a day late.
 The scoped manual check retains its same-day close rule. The actual request
 time is sent to the provider and verified in its reply.
 The public artifact contains metadata, session/delay indicators, clocks and

@@ -25,15 +25,33 @@ LOOKBACK_SESSIONS = 5
 ID = re.compile('[A-Za-z0-9_.:/-]{1,100}')
 
 
+def scheduled_slot(created):
+    slot = created.replace(hour=22, minute=30, second=0, microsecond=0)
+    return slot if slot <= created else slot - timedelta(days=1)
+
+
+def unique_scheduled_run(index, run_id, created):
+    rows = index.get('runs') if type(index) is dict else None
+    require(type(rows) is list and 0 < len(rows) <= 100
+            and type(index.get('total_count')) is int and index['total_count'] == len(rows),
+            'A4_OHLC_INCOMPLETE_RUN_INDEX')
+    timestamps = {}
+    for row in rows:
+        require(type(row) is dict and type(row.get('id')) is int and row['id'] > 0
+                and row['id'] not in timestamps, 'A4_OHLC_RUN_IDENTITY')
+        timestamps[row['id']] = utc(row['created_at'])
+    require(timestamps.get(run_id) == created, 'A4_OHLC_CURRENT_RUN_NOT_BOUND')
+    slot = scheduled_slot(created)
+    return sum(scheduled_slot(clock) == slot for clock in timestamps.values()) == 1
+
+
 def session_window(now, *, scheduled_run_created_at=None):
     local_day = now.astimezone(ZoneInfo('America/New_York')).date()
     if scheduled_run_created_at is not None:
         # The workflow's UTC cron is 22:30 on weekdays. Bind capture to the
         # original run's slot, even if the runner starts after NY midnight.
         created = utc(scheduled_run_created_at)
-        slot = created.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(hours=22, minutes=30)
-        if slot > created:
-            slot -= timedelta(days=1)
+        slot = scheduled_slot(created)
         if slot.weekday() >= 5 or not (created <= now <= slot + timedelta(hours=12)):
             return {}
         local_day = slot.date()
@@ -147,9 +165,13 @@ def main():
     parser.add_argument('--receipt', type=Path, required=True)
     parser.add_argument('--scheduled-run-created-at',
                         help='GitHub creation timestamp of this scheduled workflow run')
+    parser.add_argument('--scheduled-run-index', type=Path,
+                        help='Same-workflow scheduled run metadata around this occurrence')
     args = parser.parse_args()
     try:
         now = datetime.now(timezone.utc)
+        require(bool(args.scheduled_run_created_at) == bool(args.scheduled_run_index),
+                'A4_OHLC_SCHEDULE_ARGUMENT_PAIR')
         sessions = session_window(now, scheduled_run_created_at=args.scheduled_run_created_at)
         if args.scheduled_run_created_at and os.environ.get('GITHUB_RUN_ATTEMPT') != '1':
             result = dict(schema='a4-ohlc-public-receipt-v1', status='SKIPPED_SCHEDULED_RETRY')
@@ -157,6 +179,11 @@ def main():
             status = ('SKIPPED_NO_ELIGIBLE_SCHEDULED_SESSION' if args.scheduled_run_created_at
                       else 'SKIPPED_NO_COMPLETED_SESSION_TODAY')
             result = dict(schema='a4-ohlc-public-receipt-v1', status=status)
+        elif args.scheduled_run_created_at and not unique_scheduled_run(
+                decode(args.scheduled_run_index.read_bytes()), int(os.environ['GITHUB_RUN_ID']),
+                utc(args.scheduled_run_created_at)):
+            result = dict(schema='a4-ohlc-public-receipt-v1', status='SKIPPED_DUPLICATE_SCHEDULED_SLOT',
+                          expected_session=next(reversed(sessions)))
         else:
             key = os.environ.get('A4_OHLC_API_KEY','')
             require(bool(key) and len(key)<=256, 'A4_OHLC_KEY_REQUIRED')
