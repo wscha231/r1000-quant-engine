@@ -222,9 +222,11 @@ class NativeHandoffTests(unittest.TestCase):
         self.assertLess(step['run'].index('A4_NATIVE_INPUT_ROOT='),step['run'].index('python tools/prepare_'))
         collect=next(s for s in steps if s.get('id')=='a4_primary_collect')
         self.assertIn('${A4_NATIVE_INPUT_ROOT:-outputs/market_analysis_inputs}',collect['run'])
-        for name in ('Run daily crisis monitor','Upload daily crisis artifact','Sync daily crisis status to Google Drive'):
-            guarded=next(s for s in steps if s.get('name')==name)
-            self.assertIn("steps.a4_native_prepare.outcome == 'success'",guarded['if'])
+        diagnostic=next(s for s in steps if s.get('id')=='daily_crisis')
+        self.assertIn('!cancelled()',diagnostic['if'])
+        self.assertEqual(diagnostic['env']['NATIVE_OUTCOME'],"${{ steps.a4_native_prepare.outcome }}")
+        self.assertIn('--market-analysis-upstream-blocked',diagnostic['run'])
+        self.assertIn('${A4_INPUT_ROOT:-${A4_NATIVE_INPUT_ROOT:-outputs/market_analysis_inputs}}',diagnostic['run'])
         bash=str(Path(os.environ.get('ProgramFiles','C:/Program Files'))/'Git/bin/bash.exe') if os.name=='nt' else shutil.which('bash')
         self.assertTrue(bash and Path(bash).is_file())
         baseline=dict(os.environ,RESEARCH_ENABLED='false',PRIMARY_ENABLED='true',FINANCING_ENABLED='false',
