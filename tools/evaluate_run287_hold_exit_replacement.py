@@ -45,7 +45,8 @@ from tools.run_broker_ledger_replay import (  # noqa: E402
     calc_metrics,
     replay,
 )
-from tools.run_weekly_evaluation import load_price_series, price_on_or_after  # noqa: E402
+from tools.run_free_data_forward_paper_ledger import load_nyse_sessions  # noqa: E402
+from tools.run_weekly_evaluation import load_price_series  # noqa: E402
 from tools.reserve_asset_policy import DGS3MO_CARRY  # noqa: E402
 
 
@@ -75,6 +76,7 @@ EXPECTED_CONTROL = {
 }
 COST_GRID = (25.0, 50.0, 100.0)
 HORIZONS = (21, 63, 126)
+COUNTERFACTUAL_CLOCK = "NYSE_NEXT_CLOSE_COMPLETE_PATH_V1"
 CASH_TICKERS = {"CASH", "__CASH__"}
 
 
@@ -191,24 +193,32 @@ def _price_frame(price_cache: Path, ticker: str) -> pd.DataFrame:
     return load_price_series(price_cache, ticker)
 
 
-def _session_return(frame: pd.DataFrame, signal_date: pd.Timestamp, sessions: int) -> tuple[float | None, str, str]:
-    if frame.empty:
-        return None, "", ""
-    start_date, start_price = price_on_or_after(frame, signal_date + pd.Timedelta(days=1), "close")
-    if start_date is None or start_price is None:
-        return None, "", ""
-    index = pd.DatetimeIndex(frame.index).tz_localize(None).normalize()
-    positions = np.flatnonzero(index >= pd.Timestamp(start_date).normalize())
-    if not len(positions):
-        return None, "", ""
-    end_pos = int(positions[0]) + int(sessions)
-    if end_pos >= len(frame):
-        return None, pd.Timestamp(start_date).date().isoformat(), ""
-    end_date = pd.Timestamp(index[end_pos]).normalize()
-    end_price = safe_float(frame.iloc[end_pos].get("close"))
-    if not math.isfinite(end_price) or end_price <= 0 or float(start_price) <= 0:
-        return None, pd.Timestamp(start_date).date().isoformat(), end_date.date().isoformat()
-    return end_price / float(start_price) - 1.0, pd.Timestamp(start_date).date().isoformat(), end_date.date().isoformat()
+def _session_grid(dates) -> pd.DatetimeIndex:
+    days = pd.to_datetime(pd.Series(dates), errors="coerce").dropna()
+    if days.empty:
+        return pd.DatetimeIndex([])
+    # Include the next close plus all 126 holding intervals across holiday breaks.
+    sessions = load_nyse_sessions(days.min(), days.max() + pd.Timedelta(days=2 * max(HORIZONS) + 14))
+    return pd.DatetimeIndex([]) if sessions is None else sessions
+
+
+def _holding_path(grid: pd.DatetimeIndex, day: pd.Timestamp, horizon: int) -> pd.DatetimeIndex:
+    decision = grid.get_indexer([day])[0]
+    if decision < 0 or decision + 1 + horizon >= len(grid):
+        return grid[:0]
+    return grid[decision + 1:decision + horizon + 2]
+
+
+def _path_return(frame: pd.DataFrame, path: pd.DatetimeIndex) -> float | None:
+    if path.empty or frame.empty or "close" not in frame:
+        return None
+    closes = frame.loc[path[0]:path[-1], "close"]
+    if not closes.index.equals(path):
+        return None
+    values = pd.to_numeric(closes, errors="coerce").to_numpy(dtype=float, na_value=np.nan)
+    if not np.isfinite(values).all() or (values <= 0).any():
+        return None
+    return float(values[-1] / values[0] - 1.0)
 
 
 def counterfactuals(decisions: pd.DataFrame, price_cache: Path) -> pd.DataFrame:
@@ -216,6 +226,7 @@ def counterfactuals(decisions: pd.DataFrame, price_cache: Path) -> pd.DataFrame:
         return pd.DataFrame()
     rows: list[dict[str, Any]] = []
     price_frames: dict[str, pd.DataFrame] = {}
+    grid = _session_grid(decisions["rebalance_date"])
     for decision in decisions.to_dict("records"):
         incumbent = clean_ticker(decision.get("incumbent_ticker"))
         challenger = clean_ticker(decision.get("challenger_ticker"))
@@ -225,32 +236,23 @@ def counterfactuals(decisions: pd.DataFrame, price_cache: Path) -> pd.DataFrame:
         for ticker in (incumbent, challenger):
             if ticker not in price_frames:
                 price_frames[ticker] = _price_frame(price_cache, ticker)
-        row = dict(decision)
+        row = dict(decision, counterfactual_clock=COUNTERFACTUAL_CLOCK)
         for horizon in HORIZONS:
-            incumbent_return, start_date, end_date = _session_return(price_frames[incumbent], signal_date, horizon)
-            challenger_return, challenger_start, challenger_end = _session_return(price_frames[challenger], signal_date, horizon)
+            path = _holding_path(grid, signal_date, horizon)
+            incumbent_return = _path_return(price_frames[incumbent], path)
+            challenger_return = _path_return(price_frames[challenger], path)
+            paired = incumbent_return is not None and challenger_return is not None
             row[f"incumbent_return_{horizon}d"] = incumbent_return
             row[f"challenger_return_{horizon}d"] = challenger_return
             row[f"incumbent_minus_challenger_{horizon}d"] = (
                 incumbent_return - challenger_return
-                if incumbent_return is not None and challenger_return is not None
-                else None
+                if paired else None
             )
-            row[f"start_date_{horizon}d"] = start_date
-            row[f"end_date_{horizon}d"] = end_date
-            row[f"paired_dates_match_{horizon}d"] = bool(start_date and start_date == challenger_start and end_date == challenger_end)
+            row[f"start_date_{horizon}d"] = "" if path.empty else path[0].date().isoformat()
+            row[f"end_date_{horizon}d"] = "" if path.empty else path[-1].date().isoformat()
+            row[f"paired_dates_match_{horizon}d"] = paired
         rows.append(row)
     return pd.DataFrame(rows)
-
-
-def _return_between(frame: pd.DataFrame, signal_date: pd.Timestamp, next_signal_date: pd.Timestamp) -> float | None:
-    if frame.empty:
-        return None
-    start_date, start_price = price_on_or_after(frame, signal_date + pd.Timedelta(days=1), "close")
-    end_date, end_price = price_on_or_after(frame, next_signal_date + pd.Timedelta(days=1), "close")
-    if start_date is None or end_date is None or start_price is None or end_price is None or start_price <= 0:
-        return None
-    return float(end_price / start_price - 1.0)
 
 
 def contribution_concentration(
@@ -262,6 +264,7 @@ def contribution_concentration(
     if applied.empty:
         return pd.DataFrame(), {"status": "NO_OP", "max_ticker_share": None, "max_era_share": None}
     ordered_dates = sorted(pd.Timestamp(day).normalize() for day in target_dates)
+    grid = _session_grid(ordered_dates)
     next_date = {ordered_dates[index]: ordered_dates[index + 1] for index in range(len(ordered_dates) - 1)}
     price_frames: dict[str, pd.DataFrame] = {}
     rows: list[dict[str, Any]] = []
@@ -275,8 +278,12 @@ def contribution_concentration(
         for ticker in (incumbent, challenger):
             if ticker not in price_frames:
                 price_frames[ticker] = _price_frame(price_cache, ticker)
-        incumbent_return = _return_between(price_frames[incumbent], day, end)
-        challenger_return = _return_between(price_frames[challenger], day, end)
+        start_idx, end_idx = grid.get_indexer([day, end])
+        path = grid[:0]
+        if 0 <= start_idx < end_idx and end_idx + 1 < len(grid):
+            path = grid[start_idx + 1:end_idx + 2]
+        incumbent_return = _path_return(price_frames[incumbent], path)
+        challenger_return = _path_return(price_frames[challenger], path)
         contribution = None
         if incumbent_return is not None and challenger_return is not None:
             contribution = safe_float(item.get("retained_weight"), 0.0) * (incumbent_return - challenger_return)
@@ -444,19 +451,35 @@ def summarize_counterfactuals(frame: pd.DataFrame) -> dict[str, Any]:
     if frame.empty:
         return {"status": "NO_EVENTS"}
     out: dict[str, Any] = {"status": "COMPLETED", "event_count": len(frame)}
+    missing = pd.Series(index=frame.index, dtype=object)
+    qualified = frame.get("counterfactual_clock", missing).eq(COUNTERFACTUAL_CLOCK)
+    days = pd.to_datetime(frame.get("rebalance_date", missing), errors="coerce").dt.normalize()
+    grid = _session_grid(days)
+    clocks: dict[int, pd.Series] = {}
+    differences: dict[int, pd.Series] = {}
     for horizon in HORIZONS:
-        diff = pd.to_numeric(frame.get(f"incumbent_minus_challenger_{horizon}d"), errors="coerce").dropna()
+        spans = {day: _holding_path(grid, day, horizon) for day in days.dropna().unique()}
+        starts = {day: path[0].date().isoformat() for day, path in spans.items() if not path.empty}
+        ends = {day: path[-1].date().isoformat() for day, path in spans.items() if not path.empty}
+        clock_matches = (qualified & frame.get(f"start_date_{horizon}d", missing).eq(days.map(starts))
+                         & frame.get(f"end_date_{horizon}d", missing).eq(days.map(ends)))
+        paired = clock_matches & frame.get(f"paired_dates_match_{horizon}d", missing).eq(True)
+        difference = pd.to_numeric(frame.get(f"incumbent_minus_challenger_{horizon}d", missing), errors="coerce")
+        differences[horizon] = difference.where(paired & np.isfinite(difference))
+        diff = differences[horizon].dropna()
+        clocks[horizon] = clock_matches
         out[f"paired_count_{horizon}d"] = len(diff)
         out[f"mean_incumbent_minus_challenger_{horizon}d"] = float(diff.mean()) if not diff.empty else None
         out[f"median_incumbent_minus_challenger_{horizon}d"] = float(diff.median()) if not diff.empty else None
-    retained = frame[frame.get("action", pd.Series(dtype=str)).eq("RETAIN_INCUMBENT")]
-    retained_126 = pd.to_numeric(retained.get("incumbent_return_126d"), errors="coerce").dropna()
-    out["retained_event_count"] = len(retained)
+    actions = frame.get("action", missing)
+    retained = actions.eq("RETAIN_INCUMBENT")
+    retained_126 = pd.to_numeric(frame.get("incumbent_return_126d", missing), errors="coerce")[
+        clocks[126] & retained].dropna()
+    out["retained_event_count"] = int(retained.sum())
     out["right_tail_retained_positive_126d_count"] = int(retained_126.gt(0).sum())
     out["left_tail_retained_negative_126d_count"] = int(retained_126.lt(0).sum())
     out["left_tail_retained_mean_126d"] = float(retained_126[retained_126 < 0].mean()) if bool(retained_126.lt(0).any()) else None
-    allowed = frame[frame.get("action", pd.Series(dtype=str)).eq("ALLOW_REPLACEMENT")]
-    regret = pd.to_numeric(allowed.get("incumbent_minus_challenger_126d"), errors="coerce").dropna()
+    regret = differences[126][actions.eq("ALLOW_REPLACEMENT")].dropna()
     out["premature_sell_regret_positive_count_126d"] = int(regret.gt(0).sum())
     out["premature_sell_regret_mean_126d"] = float(regret[regret > 0].mean()) if bool(regret.gt(0).any()) else None
     return out
