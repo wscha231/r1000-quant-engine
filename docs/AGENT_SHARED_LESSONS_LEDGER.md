@@ -11979,3 +11979,7 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   contexts. Decimal.scaleb and unary minus use ambient precision; construct
   sign/digits/exponent directly to preserve exact scaled amounts. Keep the
   original failing regressions and rerun normal/optimized original readback.
+
+### 2026-11-25 — Bind scheduled OHLC to the workflow run clock
+
+Run 45338721207 started after midnight in New York and skipped the completed November 23 session. Use the workflow creation time to identify the weekday 22:30 UTC slot, permit up to 12 hours of runner delay, and use the actual request clock for publication and revision validation. Holiday slots and expired runs are skipped. This binds the intended research session without admitting the underlying source or advancing portfolio authority.

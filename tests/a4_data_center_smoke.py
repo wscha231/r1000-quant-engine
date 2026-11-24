@@ -716,6 +716,38 @@ class OHLCForwardTests(unittest.TestCase):
         self.symbols = {'SPY':'fixture-spy', 'QQQ':'fixture-qqq'}
         self.latest = next(reversed(self.sessions))
 
+    def test_scheduled_retry_skips_before_provider_or_private_drive(self):
+        from tempfile import TemporaryDirectory
+        import os
+        with TemporaryDirectory() as directory:
+            target = Path(directory) / 'receipt.json'
+            args = ['capture', '--receipt', str(target), '--scheduled-run-created-at', self.now.isoformat()]
+            with patch.object(sys, 'argv', args), patch.dict(os.environ, GITHUB_RUN_ATTEMPT='2'), \
+                    patch.object(ohlc, 'capture') as capture:
+                ohlc.main()
+            capture.assert_not_called()
+            self.assertEqual(json.loads(target.read_text())['status'], 'SKIPPED_SCHEDULED_RETRY')
+
+    def test_scheduled_slot_survives_midnight_but_expires_before_next_session(self):
+        cases = (
+            ('2026-11-24T06:12:25Z', '2026-11-24T06:50:27Z', '2026-11-23'),
+            ('2026-07-10T22:31:00Z', '2026-07-11T07:30:00Z', '2026-07-10'),
+            ('2026-11-28T05:15:00Z', '2026-11-28T06:00:00Z', '2026-11-27'),
+            ('2026-11-26T22:31:00Z', '2026-11-27T06:00:00Z', None),
+            ('2026-11-22T22:31:00Z', '2026-11-23T06:00:00Z', None),
+            ('2026-11-24T06:12:25Z', '2026-11-24T10:30:01Z', None),
+            ('2026-11-24T06:12:25Z', '2026-11-25T06:50:00Z', None),
+            ('2026-11-24T06:12:25Z', '2026-11-24T06:10:00Z', None),
+        )
+        for created, actual, expected in cases:
+            with self.subTest(created=created, actual=actual):
+                sessions = ohlc.session_window(ohlc.utc(actual), scheduled_run_created_at=created)
+                self.assertEqual(next(reversed(sessions), None), expected)
+                if expected:
+                    query = ohlc.query_for(sessions, ohlc.utc(actual))
+                    self.assertEqual(query['to'], expected)
+                    self.assertEqual(ohlc.utc(query['as_of']), ohlc.utc(actual))
+
     def row(self, symbol, date, minute=5, *, close='100.0'):
         mic = 'ARCX' if symbol == 'SPY' else 'XNAS'
         return dict(symbol=f'{mic}:{symbol}', date=date, currency_code='USD', adjustment='raw',

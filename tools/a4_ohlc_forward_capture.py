@@ -25,8 +25,18 @@ LOOKBACK_SESSIONS = 5
 ID = re.compile('[A-Za-z0-9_.:/-]{1,100}')
 
 
-def session_window(now):
+def session_window(now, *, scheduled_run_created_at=None):
     local_day = now.astimezone(ZoneInfo('America/New_York')).date()
+    if scheduled_run_created_at is not None:
+        # The workflow's UTC cron is 22:30 on weekdays. Bind capture to the
+        # original run's slot, even if the runner starts after NY midnight.
+        created = utc(scheduled_run_created_at)
+        slot = created.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(hours=22, minutes=30)
+        if slot > created:
+            slot -= timedelta(days=1)
+        if slot.weekday() >= 5 or not (created <= now <= slot + timedelta(hours=12)):
+            return {}
+        local_day = slot.date()
     schedule = mcal.get_calendar('NYSE').schedule(local_day-timedelta(days=20), local_day)
     if schedule.empty or schedule.index[-1].date() != local_day or now < schedule.market_close.iloc[-1]:
         return {}
@@ -135,12 +145,18 @@ def capture(drive, scope, sessions, *, key, cutoff, read_clock, run_id, attempt,
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--receipt', type=Path, required=True)
+    parser.add_argument('--scheduled-run-created-at',
+                        help='GitHub creation timestamp of this scheduled workflow run')
     args = parser.parse_args()
     try:
         now = datetime.now(timezone.utc)
-        sessions = session_window(now)
-        if not sessions:
-            result = dict(schema='a4-ohlc-public-receipt-v1', status='SKIPPED_NO_COMPLETED_SESSION_TODAY')
+        sessions = session_window(now, scheduled_run_created_at=args.scheduled_run_created_at)
+        if args.scheduled_run_created_at and os.environ.get('GITHUB_RUN_ATTEMPT') != '1':
+            result = dict(schema='a4-ohlc-public-receipt-v1', status='SKIPPED_SCHEDULED_RETRY')
+        elif not sessions:
+            status = ('SKIPPED_NO_ELIGIBLE_SCHEDULED_SESSION' if args.scheduled_run_created_at
+                      else 'SKIPPED_NO_COMPLETED_SESSION_TODAY')
+            result = dict(schema='a4-ohlc-public-receipt-v1', status=status)
         else:
             key = os.environ.get('A4_OHLC_API_KEY','')
             require(bool(key) and len(key)<=256, 'A4_OHLC_KEY_REQUIRED')

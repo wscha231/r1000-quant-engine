@@ -94,7 +94,11 @@ use `ohlc_capture_only=true` in that workflow. The isolated dispatch skips the
 legacy monitor and the separate A1 price job. A holiday or unfinished New
 York session skips the provider request. One request covers the current
 session and four prior NYSE sessions, preserving versions that arrive later.
-The exact time cutoff is sent to the provider and verified in its reply.
+Scheduled runs bind the 22:30 UTC slot to the immutable GitHub run creation
+time. A runner may start up to 12 hours after that slot, including after New
+York midnight. An expired slot, holiday or scheduled retry skips capture.
+The scoped manual check retains its same-day close rule. The actual request
+time is sent to the provider and verified in its reply.
 The public artifact contains metadata, session/delay indicators, clocks and
 hashes. Original responses and revision values stay in the private archive.
 
