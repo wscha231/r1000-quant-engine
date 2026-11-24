@@ -796,8 +796,52 @@ def test_workflow_scope_and_order() -> None:
     )
 
 
+def test_verified_paper_gap_currentness() -> None:
+    # Exercise the new read-only preflight inside this EXISTING registered
+    # program; the A6 protected test-program cardinality must remain fixed.
+    from tools.run287_paper_gap_preflight import assess
+
+    root = "a" * 64
+    terminal = "b" * 64
+    selection = {
+        "schema_version": "run287-paper-immutable-head-selection-v1",
+        "status": "VERIFIED_LINEAR_IMMUTABLE_PAPER_HEAD_SELECTED",
+        "heads_root": "/tmp/canonical-heads",
+        "immutable_head_count": 2,
+        "root_snapshot_hash": root,
+        "terminal_snapshot_hash": terminal,
+        "selected_snapshot_hash": terminal,
+        "selected_head_dir": "/tmp/canonical-heads/" + terminal,
+        "selected_as_of_date": "2026-07-27",
+        "chain_snapshot_hashes": [root, terminal],
+    }
+    args = dict(
+        selection=selection, remote_head=terminal,
+        requested_session="2026-11-20",
+        completed_sessions=["2026-07-28", "2026-11-20"],
+        durable_ready=True,
+    )
+    gap = assess(**args)
+    assert gap["status"] == "BLOCKED_SESSION_GAP"
+    assert gap["next_missing_session"] == "2026-07-28"
+    assert gap["missing_nyse_session_count"] == 2
+    assert gap["paper_ledger_mutated"] is False
+    for invalid in (
+        {**args, "remote_head": root},
+        {**args, "durable_ready": False},
+        {**args, "selection": {**selection, "selected_as_of_date": "2026-02-30"}},
+        {**args, "completed_sessions": ["2026-07-28"]},
+    ):
+        try:
+            assess(**invalid)
+        except ValueError:
+            continue
+        raise AssertionError("paper frontier gap must fail closed")
+
+
 def main() -> int:
     test_environment_attestation_contract()
+    test_verified_paper_gap_currentness()
     test_behavior_matrix()
     test_cli_preserves_normal_fallback_and_blocks_catchup()
     test_workflow_scope_and_order()
