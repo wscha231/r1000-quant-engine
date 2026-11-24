@@ -57,8 +57,19 @@ same failed-preparation and legacy-writer guards; it cannot silently fall back.
 Primary collection must also be enabled. Preparation records its attempted
 root before replay; a failure cannot fall back to the restored old request and
 fails the final durable gate. Only its metadata receipt is uploaded as an
-artifact. A failed configured preparation also skips the legacy daily history
-writer and its artifact/sync steps. With no pin, the workflow retains its existing input path and visibly
+artifact. A failed configured preparation now produces a fresh blocked daily
+diagnostic, using the attempted input root and an explicit upstream-failure
+veto. A blocked current A4 report takes precedence over healthy legacy inputs
+before hysteresis or action construction. It cannot advance legacy history or
+emit paper action candidates. Partial current research context remains intact
+inside its original report; it is not promoted into a risk or investment decision.
+
+The existing private daily sync copies and checks only the generated current
+summary and Markdown report when blocked. It first decodes the expected summary
+schema and verifies that the Markdown exactly matches its current renderer;
+a process interrupted mid-write cannot publish an incomplete pair. It never republishes the retained
+history on that path, and a failed copy/readback remains a failed step. Public
+artifacts still contain metadata only. With no pin, the workflow retains its existing input path and visibly
 blocked native behavior. No enable flag, secret, Source publication or accepted
 state is changed by deploying this code. Existing learning enablement and
 checkpoint contracts are unchanged.
