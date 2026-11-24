@@ -6504,6 +6504,10 @@ Expected contract:
   quarantine, Drive, target, order, ledger, accepted-head, production, live
   trading, and automatic promotion state mutated: false.
 
+### 2026-11-25 — Bind scheduled OHLC to the workflow run clock
+
+Run 45338721207 started after midnight in New York and skipped the completed November 23 session. Use the workflow creation time to identify the weekday 22:30 UTC slot, permit up to 12 hours of runner delay, and use the actual request clock for publication and revision validation. Holiday slots and expired runs are skipped. This binds the intended research session without admitting the underlying source or advancing portfolio authority.
+
 ## 2026-09-04 - Price catch-up and historical pattern evidence are separate contracts
 
 - Agent: Codex GPT-5.6.
@@ -11980,6 +11984,27 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   sign/digits/exponent directly to preserve exact scaled amounts. Keep the
   original failing regressions and rerun normal/optimized original readback.
 
-### 2026-11-25 — Bind scheduled OHLC to the workflow run clock
+### 2026-11-21 — Current A4 failure must veto legacy review before state changes
 
-Run 45338721207 started after midnight in New York and skipped the completed November 23 session. Use the workflow creation time to identify the weekday 22:30 UTC slot, permit up to 12 hours of runner delay, and use the actual request clock for publication and revision validation. Holiday slots and expired runs are skipped. This binds the intended research session without admitting the underlying source or advancing portfolio authority.
+- Scheduled run44668953238/job136065019699 refused a stale Native handoff,
+  while fresh primary capture and private research diagnostics were still
+  produced. A continued step's API conclusion does not replace its actual
+  outcome. Keep the session refusal; never renew old source dates or loosen
+  the ten-axis gate to recover a green run.
+- A synthetic cross-domain reproduction found that healthy legacy inputs
+  could emit GREEN/no-op and advance hysteresis before a configured current
+  A4 DATA_BLOCKED report was attached. A nonzero CLI exit was too late. Load
+  current A4 once and apply its failure before transitions, actions or history
+  writes. This reproduced boundary defect is not evidence that a live trade
+  or historical loss occurred.
+- Failed required preparation must publish a current blocked diagnostic,
+  with partial current research preserved and all investment authority closed.
+  Use the attempted input root, remove only the two local generated reports
+  before computation, and never sync retained history on a blocked attempt.
+  Copy and readback failure must remain visible. This repair does not refresh
+  the Source handoff, create a current portfolio, or validate predictive skill.
+- Independent review reproduced a killed-writer case where two nonempty but
+  incomplete files could pass the sync precheck. Parse the expected JSON schema
+  and compare its exact rendered Markdown before any transport; checksums alone
+  certify copied bytes, not a complete report. Exercise corrupt and mismatched
+  pairs in the actual workflow shell without remote transport.
