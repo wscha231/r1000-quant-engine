@@ -101,6 +101,92 @@ def cohort(matured=False):
     return data,memory
 
 class IntakeTests(unittest.TestCase):
+    def test_private_maturity_routes_only_new_or_corrected_rows(self):
+        from tools import run_a2_research_intake as cli
+
+        frozen, frozen_memory = cohort(False)
+        all_matured, full_memory = cohort(True)
+        implementation = h.canonical({'base_commit': 'a' * 40})
+        for row in frozen['rows'] + all_matured['rows']:
+            row['code_sha256'] = h.digest(implementation)
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+
+            def file(name, raw):
+                (root / name).write_bytes(raw)
+                return {'path': name, 'sha256': h.digest(raw)}
+
+            def stage(name, count, correction=False):
+                doc = copy.deepcopy(frozen)
+                memory = dict(frozen_memory)
+                measured = copy.deepcopy(h.decode(full_memory['OUT'])['rows'][:count])
+                for index, item in enumerate(measured):
+                    row = copy.deepcopy(all_matured['rows'][index])
+                    item['code_sha256'] = row['code_sha256']
+                    if correction and index == 0:
+                        item['asset_return'] = row['asset_return'] = 0.12
+                        item['excess_return'] = row['excess_return'] = 0.07
+                    doc['rows'][index] = row
+                source = None
+                if measured:
+                    raw = h.canonical({'schema': 'h1-supplied-outcomes-v1', 'rows': measured})
+                    source = file(name + '-outcomes', raw)
+                    doc['outcome_ref'] = reference('OUT', raw)
+                    memory['OUT'] = raw
+                    for row in doc['rows'][:count]:
+                        row['source_sha256'] = h.digest(raw)
+                receipt = self.check_cohort(doc, memory)
+                return dict(cohort=file(name, h.canonical(doc)), outcomes=source), file(name + '-response', h.canonical(receipt))
+
+            base, baseline = stage('frozen', 0)
+            one, one_receipt = stage('one', 1)
+            two, two_receipt = stage('two', 2)
+            corrected, _ = stage('corrected', 2, correction=True)
+            common = dict(schema='a8-maturity-files-v1', frozen=base,
+                          calendar=file('calendar', frozen_memory['CAL']),
+                          identities=file('identities', identities()),
+                          implementation=file('implementation', implementation),
+                          expires_at='2026-10-16T00:00:00Z')
+
+            def run(old, receipt, current):
+                request = file('request', h.canonical(dict(common, previous=old,
+                               previous_response=receipt, current=current)))
+                return cli.prepare(input_root=root, request_path=request['path'],
+                                   request_sha256=request['sha256'], cutoff=CUTOFF, maturity_only=True)
+
+            first = run(base, baseline, one)
+            self.assertEqual((first['denominator_count'], first['changed_count'], first['due_unmeasured_count']), (7, 1, 6))
+            self.assertEqual(set(first['a0_parameters']), {'A8'})
+            self.assertFalse(first['learning_eligible'])
+            self.assertFalse(first['proposal']['execute'])
+            appended = run(one, one_receipt, two)
+            self.assertEqual((appended['changed_count'], appended['unchanged_count']), (1, 1))
+            self.assertEqual(run(two, two_receipt, corrected)['changed_count'], 1)
+            repeated = run(two, two_receipt, two)
+            self.assertEqual(repeated['changed_count'], 0)
+            self.assertIsNone(repeated['proposal'])
+            self.assertEqual(repeated['a0_parameters'], {})
+            self.assertEqual(repeated['status'], 'PENDING_VERIFIED_OUTCOMES')
+            output = root / 'private-proposal'
+            self.assertTrue(cli.write_maturity_result(output, first)['result_written'])
+            reused = cli.write_maturity_result(output, first)
+            self.assertEqual(reused['status'], 'REUSED_IDENTICAL_RESEARCH_PROPOSAL')
+            self.assertFalse(reused['result_written'])
+            self.assertEqual(reused['proposal_events_written'], 0)
+            empty_path = root / 'unused'
+            self.assertFalse(cli.write_maturity_result(empty_path, repeated)['result_written'])
+            self.assertFalse(empty_path.exists())
+            with self.assertRaisesRegex(cli.intake.IntakeError, 'FILE_HASH_MISMATCH'):
+                cli.write_maturity_result(output, appended)
+
+            with self.assertRaisesRegex(cli.intake.IntakeError, 'MATURITY_PREVIOUS_RECEIPT'):
+                run(two, baseline, two)
+            with self.assertRaisesRegex(cli.intake.IntakeError, 'MATURITY_PREVIOUS_OUTCOME_WITHDRAWN'):
+                run(two, two_receipt, one)
+            common['expires_at'] = CUTOFF
+            with self.assertRaisesRegex(cli.intake.IntakeError, 'MATURITY_ROUTE_EXPIRED'):
+                run(two, two_receipt, two)
+
     def check_events(self, events, memory=None, n=1):
         return h.validate_events(h.canonical(envelope(events)),cutoff=CUTOFF,artifact_resolver=h.MemoryArtifacts(memory or inventory()),identities=identities(n))
 

@@ -11980,6 +11980,10 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   and revisions. A current breadth receipt is evidence for one risk axis;
   the Native packet and historical learning retain their independent gates.
 
+### 2026-11-25 — Preserve consumed maturity acknowledgements
+
+- A private review must replay its last consumed cohort response and the frozen denominator before sending new maturity events. A changed batch hash can accompany unchanged rows when another horizon matures. Compare each row’s actual values and availability, retain missing observations, and reuse the create-only output on an identical retry.
+
 ### 2026-11-20 — Keep reported SEC version dates separate from learning admission
 
 - An SEC header's DATE AS OF CHANGE, authenticated first-document bytes and a
