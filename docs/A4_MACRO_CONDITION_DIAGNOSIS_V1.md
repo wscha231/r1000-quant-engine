@@ -131,3 +131,78 @@ against the same matched SPY total return. Report 21-session alert lead time,
 false alarms, reentry delay, recovery duration, rebound participation,
 turnover and retained winners separately. Missing qualified event or return
 histories leave the incremental performance unmeasured.
+
+## Joint market and security review (2026-11-22)
+
+Task `R1000-A4-COMPOSITE-REVIEW-H1-20261122`; Main owner is the current
+implementation session, based on master
+`8459950b3cb077b877cb2ae7c799a6c11a580cb9`. Scope is the existing market
+consumer and A5 explanation, their existing tests and this contract. Source
+capture and policy/economic experiments are separate dependencies. No new
+engine, scheduler, fitted threshold or portfolio rule is introduced.
+
+V2 requests may supply `kind=cboe_put_call`, `universe=EQUITY|INDEX|TOTAL`
+and `format=CBOE_LEGACY_DAILY_CSV`, alongside the normal path/hash/status/
+collection fields. This reuses `free_market_context.cboe_observations` and
+keeps each universe distinct. Broad INDEX is not SPX. Only the documented
+legacy CSV format is supported; this is not an adapter for the current daily
+HTML page, a new collection entitlement or proof that a current original
+exists. Empty inputs, duplicate roles, inconsistent counts/ratios, changed
+bytes and observations after the decision session fail. New options rows
+reach the existing reassessment snapshot as `OPTIONS`; they cannot satisfy
+the independent CFTC input requirement.
+
+`composite_review_context` joins price/breadth, macro/credit/liquidity,
+options, native sentiment, positioning and the required security evidence.
+These overlapping families are not added into a score or independent vote
+count. A current options view requires the exact completed NYSE session;
+new collection does not refresh an old observation. Five-session means and
+five-session changes require complete exchange grids. The descriptive
+percentile uses at most63 consecutive **prior** sessions, stops at the first
+missing/null session and needs at least20. It excludes today's value and
+does not create historical PIT from a current download.
+
+The native fear/greed overlay already calculated by the unchanged risk
+engine is exposed under `market_assessment.sentiment_context`. The main
+readiness gate must pass. The current greed label/count/active conclusion
+also requires complete greed conditions; retained internal greed state
+is never shown as a fresh conclusion after an input disappears. Recovery
+labels and pause conclusions require current recovery guards. Partial
+conditions remain visible. The score is null, and this is not CNN Fear &
+Greed. An external fear/greed source remains explicitly unconnected.
+
+The option horizon ratios describe implied volatility, not a VIX futures
+curve or market-direction probability. Put/call volume describes trading
+activity, not OI, dealer inventory or pure bearish bets. Cboe documents
+[horizon definitions](https://www.cboe.com/insights/posts/what-the-vix-and-vix-1-d-indices-attempt-to-measure-and-how-they-differ/)
+and [early-exercise effects on put/call activity](https://www.cboe.com/insights/posts/how-early-exercise-order-flow-impacts-equity-option-put-call-ratios).
+No contract-level inventory, expiry calendar or signed dealer positions are
+admitted here; gamma stays `GAMMA_NOT_VERIFIED`. SKEW retains the exact
+original source hash and current-vintage classification; a later history or
+methodology revision must not be backdated into a past signal.
+
+The existing A5 explanation copies this exact report's composite context
+and market-review handoff. Each security now exposes the already-computed
+native leadership state, 20/60/120/240-session log total-return RS, five-day
+RS changes, volume acceleration, liquidity, original thesis and net-cost
+evidence. Discovery rank and risk-adjusted expected-alpha rank remain separate. Sector
+relative strength is explicitly unavailable until a separate verified
+sector benchmark is connected. There is no semiconductor filter.
+
+The explanation never reclassifies a security or recalculates a weight.
+`HOLD`, `REDUCE_REVIEW` and `EXIT_REVIEW` retain the existing native meaning;
+an accepted same-security exit review is shown separately with its original
+taxonomy/hash. Market worsening with a native HOLD is a joint-review tension,
+not an automatic exit. Market recovery cannot erase a company exit review.
+The existing A3/A5 thesis/risk/lifecycle/replacement tests and cost hysteresis
+remain responsible for an actual research reduction. The stock/cash baseline
+profile stays A4-disconnected and does not inherit market context.
+
+Validation extends the existing market-analysis, macro-diagnosis and A5
+suites; no frozen validation program count changes. Stop publication or
+activation on failed exact-head review/checks or changed source inputs.
+Optional diagnostic missingness does not veto separate useful code work and
+does not open the native risk gate. Actual current Source admission, the
+separate PR807 outage fix, independent A3/A6 originals and economic validation
+are still required for an operational decision claim. This code does not
+certify a forecast, avoided loss, current broker book or trading approval.

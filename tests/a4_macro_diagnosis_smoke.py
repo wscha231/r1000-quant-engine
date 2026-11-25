@@ -196,6 +196,18 @@ class DiagnosisTests(unittest.TestCase):
         self.assertEqual(d.diagnose(copy.deepcopy(source)),d.diagnose(copy.deepcopy(source)))
         d.diagnose(source);self.assertEqual(source['macro_direction_inputs'],original)
 
+    def test_composite_positioning_keeps_missing_participant_coverage_visible(self):
+        source=analyze([])
+        source['existing_market_context']['public']=[
+            dict(provider='CFTC',entity_id='MARKET:DEALER',status='OBSERVED'),
+            dict(provider='CFTC',entity_id='MARKET:ASSET_MANAGER',status='MISSING')]
+        value=d.composite_review_context(source,public_rows=[],sessions=[source['session']])
+        self.assertEqual(value['families']['positioning']['status'],'PARTIAL')
+        self.assertEqual(value['families']['positioning']['observed_count'],1)
+        self.assertEqual(value['families']['positioning']['supplied_count'],2)
+        self.assertEqual(len(value['families']['positioning']['observations']),2)
+        self.assertFalse(value['families']['positioning']['independent_risk_vote'])
+
     def test_report_handoff_preserves_input_gate_and_horizon_roles(self):
         result = analyze([('fred:DGS10', raw('DGS10', [('2026-11-06', 4.1)]))])
         handoff = result['review_handoff']
@@ -247,6 +259,11 @@ class DiagnosisTests(unittest.TestCase):
             self.assertEqual((handoff['candidate'], handoff['status']), (candidate,state))
             self.assertEqual(bool(handoff['research_alternatives']), candidate is not None)
             self.assertFalse(handoff['portfolio_effect_allowed'])
+            self.assertIn('composite_review_context',handoff['evidence_paths'])
+            if candidate == 'RISK_WORSENING':
+                self.assertIn('REVIEW_SELECTIVE_REDUCTION',handoff['research_alternatives'])
+                self.assertIn('REVIEW_THESIS_EXIT',handoff['research_alternatives'])
+                self.assertIn('ORIGINAL_A5_EXIT_REVIEW',handoff['reduction_exit_requirements'])
 
     def test_handoff_checks_expiry_and_separates_fixed_horizon_evidence(self):
         source = d.diagnose(report())

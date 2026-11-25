@@ -8,7 +8,31 @@
   "native_risk_contract": "docs/run287_chameleon_macro_risk_contract.json",
   "risk_rules_changed": false,
   "input_limits": {"max_inputs": 64, "max_request_bytes": 262144, "max_file_bytes": 8388608, "max_total_bytes": 67108864, "max_native_metric_bytes": 33554432},
-  "new_input_kinds": ["macro_v2", "macro_primary", "financing_primary", "valuation_cape", "learning_release"],
+  "new_input_kinds": ["macro_v2", "macro_primary", "financing_primary", "valuation_cape", "learning_release", "cboe_put_call"],
+  "cboe_put_call": {
+    "adapter": "tools/free_market_context.py:cboe_observations",
+    "format": "CBOE_LEGACY_DAILY_CSV",
+    "universes": ["EQUITY", "INDEX", "TOTAL"],
+    "duplicate_role": "kind plus universe",
+    "measurement": "put volume divided by call volume; not open interest or signed dealer inventory",
+    "current_window": "exact completed XNYS session; missing, delayed, stale and latest-null remain unavailable",
+    "history": "five complete sessions for mean; six for five-session change; prior-only midrank from20 to63 contiguous preceding sessions",
+    "source_rights_and_pit_admission": false,
+    "new_collector_or_scheduler": false,
+    "current_endpoint_or_format_support_claimed": false
+  },
+  "composite_review_context": {
+    "schema": "a4-composite-review-context-v1",
+    "families": ["price_breadth", "macro_credit_liquidity", "options", "sentiment", "positioning", "security_leadership_thesis"],
+    "native_sentiment": "existing risk sentiment overlay; readiness-gated; not a CNN index or calibrated probability",
+    "reused_consumer": "tools/a5_model_portfolio.py:_explain_result",
+    "security_evidence": "existing A2 market-relative log-RS and volume, original A3 thesis/net ER, existing A5 exit reviews and costs",
+    "score_or_independent_vote_sum": false,
+    "native_policy_or_weights_changed": false,
+    "single_indicator_exit_allowed": false,
+    "gamma": "GAMMA_NOT_VERIFIED",
+    "sector_relative_strength": "requires separately verified benchmark; not supplied by the current native market-relative result"
+  },
   "macro_primary": {
     "producer": "tools/collect_a4_primary_data.py",
     "normalizer_reader": "tools/a4_primary_sources.py",

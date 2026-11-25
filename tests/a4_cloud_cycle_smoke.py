@@ -424,6 +424,8 @@ python() { "$FIXTURE_PYTHON" "$@"; }
             old=root/"attempts/old";old.mkdir(parents=True)
             (old/"cycle.json").write_bytes(b'{"status":"old_success"}')
             result=cycle.run_cycle(input_root=inputs,state_root=state,output_dir=root/"attempts/new",cutoff=NOW)
+            self.assertFalse(result["a5_executed"])
+            self.assertEqual(result["a5_status"],"BLOCKED")
             self.assertEqual(result["status"],"PARTIAL_RESEARCH")
             self.assertEqual(result["market_status"],"DATA_BLOCKED")
             self.assertFalse(result["durable_remote_verified"])
@@ -480,6 +482,7 @@ python() { "$FIXTURE_PYTHON" "$@"; }
         run=next(s for s in steps if s.get("id")=="a4_cycle")
         self.assertIn("run_a4_research_cycle.py",run["run"])
         self.assertIn('--scope "$A4_RESEARCH_SCOPE"',run['run'])
+        self.assertIn('--a5-input-root outputs/market_analysis_inputs',run['run'])
         self.assertEqual(run['env']['A4_RESEARCH_SCOPE'],"${{ vars.A4_RESEARCH_SCOPE || 'A4_ONLY' }}")
         persist=next(s for s in steps if s.get("id")=="a4_persist")
         self.assertIn("--immutable",persist["run"])
@@ -516,6 +519,45 @@ python() { "$FIXTURE_PYTHON" "$@"; }
             self.assertFalse(second["accepted_model_changed"])
             self.assertFalse(second["durable_remote_verified"])
 
+    def test_restored_a5_packet_and_current_market_attempt_have_independent_roots(self):
+        from tools import a5_model_portfolio as a5
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            market_root=root/'attempt-inputs'
+            restored=root/'restored'
+            market_root.mkdir()
+            restored.mkdir()
+            def put(name, value):
+                raw=encoded(value)
+                (restored/name).write_bytes(raw)
+                return dict(path=name,sha256=digest(raw))
+
+            policy=put('model-policy.json',dict(current_a3_review_profile=dict(
+                available_at='2026-11-07T09:00:00Z',expires_at='2026-11-08T00:00:00Z')))
+            put('a5_request.json',dict(schema='a5-model-proposal-request-v1',policy=policy,
+                                       inputs=put('model-inputs.json',dict(as_of=NOW)),registry=put('registry.json',{})))
+            # A misplaced bundle must not be used when either selected root is missing or invalid.
+            (restored/'request.json').write_bytes(b'restored market request')
+            args=dict(input_root=market_root,a5_input_root=restored,state_root=root/'state',
+                      a5_policy_sha256=policy['sha256'],cutoff=NOW,scope='A4_A5')
+            with patch.object(a5,'load_and_build',wraps=a5.load_and_build) as consume, \
+                 patch.object(cycle.market,'bounded',wraps=cycle.market.bounded) as reads:
+                good=cycle.run_cycle(**args,output_dir=root/'first')
+                self.assertEqual(consume.call_count,1)
+                model_root,_,market_report=consume.call_args.args
+                self.assertEqual(model_root,restored)
+                self.assertEqual(market_report['status'],'DATA_BLOCKED')
+                self.assertEqual(good['a5_status'],'BLOCKED')
+                self.assertNotIn(restored/'request.json',[call.args[0] for call in reads.call_args_list])
+                shutil.copytree(restored,market_root,dirs_exist_ok=True)
+                (restored/'model-policy.json').write_bytes(b'changed')
+                cycle.run_cycle(**args,output_dir=root/'changed')
+                self.assertEqual(consume.call_count,1)
+            with self.assertRaisesRegex(ValueError,'A5_INPUT_STATE_OUTPUT_OVERLAP'):
+                cycle.run_cycle(**dict(args,a5_input_root=root/'state'),output_dir=root/'overlap')
+            only=cycle.run_cycle(**dict(args,scope='A4_ONLY',a5_input_root=root/'state'),output_dir=root/'a4')
+            self.assertEqual(only['a5_status'],'NOT_REQUESTED')
+
     def test_fixed_report_replay_does_not_backdate_new_cloud_forecasts(self):
         from tests.a4_liquidity_analysis_smoke import raw
         old,old_policy,resolve=fixture(1600)
@@ -551,6 +593,8 @@ python() { "$FIXTURE_PYTHON" "$@"; }
             arguments=dict(input_root=inputs,state_root=state,learning_policy_sha256=request['policy']['sha256'],
                            a5_policy_sha256=model['policy']['sha256'],code_sha='a'*40)
             first=cycle.run_cycle(**arguments,output_dir=base/'first',cutoff=NOW)
+            self.assertTrue(first['a5_executed'])
+            self.assertEqual(first['a5_status'],'BLOCKED')
             self.assertEqual(first['learning_status'],'RESEARCH_CYCLE_COMPLETE',first)
             paths=list((state/'predictions').iterdir());self.assertEqual(len(paths),1)
             captured=json.loads(paths[0].read_bytes())['predictions']

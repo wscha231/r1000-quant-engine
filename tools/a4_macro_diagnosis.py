@@ -354,6 +354,120 @@ def _short_review(report, expires_at):
     return 'NO_NEW_REVIEW', None, []
 
 
+def composite_review_context(report, *, public_rows, sessions):
+    """Join observed families for review; do not create another score or policy.
+
+    Optional option histories are current-vintage originals. A five-session
+    statistic requires the exact exchange grid, and a percentile excludes the
+    current value. Neither supplies historical availability or dealer positions.
+    """
+    context = report['existing_market_context']
+    native = report['market_assessment']
+    session = report['session']
+    f.require(bool(sessions) and sessions[-1] == session, 'OPTIONS_SESSION_GRID')
+    macro = context.get('macro', {})
+
+    def point(row):
+        if row is None:
+            return dict(status='MISSING', value=None, observation_date=None)
+        current = row.get('status') == 'OBSERVED' and row.get('observation_date') == session
+        return dict(status='OBSERVED' if current else 'DELAYED' if row.get('status') == 'OBSERVED' else row.get('status'),
+            value=row.get('value') if current else None, observation_date=row.get('observation_date'),
+            source_id=row.get('source_id'), source_sha256=row.get('source_sha256'),
+            available_at=row.get('available_at'), unit=row.get('unit'),
+            truth_class='CURRENT_VINTAGE_RESEARCH_ONLY')
+
+    volatility = {key: point(macro.get(key)) for key in ('vix_9d', 'vix_30d', 'vix_3m', 'vvix', 'skew_index')}
+    ratios = {}
+    for name, left, right in (('vix9d_to_vix30', 'vix_9d', 'vix_30d'),
+                              ('vix30_to_vix3m', 'vix_30d', 'vix_3m')):
+        row = dict(context.get('derived_macro', {}).get(name, {}))
+        current = all(volatility[key]['status'] == 'OBSERVED' for key in (left, right))
+        ratios[name] = dict(status='OBSERVED' if current and row.get('status') == 'OBSERVED' else 'INSUFFICIENT_EVIDENCE',
+            value=row.get('value') if current else None, evidence_path='existing_market_context.derived_macro.'+name,
+            interpretation='IMPLIED_VOLATILITY_HORIZON_RATIO_NOT_FUTURES_CURVE')
+    put_call = {}
+    panel = {r['entity_id']: r for r in context.get('public', []) if r['provider'] == 'CBOE'}
+    for universe in ('EQUITY', 'INDEX', 'TOTAL'):
+        summary = panel.get(universe)
+        current = bool(summary and summary['status'] == 'OBSERVED' and summary['observation_date'] == session)
+        history = {r['observation_date']: r['value'] for r in public_rows
+                   if r['provider'] == 'CBOE' and r['entity_id'] == universe}
+        f.require(all(day < sessions[0] or day in sessions for day in history), 'CBOE_NON_SESSION_OBSERVATION')
+        last_five = [history.get(day) for day in sessions[-5:]]
+        last_six = [history.get(day) for day in sessions[-6:]]
+        complete_five = current and len(last_five) == 5 and all(v is not None for v in last_five)
+        complete_six = current and len(last_six) == 6 and all(v is not None for v in last_six)
+        # Stop at the first gap; never skip a missing session to fill a window.
+        prior = []
+        for day in reversed(sessions[:-1][-63:]):
+            value = history.get(day)
+            if value is None:
+                break
+            prior.append(value)
+        value = summary['current_value'] if current else None
+        percentile = ((sum(x < value for x in prior)+.5*sum(x == value for x in prior))/len(prior)
+                      if current and len(prior) >= 20 else None)
+        put_call[universe] = dict(universe=universe, metric='put_call_volume_ratio',
+            status='OBSERVED' if current else 'MISSING' if summary is None else
+                'DELAYED' if summary['status'] == 'OBSERVED' else summary['status'],
+            value=value, observation_date=None if summary is None else summary['observation_date'],
+            source_sha256=None if summary is None else summary['source_sha256'],
+            available_at=None if summary is None else summary['available_at'],
+            mean_5_sessions=sum(last_five)/5 if complete_five else None,
+            change_5_sessions=last_six[-1]-last_six[0] if complete_six else None,
+            prior_only_midrank=percentile, prior_contiguous_sessions=len(prior),
+            percentile_minimum_sessions=20, percentile_maximum_sessions=63,
+            interpretation='TRADING_ACTIVITY_NOT_OPEN_INTEREST_OR_SIGNED_POSITION',
+            historical_pit_certified=False)
+    observed_options = sum(r['status'] == 'OBSERVED' for r in [*volatility.values(), *put_call.values()])
+    options = dict(status='OBSERVED' if observed_options == 8 else 'PARTIAL' if observed_options else 'DATA_BLOCKED',
+        volatility=volatility, horizon_ratios=ratios, put_call=put_call,
+        gamma_status='GAMMA_NOT_VERIFIED', dealer_gamma=None,
+        expiry_positioning_status='VERIFIED_CONTRACT_CALENDAR_AND_POSITION_DATA_REQUIRED',
+        independent_risk_vote=False, directional_probability=None,
+        source_admission_allowed=False, historical_pit_certified=False)
+    ready_native = native['status'] == 'READY_RESEARCH_ONLY'
+    axes = [{**r, 'axis_score': r.get('axis_score') if ready_native and r.get('axis_ready') else None}
+            for r in native.get('axes', [])]
+    price_axes = [r for r in axes if r['axis'] in {'market_breadth', 'trend_drawdown'}]
+    ready_price_axes = {r['axis'] for r in price_axes if ready_native and r.get('axis_ready')}
+    missing_price_axes = sorted({'market_breadth', 'trend_drawdown'}-ready_price_axes)
+    positions = [r for r in context.get('public', []) if r['provider'] == 'CFTC']
+    observed_positions = sum(r['status'] == 'OBSERVED' for r in positions)
+    families = dict(
+        price_breadth=dict(status='OBSERVED' if not missing_price_axes else 'PARTIAL' if ready_price_axes else 'DATA_BLOCKED',
+            native_axes=price_axes, missing_native_axes=missing_price_axes,
+            price_cohorts=context.get('price', []), independent_risk_vote=False),
+        macro_credit_liquidity=dict(status=report.get('macro_diagnosis', {}).get('status', 'DATA_BLOCKED'),
+            evidence_paths=['macro_diagnosis.windows', 'funding', 'liquidity', 'bank_credit',
+                            'financing_conditions', 'recession_watch.groups.credit'],
+            native_axes=[r for r in axes if r['axis'] in {'credit', 'rates_liquidity', 'economic_stress', 'cross_asset'}],
+            independent_risk_vote=False),
+        options=options,
+        sentiment=dict(status=native.get('sentiment_context', {}).get('status', 'DATA_BLOCKED'),
+            native=native.get('sentiment_context'), household_expectations=report.get('household_expectations', []),
+            external_fear_greed_status='NOT_CONNECTED', external_fear_greed_value=None,
+            overlaps_with=['price_breadth', 'options', 'macro_credit_liquidity'], independent_risk_vote=False),
+        positioning=dict(status='OBSERVED' if positions and observed_positions == len(positions) else
+                         'PARTIAL' if observed_positions else 'DATA_BLOCKED',
+            observations=positions, observed_count=observed_positions, supplied_count=len(positions),
+            interpretation='FUTURES_PARTICIPANT_CLASSES_NOT_STOCK_OPTION_DEALER_POSITIONS', independent_risk_vote=False),
+        security_leadership_thesis=dict(status='A2_A3_ORIGINALS_REQUIRED',
+            consumer='A5_EXISTING_NATIVE_CANDIDATE_COMPETITION',
+            requirements=['MARKET_RELATIVE_RS_20_60_120_240', 'SECTOR_BENCHMARK_IF_VERIFIED',
+                'VOLUME_AND_LIQUIDITY', 'CURRENT_REVIEWED_THESIS_AND_NET_ER',
+                'ORIGINAL_EXIT_REVIEW_AND_REPLACEMENT_COSTS']))
+    return dict(schema='a4-composite-review-context-v1', authority='RESEARCH_CONTEXT_ONLY',
+        status='OBSERVED_CONTEXT_ONLY' if ready_native else 'PARTIAL_CONTEXT_NATIVE_BLOCKED',
+        session=session, cutoff=report['cutoff'], native_risk_status=native['status'],
+        families=families, composite_score=None, independent_vote_count=None,
+        automatic_buy_sell_allowed=False, portfolio_effect_allowed=False,
+        required_security_review=['HOLD', 'SELECTIVE_REDUCTION', 'THESIS_EXIT', 'COST_AWARE_REPLACEMENT', 'CASH_COMPARISON'],
+        sell_authority='EXISTING_A3_A5_ORIGINAL_EXIT_REVIEW_REQUIRED',
+        single_indicator_exit_allowed=False, semiconductor_only=False)
+
+
 def review_handoff(report, *, expires_at, entry_close_at, release_expires_at=None):
     """Build an additive A4-to-research context view of the existing V2 report."""
     expiry = min(f.utc(expires_at), f.utc(entry_close_at))
@@ -379,7 +493,9 @@ def review_handoff(report, *, expires_at, entry_close_at, release_expires_at=Non
         horizons.append(dict(horizon_sessions=horizon, role=role, benchmarks=pair))
     native = report['market_assessment']
     alternatives = {
-        'RISK_WORSENING': ['HOLD_EXISTING', 'DEFER_NEW_OR_INCREASED_EXPOSURE', 'CASH_ALTERNATIVE'],
+        'RISK_WORSENING': ['HOLD_EXISTING', 'DEFER_NEW_OR_INCREASED_EXPOSURE',
+                           'REVIEW_SELECTIVE_REDUCTION', 'REVIEW_THESIS_EXIT',
+                           'COMPARE_COST_AWARE_REPLACEMENT', 'CASH_ALTERNATIVE'],
         'RISK_EASING': ['HOLD_EXISTING', 'REVIEW_NEW_OR_INCREASED_EXPOSURE', 'CASH_ALTERNATIVE'],
         'REENTRY_REVIEW': ['HOLD_EXISTING', 'COMPARE_STAGED_REENTRY', 'CASH_ALTERNATIVE'],
     }
@@ -395,12 +511,15 @@ def review_handoff(report, *, expires_at, entry_close_at, release_expires_at=Non
         recovery_stage=native.get('fear_recovery_stage'), horizons=horizons,
         evidence_paths=['market_assessment.axes', 'source_receipts', 'a4_observation_provenance',
                         'macro_diagnosis.windows', 'financing_conditions', 'recession_watch',
-                        'candidate_reassessment_snapshot'],
+                        'candidate_reassessment_snapshot', 'composite_review_context'],
         context_status={key: report.get(key, {}).get('status', 'DATA_BLOCKED')
                         for key in ('funding', 'liquidity', 'bank_credit', 'financing_conditions')},
         exposure=dict(scope='US_EQUITY_COMMON_RISK', channels=['RISK', 'TIMING'],
                       affected_assets=None, candidate_mapping='VERIFIED_EXPOSURE_INDEX_REQUIRED'),
         research_alternatives=alternatives.get(candidate, []),
+        reduction_exit_requirements=['CURRENT_SAME_SECURITY_A3_THESIS_AND_NET_ER',
+            'MARKET_RELATIVE_RS_AND_LIQUIDITY', 'VERIFIED_PORTFOLIO_COMMON_RISK_EXPOSURE',
+            'ORIGINAL_A5_EXIT_REVIEW', 'REPLACEMENT_COSTS_REENTRY_RISK_AND_UNCERTAINTY'],
         invalidated_by=['ENTRY_OR_REQUEST_WINDOW_CLOSED', 'LATER_SESSION_OR_SOURCE_REVISION',
                         'NATIVE_READINESS_LOST', 'RECOVERY_GUARDS_MISSING_OR_PAUSED'],
         solo_stock_cash_research_allowed=True, portfolio_effect_allowed=False,
