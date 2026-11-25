@@ -77,6 +77,10 @@ Training still requires an independently qualified historical financial Reader.
   A 55/45 two-sector transition exercises different existing limits in Main and
   Concentrated. Preserve legacy Main replay and verify the identity of a carried model book.
 
+### 2026-11-25 — Show the absolute mission beside benchmark-relative research goals
+
+Only a verified matching-grid net NAV can support the absolute mission comparison. Reuse the existing mission contract and report its target and hash per portfolio. Keep the SPY-relative result and Concentrated stretch result separate. Input refusal leaves the absolute result unavailable. A research-window pass grants no official performance or promotion authority.
+
 ### 2026-11-19 KST — Measure both research goals on one authenticated daily grid
 
 - An adjusted-close benchmark cache alone does not attest dividend reinvestment.

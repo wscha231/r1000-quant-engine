@@ -92,6 +92,40 @@ class GoalTests(unittest.TestCase):
         low = self.assess(self.packet([100000, 98000, 120000], [100000, 97000, 110000]))
         self.assertEqual((low["status"], low["stretch_status"], low["goal_policy"]),
                          ("PASS", "NOT_APPLICABLE", goal.GOAL_POLICY))
+        self.assertEqual(low["project_mission"]["status"], "MISS")
+        self.assertFalse(low["project_mission"]["cagr_met"])
+        self.assertTrue(low["project_mission"]["drawdown_met"])
+
+    def test_project_mission_thresholds_on_unrounded_measurements(self):
+        for kind, threshold in (("main", .35), ("concentrated", .50)):
+            for cagr, drawdown, cagr_met, drawdown_met in (
+                (threshold, -.25, True, True),
+                (math.nextafter(threshold, -math.inf), -.25, False, True),
+                (threshold, math.nextafter(-.25, -math.inf), True, False),
+            ):
+                with self.subTest(kind=kind, cagr=cagr, drawdown=drawdown):
+                    result = goal._project_mission(kind, {"cagr": cagr, "max_dd": drawdown})
+                    self.assertEqual((result["cagr_min"], result["max_dd_min"]), (threshold, -.25))
+                    self.assertEqual((result["cagr_met"], result["drawdown_met"]), (cagr_met, drawdown_met))
+                    self.assertEqual(result["status"], "PASS" if cagr_met and drawdown_met else "MISS")
+
+    def test_project_mission_is_independent_of_relative_base_and_packet_claims(self):
+        p = self.packet([100000, 100000, 700000], [100000, 100000, 800000])
+        p["project_mission"] = {"status": "MISS", "cagr_min": 100.}
+        result = self.assess(p)
+        self.assertEqual(result["status"], "MISS")
+        mission = result["project_mission"]
+        self.assertEqual((mission["status"], mission["cagr_min"], mission["max_dd_min"]), ("PASS", .35, -.25))
+        self.assertEqual(mission["basis"], "MATCHED_RESEARCH_WINDOW_NET_NAV")
+        identity = goal.mission_identity(goal.PORTFOLIO_MISSION_TARGETS)
+        self.assertEqual(mission["mission_contract_sha256"], identity["mission_contract_sha256"])
+        self.assertTrue(result["research_only"])
+        self.assertFalse(result["promotion_allowed"])
+        p["portfolio_report"]["cagr"] = 100.
+        p["project_mission"] = {"status": "PASS"}
+        blocked = self.assess(p)
+        self.assertEqual(blocked["status"], "DATA_BLOCKED")
+        self.assertIsNone(blocked["project_mission"])
 
     def test_month_labels_calendar_cash_and_partial_period(self):
         # Daily grid validation happens before the diagnostic. Only month-end marks matter here.
@@ -205,7 +239,9 @@ class GoalTests(unittest.TestCase):
             else:
                 p["portfolio_report"]["cost_bps_per_side"] = 50
                 p["manifest"]["portfolio_report_sha256"] = nav.digest(p["portfolio_report"])
-            self.assertEqual(self.assess(p)["status"], "DATA_BLOCKED", change)
+            blocked = self.assess(p)
+            self.assertEqual(blocked["status"], "DATA_BLOCKED", change)
+            self.assertIsNone(blocked["project_mission"], change)
 
 
 if __name__ == "__main__":
