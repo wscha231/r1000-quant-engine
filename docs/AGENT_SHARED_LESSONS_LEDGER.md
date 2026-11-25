@@ -11110,6 +11110,9 @@ The early-cycle gate gave identical positive credit to missing and observed-flat
   execution with an active reviewed model. Its valid first forecast persists;
   execution after the next-close entry is blocked without another prediction.
   Keep this test with the A5 fixed-clock consumer, not its A4-only parent branch.
+- When the data center selects a fresh market attempt, that directory contains
+  A4 originals. Resolve the independent A5 packet from its restored directory,
+  and compare the reviewed graph to the report built from the selected attempt.
 - A completed mutable Codex summary alone is not accepted review_complete
   evidence. The PR744 summary-pin attempt was correctly refused; preserve it and
   use the existing authenticated review, fresh-reaction or immutable-receipt
