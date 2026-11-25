@@ -280,6 +280,9 @@ Training still requires an independently qualified historical financial Reader.
 
 ### 2026-11-13 KST — Finish A4 independently of the optional A5 proposal
 
+- Combined scope requests A5 even when its original request is missing. Count
+  execution at the native consumer call. A blocked diagnostic with empty
+  weights can be produced before that call or by the consumer itself.
 - The combined cloud cycle required an A5 proposal for overall completion and
   read its replay clock even during A4-only work. Preserve that compatible
   combined path, but make the hosted scope default explicitly A4_ONLY. Skip
@@ -11126,6 +11129,9 @@ The early-cycle gate gave identical positive credit to missing and observed-flat
   execution with an active reviewed model. Its valid first forecast persists;
   execution after the next-close entry is blocked without another prediction.
   Keep this test with the A5 fixed-clock consumer, not its A4-only parent branch.
+- When the data center selects a fresh market attempt, that directory contains
+  A4 originals. Resolve the independent A5 packet from its restored directory,
+  and compare the reviewed graph to the report built from the selected attempt.
 - A completed mutable Codex summary alone is not accepted review_complete
   evidence. The PR744 summary-pin attempt was correctly refused; preserve it and
   use the existing authenticated review, fresh-reaction or immutable-receipt
@@ -11757,6 +11763,10 @@ The early-cycle gate gave identical positive credit to missing and observed-flat
 - This sparse checkout refused staging the new contract outside its patterns after staging the existing files. Inspect the partial index and add only that explicit contract with --sparse; preserve the original sparse definition and unrelated paths. Code/test bytes and their prior scoped result remain unchanged.
 - The first real direct-script audit failed before output creation: imported smoke tests had inserted repository root, masking research-module import failure from tools/. Preserve the failed receipt and3.6017712s, bootstrap the resolved repository root, and exercise a real subprocess from outside the repository with no PYTHONPATH before reusing a fresh create-only output namespace.
 
+
+### 2026-11-25 — Conserve the original entry fee across FIFO exits
+
+- Deduct each partial exit’s share of a lot’s remaining entry fee. The final matched exit takes the residual fee when the journal treats the lot as closed. Reconcile closed plus open entry fees against original buy fills before using the derived round trips for learning. The replay NAV and immutable fills retain their original values.
 
 ### 2026-11-13 — Compare frozen original A5 targets through E2 net NAV
 
