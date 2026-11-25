@@ -284,6 +284,9 @@ Only a verified matching-grid net NAV can support the absolute mission compariso
 
 ### 2026-11-13 KST — Finish A4 independently of the optional A5 proposal
 
+- Combined scope requests A5 even when its original request is missing. Count
+  execution at the native consumer call. A blocked diagnostic with empty
+  weights can be produced before that call or by the consumer itself.
 - The combined cloud cycle required an A5 proposal for overall completion and
   read its replay clock even during A4-only work. Preserve that compatible
   combined path, but make the hosted scope default explicitly A4_ONLY. Skip
@@ -2742,6 +2745,25 @@ Expected contract:
   - `outputs/run287_sec_guidance_foreign_gap_index_20260714/`
   - `outputs/run287_sec_management_guidance_scout_20260714/`
   - `outputs/run287_sec_management_guidance_scout_20260714_hardened_v2/`
+### 2026-11-22 — Keep composite review evidence distinct from approved exits
+
+- Reuse the existing A2 log-RS/volume, A3 thesis/net ER, A4 risk and A5 audited
+  exits. Adding options or a sentiment presentation must not recalculate
+  allocations, count correlated inputs as extra votes or manufacture dealer
+  gamma. Legacy Cboe CSV support does not prove a current source entitlement.
+- The native sentiment engine retains internal greed through missing inputs.
+  Mask the current greed conclusion until its own conditions are ready; keep
+  recovery guard missingness separate from a false pause flag.
+- Independent review reproduced overall Native readiness with a missing trend
+  axis and a CFTC report with only2 of10 supplied rows observed. Family-level
+  coverage must remain PARTIAL. The candidate rank is risk-adjusted expected
+  alpha, distinct from the discovery rank and from raw expected alpha.
+- Initial local checks stopped on missing declared calendar/requests packages;
+  install the existing requirements while retaining pandas2.x. A new test
+  initially addressed `observations` instead of the existing snapshot `rows`
+  field; correct the fixture assertion, not the production schema. Preserve
+  those failed attempts separately from the subsequent validation results.
+
 ### 2026-07-14 - Held-security risk must be measured separately from broad-market regime
 
 - Agent: Codex
@@ -4567,6 +4589,10 @@ Expected contract:
   `183/183` in `744.61s`.
 - Fullrun executed: false. Production enabled: false. Live trading enabled:
   false.
+
+## 2026-11-25 - Compare recorded alternatives on the same exchange sessions
+
+- Independently advancing through each security’s observed bars admitted unmatched entries and maturities. Use the next NYSE close and verify every held interval on both sides before counting a paired return or replacement regret. An older summary’s matching date flag cannot establish complete exchange-session coverage.
 
 ## 2026-07-20 - P5 strict leadership persistence was a no-op
 
@@ -11111,6 +11137,9 @@ The early-cycle gate gave identical positive credit to missing and observed-flat
   execution with an active reviewed model. Its valid first forecast persists;
   execution after the next-close entry is blocked without another prediction.
   Keep this test with the A5 fixed-clock consumer, not its A4-only parent branch.
+- When the data center selects a fresh market attempt, that directory contains
+  A4 originals. Resolve the independent A5 packet from its restored directory,
+  and compare the reviewed graph to the report built from the selected attempt.
 - A completed mutable Codex summary alone is not accepted review_complete
   evidence. The PR744 summary-pin attempt was correctly refused; preserve it and
   use the existing authenticated review, fresh-reaction or immutable-receipt
@@ -11743,6 +11772,10 @@ The early-cycle gate gave identical positive credit to missing and observed-flat
 - The first real direct-script audit failed before output creation: imported smoke tests had inserted repository root, masking research-module import failure from tools/. Preserve the failed receipt and3.6017712s, bootstrap the resolved repository root, and exercise a real subprocess from outside the repository with no PYTHONPATH before reusing a fresh create-only output namespace.
 
 
+### 2026-11-25 — Conserve the original entry fee across FIFO exits
+
+- Deduct each partial exit’s share of a lot’s remaining entry fee. The final matched exit takes the residual fee when the journal treats the lot as closed. Reconcile closed plus open entry fees against original buy fills before using the derived round trips for learning. The replay NAV and immutable fills retain their original values.
+
 ### 2026-11-13 — Compare frozen original A5 targets through E2 net NAV
 
 - The existing allocation objective comparison was not realized performance. Serialize only externally pinned original A5 comparisons with their identity/decision/source hashes. Preserve all-cash dates explicitly; skip HOLD intents so price drift does not turn a hold into a rebalance. These paired fixed targets share original incumbent states and cannot certify two closed-loop learned policies.
@@ -11991,6 +12024,10 @@ The early-cycle gate gave identical positive credit to missing and observed-flat
 ### 2026-11-25 — Bind SEC fact comparisons to the declared taxonomy
 
 - The 2026 FASB US GAAP namespace uses the release year. Rejecting it as an invalid date discarded authentic quarterly facts before the issuer, unit and value checks could run. Recognize the published URI, retain those checks, and apply the separate caller-reviewed accession and decision-time scope to every Reader request.
+
+### 2026-11-25 — Preserve consumed maturity acknowledgements
+
+- A private review must replay its last consumed cohort response and the frozen denominator before sending new maturity events. A changed batch hash can accompany unchanged rows when another horizon matures. Compare each row’s actual values and availability, retain missing observations, and reuse the create-only output on an identical retry.
 
 ### 2026-11-20 — Keep reported SEC version dates separate from learning admission
 
