@@ -108,7 +108,10 @@ def verify_request(raw, expected_sha, cutoff, session):
             need(type(spec.get("source_id")) is str, "MACRO_SOURCE_ID_REQUIRED")
         kinds = {"macro", "cot_tff", "price_context", "sce_export", "risk_metrics", "risk_calendar", "risk_context"}
         need(kind in kinds or (v2 and kind in {"macro_v2", "macro_primary", "financing_primary", "valuation_cape",
-                                               "learning_release", "learning_original"}), "INPUT_KIND")
+                                               "learning_release", "learning_original", "cboe_put_call"}), "INPUT_KIND")
+        if kind == "cboe_put_call":
+            need(spec.get("universe") in {"EQUITY", "INDEX", "TOTAL"}
+                 and spec.get("format") == "CBOE_LEGACY_DAILY_CSV", "CBOE_INPUT_IDENTITY")
         if kind == "valuation_cape":
             need(spec.get("source_id") == "shiller:ie_data", "CAPE_SOURCE_IDENTITY")
         if kind == 'financing_primary':
@@ -127,7 +130,8 @@ def verify_request(raw, expected_sha, cutoff, session):
                 need(type(spec['forward_policy_sha256']) is str and re.fullmatch('[a-f0-9]{64}',spec['forward_policy_sha256']),
                      'FORWARD_POLICY_PIN_REQUIRED')
         role = ("macro" if kind == "macro_v2" else kind, spec.get("feed") if kind in {"macro_primary",'financing_primary'} else
-                spec.get("source_id") if kind in {"macro", "macro_v2"} else spec.get('sha256') if kind=='learning_original' else None)
+                spec.get("source_id") if kind in {"macro", "macro_v2"} else
+                spec.get("universe") if kind == "cboe_put_call" else spec.get('sha256') if kind=='learning_original' else None)
         need(role not in roles, "DUPLICATE_INPUT_ROLE"); roles.add(role)
         path = spec.get("path"); safe_path(path)
         need(path not in names, "DUPLICATE_INPUT_PATH"); names.add(path)
@@ -164,12 +168,39 @@ def sce_rows(raw, collected_at, cutoff):
     return result
 
 
+def native_sentiment(row, ready):
+    """Expose the incumbent overlay without presenting retained greed as current."""
+    greed_ready = ready and bool(row.get("greed_conditions_ready"))
+    guards_ready = ready and bool(row.get("fear_recovery_pause_guards_ready"))
+    label = row.get("sentiment_overlay") if ready else None
+    if ((label in {"NONE", "EXTREME_GREED"} and not greed_ready)
+            or (label == "FEAR_RECOVERY" and not guards_ready)):
+        label = None
+    conditions = ("vix_lower_10pct", "hy_and_ig_spreads_lower_10pct",
+                  "spy_ma200_distance_upper_10pct", "equity_put_call_lower_10pct",
+                  "index_high_breadth_narrowing")
+    return dict(schema="a4-native-sentiment-context-v1", basis="INCUMBENT_SENTIMENT_OVERLAY",
+        status="OBSERVED" if ready and greed_ready and guards_ready else "PARTIAL" if ready else "DATA_BLOCKED",
+        state=label, score=None, cnn_fear_greed_index=False,
+        greed_conditions_ready=greed_ready,
+        greed_condition_count=int(row["greed_condition_count"]) if greed_ready else None,
+        extreme_greed_active=bool(row["extreme_greed_active"]) if greed_ready else None,
+        greed_conditions={key: row.get(key) if ready else None for key in conditions},
+        fear_episode_active=bool(row["fear_episode_active"]) if ready else None,
+        fear_recovery_stage=int(row["fear_recovery_stage"]) if ready else None,
+        fear_recovery_guards_ready=guards_ready,
+        fear_recovery_paused=bool(row["fear_recovery_paused"]) if guards_ready else None,
+        overlaps_with=["PRICE_BREADTH", "OPTION_VARIANCE", "PUT_CALL_ACTIVITY", "CREDIT"],
+        independent_risk_vote=False, automatic_trade_signal=False)
+
+
 def native_risk(blobs, session, cutoff, *, include_review_timing=False):
     """Compute with the incumbent contract; no new risk model or thresholds."""
     if "risk_metrics" not in blobs or "risk_calendar" not in blobs:
         return {"status": "DATA_BLOCKED", "blockers": ["NATIVE_RISK_METRICS_AND_CALENDAR_REQUIRED"],
                 "state": None, "risk_score": None, "axes": [], "ready_axis_count": 0,
-                "required_axes_ready": False, "fear_recovery_stage": None}
+                "required_axes_ready": False, "fear_recovery_stage": None,
+                "sentiment_context": native_sentiment({}, False)}
     cfg = risk.load_contract()
     calendar_raw = blobs["risk_calendar"]
     calendar = risk.validate_calendar(clock.table(calendar_raw), sha(calendar_raw))
@@ -199,6 +230,7 @@ def native_risk(blobs, session, cutoff, *, include_review_timing=False):
         "ready_axis_count": int(latest["ready_axis_count"]),
         "required_axes_ready": bool(latest["required_axes_ready"]), "axes": latest_axes,
         "fear_recovery_stage": sentiment.iloc[-1]["fear_recovery_stage"] if ready else None,
+        "sentiment_context": native_sentiment(sentiment.iloc[-1].to_dict(), ready),
         "declared_input_truth_class": risk._worst_truth(list(metrics["truth_class"]), cfg),
         "contract_sha256": sha(risk.DEFAULT_CONTRACT.read_bytes()),
         "calibration_or_economic_approval": False}
@@ -239,6 +271,8 @@ def analyze(raw_request, supplied, *, expected_sha, cutoff, session):
         need(type(raw) is bytes and 0 < len(raw) <= input_limit(spec) and sha(raw) == spec["sha256"], "INPUT_BYTES_HASH")
         kind, collected = spec["kind"], spec["collected_at"]
         receipts.append({k: spec[k] for k in ("kind", "path", "sha256", "status", "collected_at")})
+        if kind == "cboe_put_call":
+            receipts[-1].update(universe=spec["universe"], format=spec["format"])
         if req["schema"] == REQUEST_SCHEMA_V2 and kind in {"macro", "macro_v2"}:
             from tools import a4_liquidity_analysis as enhanced
             if spec.get("source_id", "").partition(":")[2] in enhanced.SERIES:
@@ -277,6 +311,12 @@ def analyze(raw_request, supplied, *, expected_sha, cutoff, session):
             pass  # Hash-bound original only; never a current risk operand.
         elif kind == "cot_tff":
             public.extend(free.cot_observations(raw, report_kind="TFF_FUTURES", collected_at=collected, cutoff=cutoff))
+        elif kind == "cboe_put_call":
+            records = free.cboe_observations(raw, universe=spec["universe"],
+                collected_at=collected, cutoff=cutoff)
+            need(bool(records), "CBOE_EMPTY_SOURCE")
+            need(all(r["observation_date"] <= session for r in records), "CBOE_AFTER_DECISION_SESSION")
+            public.extend(records)
         elif kind == "price_context":
             prices = free.strict_json(raw)
             need(type(prices) is list, "PRICE_CONTEXT_TYPE")
@@ -308,7 +348,9 @@ def analyze(raw_request, supplied, *, expected_sha, cutoff, session):
         "source_and_pit_admission": False,
         "missing_optional_sources": (["NYFED_SCE_NATIVE_WORKBOOK_AND_CONVERSION"] if
             not survey_panel else ["SCE_EXPORT_ORIGINAL_AND_CONVERSION_UNVERIFIED"]) +
-            (["CFTC_TFF"] if not public else []),
+            (["CFTC_TFF"] if not any(r["provider"] == "CFTC" for r in public) else []) +
+            (["CBOE_PUT_CALL_ORIGINAL"] if req["schema"] == REQUEST_SCHEMA_V2 and
+             not any(r["provider"] == "CBOE" for r in public) else []),
         "consumer_handoff": {"A4": "MARKET_RESEARCH_CONTEXT", "A2_A3": "THESIS_CONTEXT_ONLY",
             "A5": "RESEARCH_CONTEXT_ONLY_NO_PORTFOLIO_EFFECT", "A8": "FORWARD_OBSERVATION_ONLY"},
         "known_overlap": composed["known_overlap"] + [
@@ -344,7 +386,7 @@ def analyze(raw_request, supplied, *, expected_sha, cutoff, session):
             learning.forecast_release(result, release["trial"], release["policy"], spec["policy_sha256"],**options)
             release_expires_at = release["policy"]["expires_at"]
             result.pop("content_sha256", None)
-        from tools.a4_macro_diagnosis import diagnose, recession_watch, review_handoff
+        from tools.a4_macro_diagnosis import diagnose, recession_watch, review_handoff, composite_review_context
         diagnose(result)
         decision = free.iso_date(session)
         schedule = clock.mcal.get_calendar("NYSE").schedule(
@@ -354,6 +396,8 @@ def analyze(raw_request, supplied, *, expected_sha, cutoff, session):
         need(not current.empty and current.index[-1].date() == decision and not following.empty,
              "A4_REVIEW_ENTRY_CALENDAR")
         result["recession_watch"] = recession_watch(result, primary_rows=[*primary_rows,*treasury_3m], cape=cape,
+            sessions=current.index.strftime("%Y-%m-%d").tolist())
+        result["composite_review_context"] = composite_review_context(result, public_rows=public,
             sessions=current.index.strftime("%Y-%m-%d").tolist())
         result["review_handoff"] = review_handoff(result, expires_at=req["expires_at"],
             entry_close_at=following.market_close.iloc[0].isoformat(), release_expires_at=release_expires_at)
@@ -374,7 +418,8 @@ def reassessment_snapshot(composed, survey_panel, *, cutoff, expires_at):
     from tools import candidate_reassessment_bridge as bridge
     rows = bridge.macro_rows_from_context(composed, observed_at=cutoff)
     for r in [*composed["public"], *survey_panel]:
-        rows.append(dict(family="POSITIONING" if r["provider"] == "CFTC" else "SENTIMENT",
+        rows.append(dict(family="POSITIONING" if r["provider"] == "CFTC" else
+                        "OPTIONS" if r["provider"] == "CBOE" else "SENTIMENT",
             provider=r["provider"], entity_kind="MARKET", entity_id=r["entity_id"],
             metric=r["metric"], fiscal_period=None, observation_period=r["observation_date"],
             identity={"unit":r["unit"], "dataset":r["dataset"]}, values={"value":r["current_value"]},
@@ -460,6 +505,24 @@ def render_report(value):
     for r in [*ctx.get("public", []), *value.get("household_expectations", [])]:
         lines.append(f"| {r['provider']} / {r['entity_id']} / {r['metric']} | {r['observation_date']} | {r['current_value']} | {r['status']} |")
     if value.get("schema") == "market-analysis-report-v2":
+        composite = value.get('composite_review_context')
+        if composite:
+            lines += ['', '## Composite market review', '',
+                'Native risk, macro, options and sentiment retain their separate evidence and missing inputs. No additional risk score is calculated.', '',
+                '| Evidence family | Status |', '| --- | --- |']
+            for name, family in composite['families'].items():
+                lines.append(f"| {name} | {family['status']} |")
+            sentiment = composite['families']['sentiment'].get('native') or {}
+            options = composite['families']['options']
+            lines += ['', 'Native fear/greed state: '+str(sentiment.get('state')),
+                'Native greed conditions ready: '+str(sentiment.get('greed_conditions_ready')),
+                'Dealer gamma: '+options['gamma_status'], '',
+                '| Put/call universe | Observation | Ratio | Mean 5 sessions | Change 5 sessions | Prior-only midrank | Status |',
+                '| --- | --- | ---: | ---: | ---: | ---: | --- |']
+            for universe, row in options['put_call'].items():
+                lines.append(f"| {universe} | {row['observation_date']} | {row['value']} | {row['mean_5_sessions']} | {row['change_5_sessions']} | {row['prior_only_midrank']} | {row['status']} |")
+            lines += ['', 'Put/call measures activity; implied-volatility horizons are not a futures curve. Sentiment overlaps price, breadth, options and credit.',
+                'Holding, selective reduction, thesis exit and cost-aware replacement require original A3/A5 security evidence.', '']
         lines += ["", "## Funding spreads", "", "| Spread | bp | Observation | Status |", "| --- | ---: | --- | --- |"]
         for key, row in value["funding"]["spreads"].items():
             lines.append(f"| {key} | {row['value']} | {row['observation_date']} | {row['status']} |")

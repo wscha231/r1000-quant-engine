@@ -2741,6 +2741,25 @@ Expected contract:
   - `outputs/run287_sec_guidance_foreign_gap_index_20260714/`
   - `outputs/run287_sec_management_guidance_scout_20260714/`
   - `outputs/run287_sec_management_guidance_scout_20260714_hardened_v2/`
+### 2026-11-22 — Keep composite review evidence distinct from approved exits
+
+- Reuse the existing A2 log-RS/volume, A3 thesis/net ER, A4 risk and A5 audited
+  exits. Adding options or a sentiment presentation must not recalculate
+  allocations, count correlated inputs as extra votes or manufacture dealer
+  gamma. Legacy Cboe CSV support does not prove a current source entitlement.
+- The native sentiment engine retains internal greed through missing inputs.
+  Mask the current greed conclusion until its own conditions are ready; keep
+  recovery guard missingness separate from a false pause flag.
+- Independent review reproduced overall Native readiness with a missing trend
+  axis and a CFTC report with only2 of10 supplied rows observed. Family-level
+  coverage must remain PARTIAL. The candidate rank is risk-adjusted expected
+  alpha, distinct from the discovery rank and from raw expected alpha.
+- Initial local checks stopped on missing declared calendar/requests packages;
+  install the existing requirements while retaining pandas2.x. A new test
+  initially addressed `observations` instead of the existing snapshot `rows`
+  field; correct the fixture assertion, not the production schema. Preserve
+  those failed attempts separately from the subsequent validation results.
+
 ### 2026-07-14 - Held-security risk must be measured separately from broad-market regime
 
 - Agent: Codex
