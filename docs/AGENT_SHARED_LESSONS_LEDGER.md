@@ -4586,6 +4586,10 @@ Expected contract:
 - Fullrun executed: false. Production enabled: false. Live trading enabled:
   false.
 
+## 2026-11-25 - Compare recorded alternatives on the same exchange sessions
+
+- Independently advancing through each security’s observed bars admitted unmatched entries and maturities. Use the next NYSE close and verify every held interval on both sides before counting a paired return or replacement regret. An older summary’s matching date flag cannot establish complete exchange-session coverage.
+
 ## 2026-07-20 - P5 strict leadership persistence was a no-op
 
 - Scope: issue #306 P5, one preregistered generated-book hold/replacement arm.
