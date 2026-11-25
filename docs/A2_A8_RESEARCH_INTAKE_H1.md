@@ -97,6 +97,29 @@ schema hash; the runtime API never normalizes evidence.
   delisted/exited outcomes remain null and in the denominator. WATCH, REJECT,
   BLOCKED and NOT_SELECTED are retained. Late-session substitution is refused.
 
+### Private maturity-only execution
+
+The existing private weekly research task can invoke the local intake with
+`--maturity-only`, its existing input-root, request, request SHA-256, cutoff
+and private output arguments. An `a8-maturity-files-v1` request pins the
+frozen, previous and current cohort documents. Each of those references has a
+`cohort` file and an `outcomes` file or null. The request also pins the most
+recently consumed native `previous_response`, the original `calendar`,
+`identities` and `implementation`, and supplies an explicit routing
+`expires_at`. File references use the existing path and SHA-256 contract.
+
+Use the last independently read-back research response as the prior
+acknowledgement. The frozen response applies only before a cohort's first
+measurement. The intake replays all three inputs, checks the prior response,
+and preserves every frozen decision and horizon. Changed measured rows go
+to A8 review. Unchanged rows produce zero new events, an unmeasured due row
+remains pending, and a repeated identical local delivery reuses its original
+file. Keep inputs and proposals under the owner's private execution directory.
+Only the counts and hashes printed by the CLI belong in operating status.
+The resulting review proposal retains the cohort validator's source admission
+and learning permissions.
+
+
 All root and investment-object authority flags are mandatory exact false,
 including selector/ER/target/portfolio/paper/broker/orders/promotion/execute/
 production/dispatch/admission/ledger/canonical_write/learning. No automatic A3,

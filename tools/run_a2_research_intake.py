@@ -76,12 +76,15 @@ class Files:
         return raw
 
 
-def prepare(*, input_root, request_path, request_sha256, cutoff):
+def prepare(*, input_root, request_path, request_sha256, cutoff, maturity_only=False):
     intake.stamp(cutoff)
     files = Files(input_root)
     request_raw = files.read({'path': request_path, 'sha256': request_sha256}, 'request')
     request = intake.decode(request_raw)
     need(type(request) is dict, 'FILE_REQUEST_FIELDS')
+    if maturity_only:
+        need(request.get('schema') == 'a8-maturity-files-v1', 'MATURITY_REQUEST_REQUIRED')
+        return prepare_maturity(files, request, cutoff)
     if request.get('schema') == 'a2-candidate-queue-files-v1':
         return prepare_candidate_queue(files, request, request_raw, cutoff)
     need(set(request) == {'schema', 'events', 'identities', 'artifacts', 'event_sources'}
@@ -122,6 +125,121 @@ def prepare(*, input_root, request_path, request_sha256, cutoff):
         read_set=files.read_set, event_source_bindings=sources, proposal=result,
         source_authenticity='NOT_VERIFIED', semantic_claim_review='NOT_VERIFIED',
         recurring_pipeline_connected=False, authority=intake.closed())
+
+
+def prepare_maturity(files, request, cutoff):
+    """Replay the private frozen cohort and route only changed measured outcomes."""
+    from tools import candidate_reassessment_bridge as bridge
+
+    fields = {'schema', 'frozen', 'previous', 'current', 'previous_response',
+              'calendar', 'identities', 'implementation', 'expires_at'}
+    need(set(request) == fields, 'MATURITY_REQUEST_FIELDS')
+    need(intake.stamp(cutoff) < intake.stamp(request['expires_at']), 'MATURITY_ROUTE_EXPIRED')
+    calendar_raw = files.read(request['calendar'], 'frozen_calendar')
+    calendar = intake.decode(calendar_raw)
+    identities = files.read(request['identities'], 'frozen_identities')
+    implementation_raw = files.read(request['implementation'], 'frozen_implementation')
+    implementation = intake.decode(implementation_raw)
+    need(isinstance(implementation, dict) and 'base_commit' in implementation,
+         'MATURITY_IMPLEMENTATION')
+    schema_name, schema_hash = intake.SCHEMAS['cohort']
+    schema = Files(ROOT).read({'path': 'research/control_plane/' + schema_name,
+                               'sha256': schema_hash}, 'native_schema')
+
+    def replay(role):
+        refs = request[role]
+        need(type(refs) is dict and set(refs) == {'cohort', 'outcomes'}, 'MATURITY_FILE_REFS')
+        raw = files.read(refs['cohort'], role)
+        doc = intake.decode(raw)
+        need(type(doc) is dict and type(doc.get('calendar_ref')) is dict
+             and isinstance(doc['calendar_ref'].get('artifact_id'), str), 'MATURITY_CALENDAR')
+        calendar_id = doc['calendar_ref']['artifact_id']
+        need(not calendar_id.startswith('SCHEMA:'), 'MATURITY_CALENDAR')
+        memory = {'SCHEMA:' + schema_name: schema, calendar_id: calendar_raw}
+        outref = doc.get('outcome_ref')
+        if outref is None:
+            need(refs['outcomes'] is None, 'MATURITY_OUTCOME_REF')
+        else:
+            need(type(outref) is dict and isinstance(outref.get('artifact_id'), str)
+                 and outref['artifact_id'] not in memory, 'MATURITY_OUTCOME_REF')
+            memory[outref['artifact_id']] = files.read(refs['outcomes'], role + '_outcomes')
+        result = intake.validate_cohort(raw, cutoff=cutoff, identities=identities,
+                                        artifact_resolver=intake.MemoryArtifacts(memory))
+        return doc, result
+
+    frozen, base = replay('frozen')
+    prior, old = replay('previous')
+    current, new = replay('current')
+    prior_receipt = files.read(request['previous_response'], 'previous_response')
+    need(intake.canonical(old) == prior_receipt, 'MATURITY_PREVIOUS_RECEIPT')
+    need(frozen['outcome_ref'] is None and base['denominator_count'] > 0
+         and intake.stamp(frozen['generated_at']) <= intake.stamp(prior['generated_at'])
+         <= intake.stamp(current['generated_at']) <= intake.stamp(cutoff),
+         'MATURITY_SEQUENCE')
+    need(frozen['calendar_ref'] == prior['calendar_ref'] == current['calendar_ref'],
+         'MATURITY_CALENDAR_CHANGED')
+    variable = {'status', 'asset_return', 'benchmark_return', 'excess_return',
+                'outcome_session', 'outcome_available_at', 'source_sha256'}
+
+    def keyed(result):
+        return {(r['decision_id'], r['horizon']): r for r in result['rows']}
+
+    original, before, after = map(keyed, (base, old, new))
+    need(original.keys() == before.keys() == after.keys(), 'MATURITY_DENOMINATOR')
+    events, subjects = [], {}
+    measured = unchanged = due_missing = 0
+    models = set()
+    for key, row in after.items():
+        previous = before[key]
+        fixed = {k: v for k, v in original[key].items() if k not in variable}
+        need(all(all(r[k] == v for k, v in fixed.items()) for r in (previous, row)),
+             'MATURITY_FROZEN_ROW_CHANGED')
+        need(row['code_sha256'] == intake.digest(implementation_raw), 'MATURITY_IMPLEMENTATION_HASH')
+        models.add((row['model_id'], row['config_sha256']))
+        event_id = ':'.join(key)
+        closed = calendar['targets'][event_id]['close_at']
+        if row['status'] != 'MATURED':
+            need(previous['status'] != 'MATURED', 'MATURITY_PREVIOUS_OUTCOME_WITHDRAWN')
+            due_missing += int(intake.stamp(closed) <= intake.stamp(cutoff))
+            continue
+        measured += 1
+        # The reference hashes the whole batch. Adding another maturity to the
+        # batch must not reissue earlier rows with unchanged values and clocks.
+        if all(previous[k] == row[k] for k in variable - {'source_sha256'}):
+            unchanged += 1
+            continue
+        subjects[row['asset_id']] = dict(asset_id=row['asset_id'], issuer_id=row['issuer_id'])
+        events.append(dict(event_id=event_id, kind='OUTCOME_MATURED', entity_kind='SECURITY',
+                           entity_id=row['asset_id'], due_at=closed, evidence_sha256=row['source_sha256']))
+    need(len(models) == 1, 'MATURITY_MODEL_SCOPE')
+    response_hash = intake.digest(intake.canonical(new))
+    result = dict(schema='a8-private-maturity-research-v1', status='SKIP_UNCHANGED',
+                  frozen_input_sha256=base['input_sha256'], previous_response_sha256=intake.digest(prior_receipt),
+                  current_response_sha256=response_hash, denominator_count=len(original), measured_count=measured,
+                  unchanged_count=unchanged, due_unmeasured_count=due_missing, changed_count=len(events),
+                  learning_eligible=False, outcome_admission_status=new['outcome_admission_status'],
+                  authority=intake.closed(), proposal=None, a0_parameters={})
+    if not events:
+        if due_missing:
+            result['status'] = 'PENDING_VERIFIED_OUTCOMES'
+        return result
+    model, config = next(iter(models))
+    contract = dict(code_sha=implementation['base_commit'], model_version=model, config_sha256=config,
+                    parameters_sha256=config, dependency_sha256=response_hash)
+    try:
+        snapshot = bridge.snapshot([], scope_id='A8:' + base['input_sha256'], cutoff=cutoff,
+                                   expires_at=request['expires_at'])
+        index = bridge.exposure_index(candidates=list(subjects.values()), edges=[],
+                                      available_at=cutoff, expires_at=request['expires_at'])
+        plan = bridge.plan_reassessment(None, snapshot, index, now=cutoff,
+                                        contract_identity=contract, due_events=events)
+        parameters = bridge.a0_parameter_proposals(plan)
+    except bridge.ReassessmentError as exc:
+        raise intake.IntakeError(str(exc)) from None
+    need(set(parameters) == {'A8'} and not plan['execute'] and not plan['canonical_write'],
+         'MATURITY_AUTHORITY')
+    result.update(status='VALID_RESEARCH_PROPOSAL', proposal=plan, a0_parameters=parameters)
+    return result
 
 
 def prepare_candidate_queue(files, request, request_raw, cutoff):
@@ -288,6 +406,28 @@ def write_result(path, result):
                 bytes=len(raw), temporary_cleanup_complete=cleanup)
 
 
+def write_maturity_result(path, result):
+    """A repeated delivery produces neither another file nor another event."""
+    path = Path(path)
+    summary = {k: result[k] for k in ('status', 'denominator_count', 'measured_count',
+               'unchanged_count', 'changed_count', 'due_unmeasured_count', 'learning_eligible')}
+    summary['result_written'] = False
+    summary['proposal_events_written'] = 0
+    if result['changed_count'] == 0:
+        return summary
+    body_hash = intake.digest(intake.canonical(result))
+    if not path.exists() and not path.is_symlink():
+        try:
+            receipt = write_result(path, result)
+            return dict(summary, result_written=True, proposal_events_written=result['changed_count'],
+                        result_sha256=receipt['result_sha256'])
+        except FileExistsError:
+            # Another process won create-only publication of this exact path.
+            pass
+    Files(path.parent).read({'path': path.name, 'sha256': body_hash}, 'existing_maturity_result')
+    return dict(summary, status='REUSED_IDENTICAL_RESEARCH_PROPOSAL', result_sha256=body_hash)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--input-root', required=True)
@@ -295,13 +435,16 @@ def main(argv=None):
     parser.add_argument('--request-sha256', required=True)
     parser.add_argument('--cutoff', required=True, help='Explicit aware research cutoff; no wallclock inference')
     parser.add_argument('--output', required=True, help='A new local proposal file; parent must already exist')
+    parser.add_argument('--maturity-only', action='store_true', help='Replay only the private A8 maturity request')
     args = parser.parse_args(argv)
     try:
-        need(not Path(args.output).exists() and not Path(args.output).is_symlink(),
-             'OUTPUT_ALREADY_EXISTS')
+        if not args.maturity_only:
+            need(not Path(args.output).exists() and not Path(args.output).is_symlink(),
+                 'OUTPUT_ALREADY_EXISTS')
         result = prepare(input_root=args.input_root, request_path=args.request,
-                         request_sha256=args.request_sha256, cutoff=args.cutoff)
-        summary = write_result(args.output, result)
+                         request_sha256=args.request_sha256, cutoff=args.cutoff,
+                         maturity_only=args.maturity_only)
+        summary = write_maturity_result(args.output, result) if args.maturity_only else write_result(args.output, result)
     except intake.IntakeError as exc:
         summary = dict(status='BLOCKED', reason=str(exc), result_completed=False)
     except OSError:

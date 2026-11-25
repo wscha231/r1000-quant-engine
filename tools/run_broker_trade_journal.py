@@ -260,7 +260,7 @@ def build_round_trips(trades: pd.DataFrame, evidence: pd.DataFrame, portfolio_ki
                     "entry_signal_date": signal_date,
                     "entry_price": price,
                     "quantity_remaining": qty,
-                    "entry_fee_total": fee,
+                    "entry_fee_remaining": fee,
                     "entry_target_weight": safe_float(row.get("target_weight"), float("nan")),
                     "fill_mode": row.get("fill_mode"),
                     "entry_reason": row.get("reason"),
@@ -278,7 +278,10 @@ def build_round_trips(trades: pd.DataFrame, evidence: pd.DataFrame, portfolio_ki
             if matched_qty <= 0:
                 lots[ticker].pop(0)
                 continue
-            entry_fee_alloc = safe_float(lot.get("entry_fee_total"), 0.0) * matched_qty / max(lot_qty, 1e-12)
+            quantity_remaining = lot_qty - matched_qty
+            closes_lot = quantity_remaining <= 1e-9
+            remaining_fee = lot["entry_fee_remaining"]
+            entry_fee_alloc = remaining_fee if closes_lot else remaining_fee * (matched_qty / lot_qty)
             exit_fee_alloc = fee * matched_qty / max(qty, 1e-12)
             entry_value = matched_qty * safe_float(lot.get("entry_price"), 0.0)
             exit_value = matched_qty * price
@@ -312,9 +315,10 @@ def build_round_trips(trades: pd.DataFrame, evidence: pd.DataFrame, portfolio_ki
                 "grade_label": classify_trade(realized_return, holding_days),
             }
             round_rows.append(add_entry_fields(base, lot.get("evidence") or {}))
-            lot["quantity_remaining"] = lot_qty - matched_qty
+            lot["quantity_remaining"] = quantity_remaining
+            lot["entry_fee_remaining"] = remaining_fee - entry_fee_alloc
             sell_qty_remaining -= matched_qty
-            if lot["quantity_remaining"] <= 1e-9:
+            if closes_lot:
                 lots[ticker].pop(0)
     for ticker, ticker_lots in lots.items():
         for lot in ticker_lots:
@@ -330,7 +334,7 @@ def build_round_trips(trades: pd.DataFrame, evidence: pd.DataFrame, portfolio_ki
                 "quantity_open": qty,
                 "entry_price": safe_float(lot.get("entry_price"), 0.0),
                 "entry_value_usd": qty * safe_float(lot.get("entry_price"), 0.0),
-                "entry_fee_unrealized_usd": safe_float(lot.get("entry_fee_total"), 0.0),
+                "entry_fee_unrealized_usd": lot["entry_fee_remaining"],
                 "entry_target_weight": lot.get("entry_target_weight"),
                 "fill_mode": lot.get("fill_mode"),
             }

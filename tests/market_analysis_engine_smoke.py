@@ -309,6 +309,126 @@ class IntegratedMarketTests(unittest.TestCase):
             self.assertEqual(payload["market_analysis"]["consumer_handoff"]["A5"],"RESEARCH_CONTEXT_ONLY_NO_PORTFOLIO_EFFECT")
 
 
+class CompositeContextTests(unittest.TestCase):
+    @staticmethod
+    def cboe(values=None):
+        days = m.clock.mcal.get_calendar('NYSE').schedule(start_date='2026-09-01', end_date=DAY).index[-25:]
+        vals = [.5]*24+[1.] if values is None else values
+        lines = ['DATE,CALL,PUT,TOTAL,P/C Ratio']
+        for day,value in zip(days,vals):
+            calls,puts = (0,1) if value is None else (100,int(value*100))
+            lines.append(f'{day:%m/%d/%Y},{calls},{puts},{calls+puts},{0 if value is None else value}')
+        return ('\n'.join(lines)+'\n').encode()
+
+    def consume(self, raw, **fields):
+        spec = source(raw,kind='cboe_put_call',path='options.csv',universe='EQUITY',format='CBOE_LEGACY_DAILY_CSV')
+        spec.update(fields)
+        return analyze(request([spec],schema=m.REQUEST_SCHEMA_V2), {'options.csv':raw})
+
+    def test_three_universes_remain_distinct_and_route_to_options_review(self):
+        raw=self.cboe();entries=[source(raw,kind='cboe_put_call',path=u+'.csv',universe=u,
+            format='CBOE_LEGACY_DAILY_CSV') for u in ('EQUITY','INDEX','TOTAL')]
+        out=analyze(request(entries,schema=m.REQUEST_SCHEMA_V2),{s['path']:raw for s in entries})
+        panel=out['composite_review_context']['families']['options']['put_call']
+        self.assertEqual(set(panel),{'EQUITY','INDEX','TOTAL'})
+        self.assertTrue(all(r['value']==1 for r in panel.values()))
+        self.assertIn('CFTC_TFF',out['missing_optional_sources'])
+        self.assertNotIn('CBOE_PUT_CALL_ORIGINAL',out['missing_optional_sources'])
+        self.assertEqual({r['family'] for r in out['candidate_reassessment_snapshot']['rows']},{'OPTIONS'})
+        self.assertEqual({r['universe'] for r in out['source_receipts']},set(panel))
+
+    def test_prior_percentile_excludes_current_and_windows_use_sessions(self):
+        out=self.consume(self.cboe())
+        row=out['composite_review_context']['families']['options']['put_call']['EQUITY']
+        self.assertEqual(row['prior_contiguous_sessions'],24)
+        self.assertEqual(row['prior_only_midrank'],1.)
+        self.assertAlmostEqual(row['mean_5_sessions'],.6)
+        self.assertAlmostEqual(row['change_5_sessions'],.5)
+        self.assertFalse(row['historical_pit_certified'])
+        self.assertIn('Composite market review',m.render_report(out))
+
+    def test_gap_or_null_cannot_be_skipped_to_complete_lookback(self):
+        raw=self.cboe();lines=raw.decode().splitlines()
+        for body in (('\n'.join(lines[:-3]+lines[-2:])+'\n').encode(),self.cboe([.5]*22+[None,.5,1.])):
+            row=self.consume(body)['composite_review_context']['families']['options']['put_call']['EQUITY']
+            self.assertIsNone(row['mean_5_sessions']);self.assertIsNone(row['change_5_sessions'])
+            self.assertIsNone(row['prior_only_midrank'])
+        latest=self.consume(self.cboe([.5]*24+[None]))['composite_review_context']['families']['options']['put_call']['EQUITY']
+        self.assertEqual(latest['status'],'MISSING');self.assertIsNone(latest['value'])
+        self.assertIsNone(latest['prior_only_midrank'])
+
+    def test_stale_or_delayed_original_stays_unavailable_for_current_signal(self):
+        stale=b'DATE,CALL,PUT,TOTAL,P/C Ratio\n10/26/2019,100,100,200,1\n'
+        for body,status in ((stale,'STALE'),(self.cboe().rsplit(b'\n',2)[0]+b'\n','DELAYED')):
+            out=self.consume(body);row=out['composite_review_context']['families']['options']['put_call']['EQUITY']
+            self.assertEqual(row['status'],status);self.assertIsNone(row['value'])
+            self.assertIsNone(row['mean_5_sessions']);self.assertIsNone(row['prior_only_midrank'])
+            self.assertEqual(out['status'],'DATA_BLOCKED')
+
+    def test_universe_format_duplicate_and_v1_request_refuse(self):
+        raw=self.cboe()
+        for fields in ({'universe':'SPX'},{'format':'CURRENT_HTML'},{'universe':None}):
+            with self.subTest(fields=fields),self.assertRaises(ValueError):self.consume(raw,**fields)
+        spec=source(raw,kind='cboe_put_call',path='options.csv',universe='EQUITY',format='CBOE_LEGACY_DAILY_CSV')
+        with self.assertRaises(ValueError):analyze(request([spec]),{'options.csv':raw})
+        with self.assertRaises(ValueError):
+            analyze(request([spec,{**spec,'path':'duplicate.csv'}],schema=m.REQUEST_SCHEMA_V2),
+                {'options.csv':raw,'duplicate.csv':raw})
+
+    def test_malformed_counts_hash_and_future_session_refuse(self):
+        for row in ('10/26/2026,100,100,201,1','10/26/2026,100.5,100,200.5,1',
+                    '10/26/2026,100,100,200,2','10/27/2026,100,100,200,1',
+                    '10/25/2026,100,100,200,1'):
+            with self.subTest(row=row),self.assertRaises(ValueError):
+                self.consume(('DATE,CALL,PUT,TOTAL,P/C Ratio\n'+row+'\n').encode())
+        with self.assertRaises(ValueError):self.consume(self.cboe(),sha256='a'*64)
+        with self.assertRaises(ValueError):self.consume(b'DATE,CALL,PUT,TOTAL,P/C Ratio\n')
+
+    def test_options_never_create_direction_gamma_regime_or_exit(self):
+        out=self.consume(self.cboe())
+        composite=out['composite_review_context'];options=composite['families']['options']
+        self.assertEqual(options['gamma_status'],'GAMMA_NOT_VERIFIED')
+        self.assertIsNone(options['dealer_gamma']);self.assertIsNone(options['directional_probability'])
+        self.assertIsNone(composite['composite_score']);self.assertIsNone(composite['independent_vote_count'])
+        self.assertFalse(composite['automatic_buy_sell_allowed']);self.assertFalse(composite['single_indicator_exit_allowed'])
+        self.assertIsNone(out['market_assessment']['state']);self.assertIsNone(out['review_handoff']['candidate'])
+        self.assertFalse(out['review_handoff']['automatic_winner_exit_allowed'])
+
+    def test_volatility_horizons_share_context_without_direction_votes(self):
+        inputs=[];blobs={}
+        for symbol,value in (('VIX9D',30),('VIX',25),('VIX3M',20),('VVIX',100),('SKEW',140)):
+            body=f'DATE,{symbol}\n10/26/2026,{value}\n'.encode()
+            inputs.append(source(body,name='cboe:'+symbol,path=symbol+'.csv'));blobs[symbol+'.csv']=body
+        out=analyze(request(inputs,schema=m.REQUEST_SCHEMA_V2),blobs)
+        options=out['composite_review_context']['families']['options']
+        self.assertEqual(options['horizon_ratios']['vix9d_to_vix30']['value'],1.2)
+        self.assertEqual(options['horizon_ratios']['vix30_to_vix3m']['value'],1.25)
+        self.assertEqual(options['status'],'PARTIAL')
+        self.assertFalse(options['independent_risk_vote'])
+        self.assertEqual(out['status'],'DATA_BLOCKED')
+        body=blobs['VIX3M.csv'].replace(b'10/26/2026',b'10/23/2026');blobs['VIX3M.csv']=body
+        next(s for s in inputs if s['path']=='VIX3M.csv')['sha256']=m.sha(body)
+        options=analyze(request(inputs,schema=m.REQUEST_SCHEMA_V2),blobs)['composite_review_context']['families']['options']
+        self.assertIsNone(options['horizon_ratios']['vix30_to_vix3m']['value'])
+        self.assertEqual(options['volatility']['vix_3m']['status'],'DELAYED')
+
+    def test_native_sentiment_masks_retained_greed_and_missing_recovery_guards(self):
+        row=dict(sentiment_overlay='EXTREME_GREED',greed_conditions_ready=False,greed_condition_count=4,
+            extreme_greed_active=True,fear_episode_active=False,fear_recovery_stage=0,
+            fear_recovery_pause_guards_ready=True,fear_recovery_paused=False)
+        value=m.native_sentiment(row,True)
+        self.assertEqual(value['status'],'PARTIAL');self.assertIsNone(value['state'])
+        self.assertIsNone(value['greed_condition_count']);self.assertIsNone(value['extreme_greed_active'])
+        self.assertFalse(value['cnn_fear_greed_index'])
+        row.update(sentiment_overlay='FEAR_RECOVERY',fear_episode_active=True,fear_recovery_stage=2,
+                   fear_recovery_pause_guards_ready=False)
+        value=m.native_sentiment(row,True)
+        self.assertIsNone(value['state']);self.assertIsNone(value['fear_recovery_paused'])
+        value=m.native_sentiment(row,False)
+        self.assertEqual(value['status'],'DATA_BLOCKED');self.assertIsNone(value['fear_recovery_stage'])
+        self.assertTrue(all(v is None for v in value['greed_conditions'].values()))
+
+
 class NativeRiskPipelineTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -368,10 +488,34 @@ class NativeRiskPipelineTests(unittest.TestCase):
     def test_same_calendar_different_metric_session_refused(self):
         with self.assertRaises(ValueError):m.native_risk(self.blobs,"2026-10-27",NOW)
 
+    def test_optional_put_call_does_not_rewrite_native_policy_or_review_candidate(self):
+        entries=[source(v,kind=k,path=k+'.csv') for k,v in self.blobs.items()]
+        supplied={k+'.csv':v for k,v in self.blobs.items()}
+        control=analyze(request(entries,schema=m.REQUEST_SCHEMA_V2),supplied)
+        raw=CompositeContextTests.cboe()
+        spec=source(raw,kind='cboe_put_call',path='options.csv',universe='EQUITY',format='CBOE_LEGACY_DAILY_CSV')
+        challenger=analyze(request(entries+[spec],schema=m.REQUEST_SCHEMA_V2),{**supplied,'options.csv':raw})
+        self.assertEqual(control['market_assessment'],challenger['market_assessment'])
+        self.assertEqual(control['review_handoff']['candidate'],challenger['review_handoff']['candidate'])
+        self.assertEqual(challenger['market_assessment']['sentiment_context']['basis'],'INCUMBENT_SENTIMENT_OVERLAY')
+
+    def test_ready_native_with_missing_trend_keeps_composite_family_partial(self):
+        frame=m.clock.table(self.blobs['risk_metrics'])
+        components=set(m.risk.load_contract()['axes']['trend_drawdown']['components'])
+        frame=frame[~frame['component'].isin(components)]
+        supplied={**self.blobs,'risk_metrics':frame.to_csv(index=False).encode()}
+        entries=[source(v,kind=k,path=k+'.csv') for k,v in supplied.items()]
+        out=analyze(request(entries,schema=m.REQUEST_SCHEMA_V2),{k+'.csv':v for k,v in supplied.items()})
+        self.assertEqual(out['market_assessment']['status'],'READY_RESEARCH_ONLY')
+        self.assertEqual(out['market_assessment']['ready_axis_count'],9)
+        family=out['composite_review_context']['families']['price_breadth']
+        self.assertEqual(family['status'],'PARTIAL')
+        self.assertEqual(family['missing_native_axes'],['trend_drawdown'])
+
 
 def run_tests():
     suite=unittest.TestSuite([unittest.defaultTestLoader.loadTestsFromTestCase(c)
-                             for c in (IntegratedMarketTests,NativeRiskPipelineTests)])
+                             for c in (IntegratedMarketTests,CompositeContextTests,NativeRiskPipelineTests)])
     r=unittest.TextTestRunner(verbosity=2).run(suite)
     if not r.wasSuccessful():raise RuntimeError("MARKET_ANALYSIS_INTEGRATION_FAILED")
 
