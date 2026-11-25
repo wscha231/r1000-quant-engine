@@ -12017,6 +12017,10 @@ The early-cycle gate gave identical positive credit to missing and observed-flat
 
 - The 2026 FASB US GAAP namespace uses the release year. Rejecting it as an invalid date discarded authentic quarterly facts before the issuer, unit and value checks could run. Recognize the published URI, retain those checks, and apply the separate caller-reviewed accession and decision-time scope to every Reader request.
 
+### 2026-11-25 — Preserve consumed maturity acknowledgements
+
+- A private review must replay its last consumed cohort response and the frozen denominator before sending new maturity events. A changed batch hash can accompany unchanged rows when another horizon matures. Compare each row’s actual values and availability, retain missing observations, and reuse the create-only output on an identical retry.
+
 ### 2026-11-20 — Keep reported SEC version dates separate from learning admission
 
 - An SEC header's DATE AS OF CHANGE, authenticated first-document bytes and a
