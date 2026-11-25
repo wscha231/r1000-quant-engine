@@ -1,0 +1,39 @@
+name: Mission v3 Numeric Boundary Checks
+on:
+  pull_request:
+    paths:
+      - 'research_only/mission_v3/**'
+      - 'contracts/mission_v3.research.json'
+      - 'tests/mission_v3_*test.py'
+      - '.github/workflows/mission_v3_metric_checks.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  numeric-boundaries:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /research_only/mission_v3/
+            /contracts/mission_v3.research.json
+            /tests/mission_v3_metrics_test.py
+            /tests/mission_v3_boundaries_test.py
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Compile isolated numeric precheck
+        run: python -m py_compile research_only/mission_v3/mission_metrics.py tests/mission_v3_metrics_test.py tests/mission_v3_boundaries_test.py
+      - name: Run normal and optimized unittest discovery
+        run: |
+          python -W error::ResourceWarning -m unittest discover -s tests -p 'mission_v3_*test.py' -v
+          python -O -W error::ResourceWarning -m unittest discover -s tests -p 'mission_v3_*test.py' -v
