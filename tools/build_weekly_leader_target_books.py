@@ -164,10 +164,12 @@ def price_features(px: pd.DataFrame, benchmark_px: pd.DataFrame, as_of: pd.Times
     ma50 = float(close.tail(50).mean()) if len(close) >= 20 else math.nan
     ma200 = float(close.tail(200).mean()) if len(close) >= 60 else math.nan
     ret_1w = price_return(px, actual, 7)
+    ret_2w = price_return(px, actual, 14)
     ret_4w = price_return(px, actual, 28)
     ret_13w = price_return(px, actual, 91)
     ret_26w = price_return(px, actual, 182)
     ret_52w = price_return(px, actual, 364)
+    bench_2w = price_return(benchmark_px, actual, 14)
     bench_4w = price_return(benchmark_px, actual, 28)
     bench_13w = price_return(benchmark_px, actual, 91)
     volume = pd.Series(dtype=float)
@@ -191,10 +193,14 @@ def price_features(px: pd.DataFrame, benchmark_px: pd.DataFrame, as_of: pd.Times
         "weekly_signal_actual_close_date": pd.Timestamp(actual).date().isoformat(),
         "weekly_close": float(close_now),
         "weekly_ret_1w": ret_1w,
+        # Two-week RS is telemetry only. A clean 7Y audit found short-RS
+        # reductions were not OOS-stable enough to score directly.
+        "weekly_ret_2w": ret_2w,
         "weekly_ret_4w": ret_4w,
         "weekly_ret_13w": ret_13w,
         "weekly_ret_26w": ret_26w,
         "weekly_ret_52w": ret_52w,
+        "weekly_rs_2w": ret_2w - bench_2w if math.isfinite(ret_2w) and math.isfinite(bench_2w) else math.nan,
         "weekly_rs_4w": ret_4w - bench_4w if math.isfinite(ret_4w) and math.isfinite(bench_4w) else math.nan,
         "weekly_rs_13w": ret_13w - bench_13w if math.isfinite(ret_13w) and math.isfinite(bench_13w) else math.nan,
         "weekly_near_52w_high_pct": float(close_now / high_252 - 1.0) if high_252 > 0 else math.nan,
@@ -387,6 +393,12 @@ def snapshot_rows(
         base = dict(templates.get(ticker, {}))
         leader = selected_lookup.get(ticker, {})
         base.update({f"weekly_{key}": value for key, value in leader.items() if key.startswith("weekly_") or key in {"weekly_leader_score", "leader_rank"}})
+        # Keep short-RS telemetry under the direct column names as well. The
+        # historical target-book writer prefixes all weekly fields for
+        # compatibility, but these two columns are intended for human review
+        # and downstream diagnostics, not for scoring.
+        base["weekly_ret_2w"] = leader.get("weekly_ret_2w")
+        base["weekly_rs_2w"] = leader.get("weekly_rs_2w")
         base["rebalance_date"] = snapshot_date.date().isoformat()
         base["ticker"] = ticker
         base["weight"] = float(weight)
@@ -566,6 +578,8 @@ def build_target_book_for_portfolio(
                     "target_weight_after": combined.get(ticker, 0.0),
                     "leader_overlay_weight": leader_weights.get(ticker, 0.0),
                     "weekly_leader_score": row.get("weekly_leader_score"),
+                    "weekly_ret_2w": row.get("weekly_ret_2w"),
+                    "weekly_rs_2w": row.get("weekly_rs_2w"),
                     "weekly_ret_4w": row.get("weekly_ret_4w"),
                     "weekly_rs_4w": row.get("weekly_rs_4w"),
                     "weekly_dollar_vol_20d": row.get("weekly_dollar_vol_20d"),

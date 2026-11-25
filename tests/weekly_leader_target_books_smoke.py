@@ -132,6 +132,8 @@ def test_weekly_leader_book_adds_new_entry_and_replays() -> None:
         target = pd.read_csv(reports_out / "weekly_leader_main_target_book.csv")
         weekly = target[target["event_kind"].astype(str).eq("weekly_leader_entry")]
         assert not weekly.empty
+        assert "weekly_ret_2w" in weekly.columns
+        assert "weekly_rs_2w" in weekly.columns
         assert "AAA" in set(weekly["ticker"].astype(str))
         aaa_weight = float(weekly.loc[weekly["ticker"].astype(str).eq("AAA"), "weight"].max())
         assert aaa_weight > 0.20
