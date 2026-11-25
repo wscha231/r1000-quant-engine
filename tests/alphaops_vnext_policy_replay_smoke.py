@@ -7,6 +7,7 @@ import tempfile
 from argparse import Namespace
 from pathlib import Path
 import sys
+import subprocess
 from unittest.mock import patch
 
 import pandas as pd
@@ -3059,4 +3060,32 @@ if __name__ == "__main__":
     test_concentrated_defense_neutral_quality_cap_applies_to_new_quality_entries_only()
     test_concentrated_unconfirmed_high_vol_cap_applies_to_green_new_entries_only()
     test_concentrated_watch_damaged_weak_market_leader_cap_applies_to_new_and_hold_rows()
-    print("alphaops_vnext_policy_replay_smoke: PASS")
+    child_env = {**os.environ}
+    prior_pythonpath = child_env.get("PYTHONPATH", "")
+    child_env["PYTHONPATH"] = str(ROOT) + (os.pathsep + prior_pythonpath if prior_pythonpath else "")
+    native_validation = subprocess.run(
+        [sys.executable, str(ROOT / "tests" / "legacy_control_adapter_native_validation_smoke.py")],
+        cwd=ROOT,
+        env=child_env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    native_output = native_validation.stdout or ""
+    if native_validation.returncode != 0:
+        raise RuntimeError(
+            "legacy_control_adapter_native_validation_smoke failed:\n"
+            + "\n".join(native_output.splitlines()[-40:])
+        )
+    native_summary = next(
+        (
+            line
+            for line in native_output.splitlines()
+            if line.startswith("G1_NATIVE_VALIDATION_SUMMARY=")
+        ),
+        "",
+    )
+    if not native_summary:
+        raise RuntimeError("G1 native validation summary missing")
+    print("alphaops_vnext_policy_replay_smoke: PASS " + native_summary)
