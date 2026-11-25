@@ -1,0 +1,140 @@
+name: News research contracts and manual source capture
+on:
+  pull_request:
+    paths:
+      - 'research/news_event_alpha_v1/**'
+      - 'tools/*news*research*.py'
+      - 'tools/*news*event*.py'
+      - 'tests/news*smoke.py'
+      - '.github/workflows/news_research.yml'
+      - '.github/workflows/pr_validation.yml'
+      - 'tools/resolve_pr_merge_base.py'
+      - 'tests/pr_artifact_scope_smoke.py'
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [inspect, capture]
+        default: inspect
+        description: 'Inspect root parity, or explicitly capture SEC source references only'
+      expected_sha:
+        type: string
+        required: true
+        description: 'Exact reviewed master commit SHA (40 hex)'
+      ciks:
+        type: string
+        description: 'Comma-separated CIKs, maximum 10; no tickers guessed'
+      start:
+        type: string
+        description: 'Collection window YYYY-MM-DD'
+      end:
+        type: string
+        description: 'Collection window YYYY-MM-DD, at most 732 days'
+      resume_from:
+        type: string
+        description: 'Previous run-attempt ID; leave CIK/window empty to resume the frozen plan'
+      resume_checkpoint:
+        type: string
+        description: 'SHA256 from that run TERMINAL checkpoint_sha256; both resume fields required'
+      confirm:
+        type: string
+        description: 'For capture enter capture-source-only; otherwise leave empty'
+permissions:
+  contents: read
+concurrency:
+  group: news-research-${{ github.event_name == 'workflow_dispatch' && 'single-writer' || github.ref }}
+  cancel-in-progress: false
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          sparse-checkout: |
+            research/news_event_alpha_v1
+            tests
+            tools
+            .github
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Offline regression suite (no credentials, no market data)
+        run: |
+          set -euo pipefail
+          for test in tests/news_event_p0_integrity_smoke.py tests/news_event_p0_receipt_execution_smoke.py tests/news_event_p0_source_bridge_smoke.py tests/news_event_p0_source_capture_smoke.py tests/news_research_cloud_smoke.py tests/news_research_resume_smoke.py tests/news_research_release_boundary_smoke.py tests/news_research_review_fixes_smoke.py tests/pr_artifact_scope_smoke.py; do
+            python "$test"
+            python -O "$test"
+          done
+  rclone_contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          sparse-checkout: |
+            research/news_event_alpha_v1
+            tests
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install same hash-pinned rclone as durable history workflow
+        env:
+          RCLONE_RELEASE: 1.75.0
+          RCLONE_SHA256: aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location "https://downloads.rclone.org/v${RCLONE_RELEASE}/rclone-v${RCLONE_RELEASE}-linux-amd64.zip" -o "$RUNNER_TEMP/news-rclone.zip"
+          printf '%s  %s\n' "$RCLONE_SHA256" "$RUNNER_TEMP/news-rclone.zip" | sha256sum --check --strict
+          unzip -q "$RUNNER_TEMP/news-rclone.zip" -d "$RUNNER_TEMP/news-rclone-bin"
+          echo "NEWS_RCLONE_BIN=$RUNNER_TEMP/news-rclone-bin/rclone-v${RCLONE_RELEASE}-linux-amd64/rclone" >> "$GITHUB_ENV"
+      - name: Real pinned binary against loopback synthetic API (no account credentials)
+        run: python tests/news_rclone_binary_contract_smoke.py --rclone-bin "$NEWS_RCLONE_BIN"
+  capture:
+    needs: [test, rclone_contract]
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && github.repository == 'wscha231/r1000-quant-engine'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          sparse-checkout: |
+            research/news_event_alpha_v1
+            tools
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install same hash-pinned rclone as durable history workflow
+        env:
+          RCLONE_RELEASE: 1.75.0
+          RCLONE_SHA256: aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location "https://downloads.rclone.org/v${RCLONE_RELEASE}/rclone-v${RCLONE_RELEASE}-linux-amd64.zip" -o "$RUNNER_TEMP/news-rclone.zip"
+          printf '%s  %s\n' "$RCLONE_SHA256" "$RUNNER_TEMP/news-rclone.zip" | sha256sum --check --strict
+          unzip -q "$RUNNER_TEMP/news-rclone.zip" -d "$RUNNER_TEMP/news-rclone-bin"
+          echo "NEWS_RCLONE_BIN=$RUNNER_TEMP/news-rclone-bin/rclone-v${RCLONE_RELEASE}-linux-amd64/rclone" >> "$GITHUB_ENV"
+      - name: Explicit capture and Drive readback (no model or portfolio authority)
+        env:
+          NEWS_DRIVE_CONFIG: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+          MODE: ${{ inputs.mode }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          CIKS: ${{ inputs.ciks }}
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+          CONFIRM: ${{ inputs.confirm }}
+          RESUME_FROM: ${{ inputs.resume_from }}
+          RESUME_CHECKPOINT: ${{ inputs.resume_checkpoint }}
+        run: |
+          python tools/run_news_research_cloud.py --mode "$MODE" --expected-sha "$EXPECTED_SHA" --ciks "$CIKS" --start "$START" --end "$END" --confirm "$CONFIRM" --resume-from "$RESUME_FROM" --resume-checkpoint "$RESUME_CHECKPOINT"
