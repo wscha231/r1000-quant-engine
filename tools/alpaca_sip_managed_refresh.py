@@ -97,6 +97,33 @@ def execution_scope(control):
     return names
 
 
+def retained_qqq_start(control, scope):
+    """Allow one retained benchmark only inside a finite, exact execution scope."""
+    if "retained_qqq_from_session" not in control:
+        return None
+    value = control["retained_qqq_from_session"]
+    require(isinstance(value, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", value),
+            "MANAGED_RETAINED_QQQ_WINDOW")
+    try:
+        start = date.fromisoformat(value)
+    except ValueError:
+        raise Refused("MANAGED_RETAINED_QQQ_WINDOW") from None
+    require(start >= date(2026, 11, 25), "MANAGED_RETAINED_QQQ_WINDOW")
+    window = campaign.utc(control["expires_at"]) - campaign.utc(control["not_before"])
+    require(timedelta(0) < window <= timedelta(days=14) and 1 <= control["max_runs"] <= 10,
+            "MANAGED_RETAINED_QQQ_LIMIT")
+    require(scope is not None and len(scope) == control["max_symbols_per_run"] == 608
+            and {"SPY", "QQQ"} <= scope and control["backfill_tickers"] == []
+            and not control.get("include_previous_close", False)
+            and "first_capture_identity" not in control and "cadence" not in control,
+            "MANAGED_RETAINED_QQQ_SCOPE")
+    caps = dict(provider_gets=1000, drive_requests=6000,
+                drive_bytes=512 * 1024**2, storage_bytes=8 * 1024**2)
+    require(all(control["per_run_allowance"][key] <= ceiling for key, ceiling in caps.items()),
+            "MANAGED_RETAINED_QQQ_LIMIT")
+    return value
+
+
 def first_capture_profile(control, now):
     """Optional one-run discovery expectation, never a REST original or right."""
     if "first_capture_identity" not in control:
@@ -238,7 +265,7 @@ def validate_control(control, inventory_sha, policy_sha, now):
     require(isinstance(control.get("backfill_tickers"), list)
             and managed.symbols(control["backfill_tickers"]) <= set(control.get("authorized_tickers", []))
             and managed.symbols(control.get("authorized_tickers")), "MANAGED_TICKER_SCOPE")
-    execution_scope(control)
+    retained_qqq_start(control, execution_scope(control))
     first_capture_profile(control, now)
     benchmark_sessions(control)
     if "cadence" in control:
@@ -727,6 +754,12 @@ def collect_groups(drive, meter, control, bootstrap, tracked, prior_coverage,
             if set(symbols) - {"QQQ"}:
                 require(expected_sessions(start, end) <= tail, "MANAGED_INCREMENTAL_WINDOW")
     held.update(missing)
+    retained_start = control.get("retained_qqq_from_session")
+    if retained_start is not None:
+        require(not held and tracked <= set(coverage), "MANAGED_RETAINED_QQQ_BASELINE")
+        for start, end in windows:
+            require(all(day >= retained_start for day in expected_sessions(start, end)),
+                    "MANAGED_RETAINED_QQQ_GAP_BEFORE_SCOPE")
     identity_refs = bootstrap.get("asset_identity_refs", {})
     require(isinstance(identity_refs, dict), "MANAGED_IDENTITY_MAP")
     initial = []
@@ -752,6 +785,8 @@ def collect_groups(drive, meter, control, bootstrap, tracked, prior_coverage,
         standalone_id = capture.asset_record(original, t)["id"]
         require(t not in identities or identities[t] == standalone_id, "MANAGED_IDENTITY_CONFLICT")
         identities[t] = standalone_id
+    if retained_start is not None:
+        require(not held, "MANAGED_RETAINED_QQQ_BASELINE")
     if initial:
         # Verify every bound SDK original before any provider request. This
         # normalized shape is intentionally distinct from REST's `class`.
@@ -883,9 +918,10 @@ def execute(control, control_sha, policy, bootstrap, history, drive, meter, cont
     policy_tracked = set(policy["active_tickers"]) | set(policy["watch_tickers"])
     require(policy_tracked <= set(control["authorized_tickers"]), "MANAGED_POLICY_SCOPE_CHANGED")
     subset = execution_scope(control)
+    retained_start = retained_qqq_start(control, subset)
     if subset is not None:
-        one_run_benchmark = {"QQQ"} if benchmark_sessions(control) else set()
-        require(subset <= policy_tracked | one_run_benchmark, "MANAGED_EXECUTION_SCOPE")
+        benchmark = {"QQQ"} if retained_start is not None or benchmark_sessions(control) else set()
+        require(subset <= policy_tracked | benchmark, "MANAGED_EXECUTION_SCOPE")
     tracked = policy_tracked if subset is None else subset
     cadence = control.get("cadence")
     roster = load_cadence_roster(control, drive, clock()) if cadence is not None else None
@@ -895,6 +931,12 @@ def execute(control, control_sha, policy, bootstrap, history, drive, meter, cont
                                                cadence_binding=binding)
     if subset is not None:
         require(set(coverage) | set(old_held) <= tracked, "MANAGED_EXECUTION_STATE_SCOPE")
+    if retained_start is not None:
+        target = market_preflight["session_date"]
+        require(target >= retained_start, "MANAGED_RETAINED_QQQ_WINDOW")
+        if parent is not None:
+            previous = next(row for sha256, row in prior if sha256 == parent)
+            require(previous["session"] < target, "MANAGED_RETAINED_QQQ_SESSION_REPLAY")
     slot = len(history)
     base = dict(schema="a1-managed-run-checkpoint-v1", control_sha256=control_sha,
                 run_id=context["run_id"], slot=slot, source_sha=context["head"])
@@ -936,7 +978,11 @@ def execute(control, control_sha, policy, bootstrap, history, drive, meter, cont
         if scheduling is not None:
             terminal["tier_progress"] = managed.tier_progress(
                 scheduling, tracked, dict(coverage, **updates), held, gate["session_date"])
-        if not updates and (scheduling is None or any(
+        if retained_start is not None:
+            if held or updates != dict.fromkeys(tracked, gate["session_date"]):
+                terminal["reason"] = "MANAGED_RETAINED_QQQ_INCOMPLETE"
+                raise Refused(terminal["reason"])
+        elif not updates and (scheduling is None or any(
                 (t in scheduling["daily"] or scheduling["weekly_due"])
                 and coverage.get(t, "") < gate["session_date"] for t in tracked)):
             terminal["reason"] = "MANAGED_ALL_COMPONENTS_HELD"

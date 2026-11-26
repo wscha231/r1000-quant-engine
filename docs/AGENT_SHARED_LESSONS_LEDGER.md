@@ -1,5 +1,14 @@
 # Agent Shared Lessons Ledger
 
+## 2026-11-26 KST — Continue retained QQQ under a finite managed scope
+
+- The original QQQ exception is a one-run discovery path. To continue its
+  verified raw/split archive, bind the 608-symbol scope and permitted session
+  floor in a finite OWNER control. Reject an older missing session before
+  the first provider call. A partial 607-of-608 result cannot complete A4's
+  same-session source checkpoint, and a duplicate session cannot publish
+  a second completion.
+
 ### 2026-11-20 — Register new Reader tests in the independent QA inventory
 
 When a new Reader test enters the PR validation runner, include the test and
