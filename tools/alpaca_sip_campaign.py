@@ -236,6 +236,9 @@ def atomic_json(path, value, *, unique_temporary=False):
 
 
 def validate_authorization(auth):
+    if isinstance(auth, dict) and auth.get("allocation_profile") == "owner-13f154-gap-20261126-v1":
+        from tools import alpaca_sip_13f_gap_capture as gap
+        return gap.validate_authorization(_module(), auth)
     if isinstance(auth, dict) and "allocation_profile" in auth:
         from tools import alpaca_sip_private_backfill_v1 as cap
         if auth.get("allocation_profile") == cap.BRIDGE_PROFILE:
@@ -1521,6 +1524,9 @@ def worker(args, control, journal):
             and os.getenv("ALPACA_NONCOMMERCIAL_ACKNOWLEDGED") == "true",
             "USER_AUTHORIZATION_MISSING")
     if isinstance(control, dict) and isinstance(control.get("authorization"), dict) and "allocation_profile" in control["authorization"]:
+        if control["authorization"]["allocation_profile"] == "owner-13f154-gap-20261126-v1":
+            from tools import alpaca_sip_13f_gap_capture as gap
+            return gap.worker(_module(), args, control, journal)
         if control["authorization"].get("allocation_profile") == cap.BRIDGE_PROFILE:
             return cap._bridge_worker(_module(), args, control, journal)
         return cap._new3_worker(_module(), args, control, journal)
@@ -1727,6 +1733,13 @@ def host(auth_path, state_dir, recovery_run=None, permission_reference=None, pre
     """One finite, serial Work process; never invoked by PR checks."""
     auth = bounded_json(auth_path)
     auth_hash = validate_authorization(auth)
+    if auth.get("allocation_profile") == "owner-13f154-gap-20261126-v1":
+        from tools import alpaca_sip_13f_gap_capture as gap
+        result = gap.dispatch(_module(), auth, state_dir, budget_state_dir,
+            forbidden=max_batches not in (None, 1) or any(x is not None for x in
+                (recovery_run, permission_reference, predispatch_recovery, continuation_receipt, cohort_input)))
+        print(json.dumps(result, sort_keys=True))
+        return result
     if "allocation_profile" in auth:
         from tools import alpaca_sip_private_backfill_v1 as cap
         if auth.get("allocation_profile") == cap.BRIDGE_PROFILE:

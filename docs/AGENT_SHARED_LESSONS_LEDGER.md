@@ -12073,3 +12073,14 @@ The early-cycle gate gave identical positive credit to missing and observed-flat
   and compare its exact rendered Markdown before any transport; checksums alone
   certify copied bytes, not a complete report. Exercise corrupt and mismatched
   pairs in the actual workflow shell without remote transport.
+
+## 2026-11-26 - Bind retrospective SIP gaps to the approved session grid
+
+- A managed refresh resolves its end to the latest completed session and the
+  legacy historical job uses its original start date. A fixed prior gap must
+  bind both request dates and the two adjustment bases, before provider I/O.
+- Derive the scope digest from the retained bytes and replay the exact grid
+  before dispatch. A mismatch leaves the one-time slot and prior data intact.
+- The fixed slot nonce, amended Source history and metered archival checkpoints
+  preserve unknown spend and partial groups. These captures remain private
+  research with separate dated security identity, source rights and PIT review.

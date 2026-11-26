@@ -1858,7 +1858,7 @@ def _source_named_read_gate(c,revision,control,check,*,gate_profile=None):
 
 
 
-def _new3_source(c, auth, *, accounting=False):
+def _new3_source(c, auth, *, accounting=False, gate_profile=None):
     if not accounting:
         master = c.gh_json(f"repos/{c.REPO}/branches/master")
         require(master.get("protected") is True and master.get("commit", {}).get("sha") == auth["expected_master"],
@@ -1872,8 +1872,8 @@ def _new3_source(c, auth, *, accounting=False):
         and pr.get("head", {}).get("sha") == auth["deployment"]["reviewed_head"]
         and pr.get("merge_commit_sha") == auth["expected_master"], "NEW_THREE_DEPLOYMENT")
     revision = c._revision_module()
-    if auth.get("allocation_profile") == BRIDGE_PROFILE:
-        revision.named_read_checks(c, auth, gate_profile=revision.BRIDGE_CURRENT_GATE_PROFILE)
+    if gate_profile is not None or auth.get("allocation_profile") == BRIDGE_PROFILE:
+        revision.named_read_checks(c, auth, gate_profile=gate_profile or revision.BRIDGE_CURRENT_GATE_PROFILE)
     else:
         revision.named_read_checks(c, auth)
     for path, sha in auth["code_pins"].items():
@@ -1964,6 +1964,9 @@ def _new3_event_control(c, expected=None):
     control = c.decode(inputs["campaign_control"])
     require(isinstance(control, dict) and set(control) == {"authorization", "nonce"}, "NEW_THREE_PRIVATE_EVENT")
     auth = control["authorization"]
+    if isinstance(auth, dict) and auth.get("allocation_profile") == "owner-13f154-gap-20261126-v1":
+        from tools import alpaca_sip_13f_gap_capture as gap
+        return gap.event_control(c, inputs, control, expected)
     if isinstance(auth, dict) and auth.get("allocation_profile") == BRIDGE_PROFILE:
         return _bridge_event_inputs(c, inputs, control, expected)
     _new3_authorization(c, auth)
