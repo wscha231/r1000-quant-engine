@@ -1128,18 +1128,18 @@ def load_tests(loader, standard_tests, pattern):
 
 class HistoricalGapTests(unittest.TestCase):
     def test_existing_workflow_uses_new_profile_offline_and_in_worker(self):
-        from tools import alpaca_sip_13f_gap_capture as gap
+        from tools import alpaca_sip_private_backfill_v1 as gap
         from tools import alpaca_sip_campaign as campaign
 
         workflow = Path(".github/workflows/alpaca_sip_private_backfill_v1.yml").read_text(encoding="utf-8")
-        self.assertEqual(workflow.count("/" + gap.MODULE + "\n"), 2)
+        self.assertEqual(workflow.count("/" + gap._GAP_MODULE + "\n"), 2)
         self.assertIn("group: a1-private-research-single-writer", workflow)
-        with patch.object(gap, "validate_authorization", return_value="reviewed") as validate:
-            self.assertEqual(campaign.validate_authorization({"allocation_profile": gap.PROFILE}), "reviewed")
+        with patch.object(gap, "_gap_validate_authorization", return_value="reviewed") as validate:
+            self.assertEqual(campaign.validate_authorization({"allocation_profile": gap._GAP_PROFILE}), "reviewed")
             validate.assert_called_once()
 
     def test_guard_rejects_wider_date_and_replay_before_meter(self):
-        from tools import alpaca_sip_13f_gap_capture as gap
+        from tools import alpaca_sip_private_backfill_v1 as gap
         from types import SimpleNamespace
 
         calls = []
@@ -1148,8 +1148,8 @@ class HistoricalGapTests(unittest.TestCase):
             calls.append(url)
             return b'{"bars":{"ABC":[]},"next_page_token":null}'
 
-        window = gap.Window(1, "2026-09-08", "2026-09-10", ("ABC",), ("2026-09-08", "2026-09-09"))
-        get = gap.guard_requests(None, window, SimpleNamespace(perform=perform), "client-id", "client-key")
+        window = gap._GapWindow(1, "2026-09-08", "2026-09-10", ("ABC",), ("2026-09-08", "2026-09-09"))
+        get = gap._gap_guard_requests(None, window, SimpleNamespace(perform=perform), "client-id", "client-key")
         get("https://paper-api.alpaca.markets/v2/assets/ABC")
         with self.assertRaisesRegex(Refused, "^13F_GAP_REQUEST_SCOPE$"):
             cap.request_pages(["ABC"], "raw", window.start, "2026-09-11", "client-id", "client-key",
@@ -1164,7 +1164,7 @@ class HistoricalGapTests(unittest.TestCase):
         self.assertTrue(all("2026-09-09" in u for u in calls[1:]))
 
     def test_guard_holds_after_two_pages_without_third_get(self):
-        from tools import alpaca_sip_13f_gap_capture as gap
+        from tools import alpaca_sip_private_backfill_v1 as gap
         from types import SimpleNamespace
 
         calls = []
@@ -1173,8 +1173,8 @@ class HistoricalGapTests(unittest.TestCase):
             calls.append(url)
             return json.dumps({"bars": {}, "next_page_token": str(len(calls))}).encode()
 
-        window = gap.Window(1, "2026-09-08", "2026-09-09", ("ABC",), ("2026-09-08",))
-        get = gap.guard_requests(None, window, SimpleNamespace(perform=perform), "client-id", "client-key")
+        window = gap._GapWindow(1, "2026-09-08", "2026-09-09", ("ABC",), ("2026-09-08",))
+        get = gap._gap_guard_requests(None, window, SimpleNamespace(perform=perform), "client-id", "client-key")
         get("https://paper-api.alpaca.markets/v2/assets/ABC")
         with self.assertRaisesRegex(Refused, "^13F_GAP_PAGE_SCOPE$"):
             cap.request_pages(["ABC"], "raw", window.start, window.end, "client-id", "client-key",
@@ -1183,42 +1183,42 @@ class HistoricalGapTests(unittest.TestCase):
         self.assertIn("page_token=2", calls[-1])
 
     def test_scope_refuses_wrong_hash_or_duplicate_sessions(self):
-        from tools import alpaca_sip_13f_gap_capture as gap
+        from tools import alpaca_sip_private_backfill_v1 as gap
 
-        header = ",".join(gap.PLAN_FIELDS)
+        header = ",".join(gap._GAP_PLAN_FIELDS)
         raw = (header + "\n1,2026-09-08,2026-09-09,ABC,1,1,sip,USD,raw;split,NOT_ACTIVATED"
                "\n2,2026-09-08,2026-09-09,ABC,1,1,sip,USD,raw;split,NOT_ACTIVATED\n").encode()
         with self.assertRaisesRegex(Refused, "^13F_GAP_PLAN_HASH$"):
-            gap.read_plan(raw, ("2026-09-08",))
-        with patch.object(gap, "PLAN_SHA", cap.digest(raw)), self.assertRaisesRegex(Refused, "^13F_GAP_PLAN_SESSIONS$"):
-            gap.read_plan(raw, ("2026-09-08",))
+            gap._gap_read_plan(raw, ("2026-09-08",))
+        with patch.object(gap, "_GAP_PLAN_SHA", cap.digest(raw)), self.assertRaisesRegex(Refused, "^13F_GAP_PLAN_SESSIONS$"):
+            gap._gap_read_plan(raw, ("2026-09-08",))
 
     def test_ineligible_window_never_calls_provider(self):
-        from tools import alpaca_sip_13f_gap_capture as gap
+        from tools import alpaca_sip_private_backfill_v1 as gap
         from types import SimpleNamespace
         from unittest.mock import Mock
 
         meter = SimpleNamespace(remaining_seconds=lambda: 100)
-        window = gap.Window(1, "2026-09-08", "2026-09-10", ("ABC", "DEF"), ("2026-09-08", "2026-09-09"))
+        window = gap._GapWindow(1, "2026-09-08", "2026-09-10", ("ABC", "DEF"), ("2026-09-08", "2026-09-09"))
         asset = ("2026-09-08", "2026-09-08", "one-id", "NYSE")
         with patch.object(cap, "precheck_assets", Mock()) as check, \
-                patch.object(gap, "record_checkpoint", return_value={"sha256": "checkpoint"}) as record:
-            result = gap.capture(None, {"private_data_folder_id": "private"}, None, meter, [window],
+                patch.object(gap, "_gap_record_checkpoint", return_value={"sha256": "checkpoint"}) as record:
+            result = gap._gap_capture(None, {"private_data_folder_id": "private"}, None, meter, [window],
                                  {"ABC": asset, "DEF": asset}, "client-id", "client-key")
         check.assert_not_called()
         self.assertEqual(result["held_groups"], 1)
         self.assertEqual(record.call_args.args[3][0]["status"], "HELD_IDENTITY_WINDOW")
 
     def test_one_attempt_nonce_cannot_be_renewed_by_changed_control(self):
-        from tools import alpaca_sip_13f_gap_capture as gap
+        from tools import alpaca_sip_private_backfill_v1 as gap
         from tools import alpaca_sip_campaign as campaign
 
-        title = "a1-sip " + gap.nonce(campaign)
+        title = "a1-sip " + gap._gap_nonce(campaign)
         existing = [{"id": 42, "display_title": title, "status": "completed", "conclusion": "failure"}]
         with patch.object(campaign, "campaign_run_pages", return_value=existing):
             for expiry in ("2026-11-27T00:00:00Z", "2026-11-28T00:00:00Z"):
                 with self.assertRaisesRegex(Refused, "^13F_GAP_SLOT_ALREADY_USED_OR_UNKNOWN$"):
-                    gap.history(campaign, {"expires_at_utc": expiry})
+                    gap._gap_history(campaign, {"expires_at_utc": expiry})
 
 
 if __name__ == "__main__":

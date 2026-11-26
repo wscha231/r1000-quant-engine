@@ -5,7 +5,6 @@ on:
   pull_request:
     paths:
       - 'tools/alpaca_sip_private_backfill_v1.py'
-      - 'tools/alpaca_sip_13f_gap_capture.py'
       - 'tools/alpaca_sip_campaign.py'
       - 'tools/alpaca_sip_source_revision.py'
       - 'tests/alpaca_sip_campaign_smoke.py'
@@ -82,7 +81,6 @@ jobs:
           sparse-checkout: |
             /data_static/iwb_holdings_seed.csv
             /tools/alpaca_sip_private_backfill_v1.py
-            /tools/alpaca_sip_13f_gap_capture.py
             /tools/alpaca_sip_campaign.py
             /tools/alpaca_sip_source_revision.py
             /tests/alpaca_sip_campaign_smoke.py
@@ -135,7 +133,6 @@ jobs:
           sparse-checkout: |
             /data_static/iwb_holdings_seed.csv
             /tools/alpaca_sip_private_backfill_v1.py
-            /tools/alpaca_sip_13f_gap_capture.py
             /tools/alpaca_sip_campaign.py
             /tools/alpaca_sip_source_revision.py
             /tests/alpaca_sip_campaign_smoke.py

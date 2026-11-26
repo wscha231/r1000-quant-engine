@@ -12084,3 +12084,6 @@ The early-cycle gate gave identical positive credit to missing and observed-flat
 - The fixed slot nonce, amended Source history and metered archival checkpoints
   preserve unknown spend and partial groups. These captures remain private
   research with separate dated security identity, source rights and PIT review.
+- The archived Price174 regression checks both workflow sparse checkout
+  boundaries. Put the dated profile in the existing pinned backfill file and
+  preserve the checkout lists byte for byte.
