@@ -25,6 +25,10 @@ LOOKBACK_SESSIONS = 5
 ID = re.compile('[A-Za-z0-9_.:/-]{1,100}')
 
 
+class ProviderFetchRefused(Refused):
+    """An OHLC provider refusal, before any capture is written to Drive."""
+
+
 def scheduled_slot(created):
     slot = created.replace(hour=22, minute=30, second=0, microsecond=0)
     return slot if slot <= created else slot - timedelta(days=1)
@@ -123,7 +127,10 @@ def capture(drive, scope, sessions, *, key, cutoff, read_clock, run_id, attempt,
     drive.check(folder, drive.root_id)
     rights = read_ref(drive, folder, scope['rights'], 65536)
     query = query_for(sessions, cutoff)
-    raw = provider(query, key)
+    try:
+        raw = provider(query, key)
+    except Refused as exc:
+        raise ProviderFetchRefused(str(exc)) from None
     collected = read_clock()
     require(cutoff <= collected and 0 < len(raw) <= MAX_RAW, 'A4_OHLC_CAPTURE_CLOCK')
     revisions, instruments = validate_response(raw, sessions, cutoff)
@@ -168,6 +175,8 @@ def main():
     parser.add_argument('--scheduled-run-index', type=Path,
                         help='Same-workflow scheduled run metadata around this occurrence')
     args = parser.parse_args()
+    stage = 'SCHEDULE'
+    sessions = {}
     try:
         now = datetime.now(timezone.utc)
         require(bool(args.scheduled_run_created_at) == bool(args.scheduled_run_index),
@@ -185,21 +194,30 @@ def main():
             result = dict(schema='a4-ohlc-public-receipt-v1', status='SKIPPED_DUPLICATE_SCHEDULED_SLOT',
                           expected_session=next(reversed(sessions)))
         else:
+            stage = 'CONFIGURATION'
             key = os.environ.get('A4_OHLC_API_KEY','')
             require(bool(key) and len(key)<=256, 'A4_OHLC_KEY_REQUIRED')
             scope = decode(os.environ['A4_OHLC_SCOPE'].encode())
             with TemporaryDirectory(prefix='a4-ohlc-') as temp:
+                stage = 'DRIVE_OPEN'
                 drive = OwnerDrive(scope['root_folder'], temp)
+                stage = 'CAPTURE_VALIDATION_OR_ARCHIVE'
                 result = capture(drive, scope, sessions, key=key,
                     cutoff=now, read_clock=lambda: datetime.now(timezone.utc), run_id=os.environ['GITHUB_RUN_ID'],
                     attempt=os.environ['GITHUB_RUN_ATTEMPT'], code_sha=os.environ['GITHUB_SHA'])
-        args.receipt.write_bytes(encoded(result))
-        print(encoded(result).decode().strip())
     except (Refused, ValueError, OSError, KeyError, TypeError, OverflowError, InvalidOperation) as exc:
         reason = str(exc)
         if not isinstance(exc, Refused) or not re.fullmatch(r'[A-Z0-9_]{2,80}', reason):
             reason = 'A4_OHLC_CAPTURE_BLOCKED'
+        if isinstance(exc, ProviderFetchRefused):
+            stage = 'PROVIDER_FETCH'
+        failure = dict(schema='a4-ohlc-public-receipt-v1', status='BLOCKED_CAPTURE',
+                       stage=stage, reason=reason, expected_session=next(reversed(sessions), None))
+        args.receipt.write_bytes(encoded(failure))
+        print(encoded(failure).decode().strip())
         raise SystemExit(reason) from None
+    args.receipt.write_bytes(encoded(result))
+    print(encoded(result).decode().strip())
 
 
 if __name__ == '__main__':

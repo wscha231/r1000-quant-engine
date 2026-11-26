@@ -12099,3 +12099,12 @@ The early-cycle gate gave identical positive credit to missing and observed-flat
   Normalize them to New York before counting calendar days. The anchor is
   outside the validated NAV grid, so measure its leading interval using
   actual NYSE closes after the anchor timestamp and test both cases end to end.
+
+### 2026-11-26 — Retain benchmark collection failure receipts
+
+- `Daily Crisis Monitor` 45753892037 stored the primary A4 research report
+  while the OHLC job exited with `PERMISSION`. The old success-only artifact
+  step discarded the failure evidence. A bounded failure receipt now
+  records the session, stage and sanitized reason while the job still fails.
+- The supplier's latest Free plan lists QQQ and omits SPY. Confirm the
+  account entitlement and keep a denied pair outside the learning archive.
