@@ -551,3 +551,34 @@ execution ticker. It can include existing managed names, whose previously
 verified originals are reused and whose collection may cover at most the last
 two sessions. QQQ uses the same Alpaca SIP RAW/SPLIT contracts and both identity
 checks. The scoped exception expires with the one-run control.
+
+## Finite refresh of retained QQQ prices
+
+The standing control can opt in with `retained_qqq_from_session` set to an
+ISO session date on or after 2026-11-25. The OWNER digest binds the exact
+`execution_tickers` list of 606 stocks plus SPY and QQQ. QQQ is the only
+allowed policy exception. The policy roster, existing one-run discovery
+profile, provider and schedule stay unchanged.
+
+The option requires an explicit 608-symbol scope with no permitted history
+backfill or previous-close overlap. It cannot be combined with discovery
+or cadence controls. The grant is limited to 14 days and 10 attempts with
+per-slot caps of 1,000 provider GETs, 6,000 Drive requests, 512 MiB Drive
+transfer and 8 MiB storage. Existing reviewed rights, account binding,
+opening usage, unresolved reservations and lower applicable limits still
+govern account spend. A failed or repeated attempt continues to count
+against the bound run history and follows the usual reconciliation rules.
+
+Use the verified private RAW/SPLIT archive and stable provider identity
+for each symbol. Missing baseline, identity, or any missing exchange
+session before the authorized floor blocks before provider I/O. Reuse
+already-current archived rows. A checkpoint completes only when all 608
+components are verified for the same session, through accepted archival
+reuse or a freshly verified missing interval. A partial provider result
+retains its private receipts and blocked checkpoint; the same session
+cannot create another completion on the same control.
+
+For approval preparation, reconcile the complete benchmark prefix before
+signing. The earlier QQQ capture alone does not prove a contiguous baseline
+through November 24. Keep the A4 price bundle, private readback, Native
+qualification and current risk report as downstream evidence.

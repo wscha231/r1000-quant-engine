@@ -256,6 +256,104 @@ class ComponentHoldTests(unittest.TestCase):
             self.assertEqual(query["start"][0][:10], sessions[0] if ticker == "QQQ" else FULL[1])
             self.assertEqual(query["end"][0][:10], sessions[-1])
 
+    def retained_qqq_control(self):
+        stocks = [f"T{i:03}" for i in range(606)]
+        scope = sorted([*stocks, "QQQ", "SPY"])
+        self.control.update(
+            not_before="2026-11-26T00:15:00Z", expires_at="2026-12-10T00:15:00Z",
+            max_runs=10, max_symbols_per_run=608, authorized_tickers=scope,
+            execution_tickers=scope, retained_qqq_from_session="2026-11-25",
+        )
+        return [*stocks, "SPY"], scope
+
+    def test_retained_qqq_scope_cannot_backfill_or_expand_the_grant(self):
+        _, scope = self.retained_qqq_control()
+        self.assertEqual(runtime.retained_qqq_start(self.control, set(scope)), "2026-11-25")
+        cases = [
+            ({"backfill_tickers": ["QQQ"]}, "SCOPE"),
+            ({"include_previous_close": True}, "SCOPE"),
+            ({"first_capture_identity": {}}, "SCOPE"),
+            ({"cadence": {}}, "SCOPE"),
+            ({"max_symbols_per_run": 609}, "SCOPE"),
+            ({"max_runs": 11}, "LIMIT"),
+            ({"expires_at": "2026-12-10T00:15:01Z"}, "LIMIT"),
+            ({"per_run_allowance": {**self.control["per_run_allowance"], "provider_gets": 1001}}, "LIMIT"),
+            ({"retained_qqq_from_session": "2026-11-24"}, "WINDOW"),
+            ({"retained_qqq_from_session": "2026-11-99"}, "WINDOW"),
+        ]
+        for change, reason in cases:
+            with self.subTest(change=change), self.assertRaisesRegex(
+                runtime.Refused, f"^MANAGED_RETAINED_QQQ_{reason}$"
+            ):
+                runtime.retained_qqq_start(dict(self.control, **change), set(scope))
+
+    def test_retained_qqq_requires_existing_grid_and_requests_only_new_sessions(self):
+        # Use the fixture calendar with a narrow test scope at the collector boundary.
+        self.control["retained_qqq_from_session"] = FULL[2]
+        group = self.scoped_baseline({"AAPL": FULL[:2], "QQQ": FULL[:2]}, end=FULL[2])
+        updated, held, reused, _, rows = self.collect([group], tracked=("AAPL", "QQQ"))
+        self.assertEqual(updated, {"AAPL": FULL[2], "QQQ": FULL[2]})
+        self.assertEqual((held, reused, rows), ({}, [], 4))
+        queries = [parse_qs(urlsplit(url).query) for url in self.opener.urls if "/bars?" in url]
+        self.assertEqual({query["adjustment"][0] for query in queries}, {"raw", "split"})
+        self.assertTrue(all(query["start"][0][:10] == query["end"][0][:10] == FULL[2] for query in queries))
+        before = len(self.opener.urls)
+        for groups, reason in (
+            ([self.scoped_baseline({"AAPL": FULL[:2]}, end=FULL[2])], "BASELINE"),
+            ([self.scoped_baseline({"AAPL": FULL[:1], "QQQ": FULL[:1]}, end=FULL[1])], "GAP_BEFORE_SCOPE"),
+        ):
+            with self.subTest(reason=reason), self.assertRaisesRegex(
+                runtime.Refused, f"^MANAGED_RETAINED_QQQ_{reason}$"
+            ):
+                self.collect(groups, tracked=("AAPL", "QQQ"))
+        self.assertEqual(len(self.opener.urls), before)
+
+    def test_retained_qqq_partial_session_cannot_publish_complete(self):
+        roster, scope = self.retained_qqq_control()
+        session = self.control["retained_qqq_from_session"]
+        gate = dict(ready=True, session_date=session, checked_at_utc=self.now.isoformat())
+        updates = dict.fromkeys(set(scope) - {"QQQ"}, session)
+        with patch.object(runtime.managed, "cadence_market_gate", return_value=gate), \
+                patch.object(runtime, "provider_endpoint_gate", return_value={"ready": True}), \
+                patch.object(runtime, "collect_groups", return_value=(updates, {"QQQ": "NO_DATA"}, [], [], 0)):
+            with self.assertRaisesRegex(runtime.Refused, "^MANAGED_RETAINED_QQQ_INCOMPLETE$"):
+                runtime.execute(
+                    self.control, "b" * 64, dict(active_tickers=roster, watch_tickers=[]), {},
+                    [dict(id=1, head_sha="2" * 40)], self.drive, self.meter,
+                    dict(run_id=1, head="2" * 40), "fixture-key", "fixture-secret",
+                    lambda: self.now, market_preflight=gate,
+                )
+        states = {row["state"]: row for _, row in runtime.journal_rows(self.drive, self.control)}
+        self.assertEqual(set(states), {"RESERVED", "BLOCKED"})
+        self.assertEqual(states["BLOCKED"]["reason"], "MANAGED_RETAINED_QQQ_INCOMPLETE")
+        self.assertEqual(states["BLOCKED"]["held"], {"QQQ": "NO_DATA"})
+
+    def test_retained_qqq_same_session_cannot_collect_or_write_twice(self):
+        roster, scope = self.retained_qqq_control()
+        session = self.control["retained_qqq_from_session"]
+        gate = dict(ready=True, session_date=session, checked_at_utc=self.now.isoformat())
+        existing = dict(id=1, head_sha="2" * 40)
+        policy = dict(active_tickers=roster, watch_tickers=[])
+        updates = dict.fromkeys(scope, session)
+        with patch.object(runtime.managed, "cadence_market_gate", return_value=gate), \
+                patch.object(runtime, "provider_endpoint_gate", return_value={"ready": True}), \
+                patch.object(runtime, "collect_groups", return_value=(updates, {}, scope, [], 0)) as collect:
+            result = runtime.execute(
+                self.control, "b" * 64, policy, {}, [existing], self.drive, self.meter,
+                dict(run_id=1, head="2" * 40), "fixture-key", "fixture-secret",
+                lambda: self.now, market_preflight=gate,
+            )
+            self.assertEqual(result["session_coverage"]["current"], 608)
+            baseline = runtime.journal_rows(self.drive, self.control)
+            with self.assertRaisesRegex(runtime.Refused, "^MANAGED_RETAINED_QQQ_SESSION_REPLAY$"):
+                runtime.execute(
+                    self.control, "b" * 64, policy, {}, [existing, dict(id=2, head_sha="2" * 40)],
+                    self.drive, self.meter, dict(run_id=2, head="2" * 40), "fixture-key", "fixture-secret",
+                    lambda: self.now, meter_verifier=lambda *_: None, market_preflight=gate,
+                )
+            self.assertEqual(collect.call_count, 1)
+            self.assertEqual(runtime.journal_rows(self.drive, self.control), baseline)
+
     def test_transient_benchmark_refuses_oversized_ranges_before_provider(self):
         self.benchmark_window()
         window = self.control["first_capture_identity"]["benchmark_window"]
