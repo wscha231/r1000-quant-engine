@@ -1209,6 +1209,66 @@ class HistoricalGapTests(unittest.TestCase):
         self.assertEqual(result["held_groups"], 1)
         self.assertEqual(record.call_args.args[3][0]["status"], "HELD_IDENTITY_WINDOW")
 
+    def test_host_control_round_trips_through_existing_event_parser(self):
+        import os
+        from tempfile import TemporaryDirectory
+        from types import SimpleNamespace
+        from tools import alpaca_sip_campaign as campaign
+
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            budget = root/"canonical"
+            budget.mkdir()
+            family = root/("external-budget-"+campaign.CONTINUATION["auth"][:16])
+            family.mkdir()
+            first = b"original budget prefix"
+            (family/"000001.json").write_bytes(first)
+            state = root/cap._GAP_PROFILE
+            auth = dict(allocation_profile=cap._GAP_PROFILE, private_root_folder_id="fixture-private-root",
+                        private_data_folder_id="fixture-private-data", limits=campaign.LIMITS, wall_seconds=600,
+                        opening=dict(family_prefix_sha256="original-family", family_first_sha256=cap.digest(first)))
+            family_writer = SimpleNamespace(entries=[dict(kind="EXTERNAL_FAMILY_BOUND",
+                budget_state_root=os.path.normcase(str(budget.resolve())))], parent="original-family", close=lambda: None)
+            reservations = []
+            slot = SimpleNamespace(entries=[], append=lambda kind, **kw: reservations.append((kind, kw)),
+                                   close=lambda: None)
+            captured = {}
+            def submit(argv, **kwargs):
+                inputs = json.loads(kwargs["input"])
+                path = root/"event.json"
+                path.write_text(json.dumps(dict(inputs=inputs)), encoding="utf-8")
+                with patch.dict(os.environ, {"GITHUB_EVENT_PATH":str(path),"INPUT_PRIVATE_NEW3_R2":"true",
+                    "INPUT_CAMPAIGN_CONTROL":"", "INPUT_PRIVATE_ROOT_FOLDER_ID":"",
+                    "INPUT_PRIVATE_DATA_FOLDER_ID":"", "INPUT_RESUME_FILE_ID":""}):
+                    captured.update(cap._new3_event_control(campaign))
+                return SimpleNamespace(returncode=0)
+            with patch.object(campaign,"WorkJournal",side_effect=[family_writer,slot]), \
+                    patch.object(campaign.subprocess,"run",side_effect=submit), \
+                    patch.object(cap,"_gap_verify_source"), patch.object(cap,"_gap_authority"), \
+                    patch.object(cap,"_gap_history"), patch.object(cap,"_gap_archival_schedule"), \
+                    patch.object(cap,"_gap_validate_authorization"):
+                result = cap._gap_dispatch(campaign,auth,state,budget)
+            self.assertEqual(set(captured),{"authorization","nonce"})
+            self.assertEqual(captured["nonce"],reservations[0][1]["nonce"])
+            self.assertEqual(captured["nonce"], result["nonce"])
+
+    def test_skipped_or_partial_groups_finalize_real_runtime_meter(self):
+        from datetime import timedelta
+        from tempfile import TemporaryDirectory
+        from tools import alpaca_sip_campaign as campaign
+
+        with TemporaryDirectory() as temporary:
+            journal=Path(temporary)/"meter.json"
+            identity=dict(examined_before=0,parent_checkpoint_sha256="a"*64)
+            meter=campaign.RuntimeMeter(dict.fromkeys(campaign.LIMITS,0),journal,
+                (campaign.utc()+timedelta(seconds=30)).isoformat(),identity)
+            with contextlib.redirect_stdout(io.StringIO()) as stdout, self.assertRaisesRegex(Refused,"^13F_GAP_PARTIAL$"):
+                cap._gap_finish_capture(campaign,meter,dict(held_groups=1,complete_groups=0,rows=0))
+            finalized=json.loads(journal.read_bytes())
+            self.assertTrue(finalized["finalized"])
+            self.assertEqual((finalized["status"],finalized["reason"]),("BLOCKED","GAP_PARTIAL"))
+            self.assertEqual(json.loads(stdout.getvalue())["checkpoint_sha256"],"a"*64)
+
     def test_one_attempt_nonce_cannot_be_renewed_by_changed_control(self):
         from tools import alpaca_sip_private_backfill_v1 as gap
         from tools import alpaca_sip_campaign as campaign

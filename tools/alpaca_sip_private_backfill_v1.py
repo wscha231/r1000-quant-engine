@@ -2902,7 +2902,7 @@ def _gap_worker(c, args, control, journal):
     require(key and secret, "13F_GAP_CREDENTIALS")
     meter = c.RuntimeMeter(auth["limits"], journal, deadline.isoformat(),
         dict(task_key=_GAP_TASK, allocation_profile=_GAP_PROFILE, auth_sha256=auth_hash, source_sha=auth["expected_master"],
-             _gap_nonce=_gap_nonce(c), run_id=run_id, run_attempt=1, preflight_only=False, examined_before=0,
+             nonce=_gap_nonce(c), run_id=run_id, run_attempt=1, preflight_only=False, examined_before=0,
              parent_checkpoint_sha256=None, opening_accounting_sha256=digest(encoded(auth["opening"]))))
     try:
         with meter.process_deadline(), tempfile.TemporaryDirectory(prefix="a1-13f-gap-") as temp:
@@ -2929,12 +2929,17 @@ def _gap_worker(c, args, control, journal):
             require(any(all(t in assets and assets[t][0] <= w.sessions[0] <= w.sessions[-1] <= assets[t][1]
                             for t in w.symbols) for w in windows), "13F_GAP_NO_ELIGIBLE_GROUP")
             totals = _gap_capture(c, auth, drive, meter, windows, assets, key, secret)
-    except BaseException:
-        meter.finish("BLOCKED", "13F_GAP_CAPTURE_FAILED")
+    except BaseException as exc:
+        reason = str(exc).removeprefix("13F_") if isinstance(exc, Refused) else ""
+        meter.finish("BLOCKED", reason if re.fullmatch(r"[A-Z_]{1,80}", reason) else "GAP_CAPTURE_FAILED")
         raise
+    return _gap_finish_capture(c, meter, totals)
+
+
+def _gap_finish_capture(c, meter, totals):
     status = "COMPLETE" if not totals["held_groups"] else "PARTIAL"
     meter.finish("COMPLETE" if status == "COMPLETE" else "BLOCKED",
-                 None if status == "COMPLETE" else "13F_GAP_PARTIAL")
+                 None if status == "COMPLETE" else "GAP_PARTIAL")
     result = dict(status=status, allocation_profile=_GAP_PROFILE, checkpoint_sha256=meter.checkpoint_sha,
                   rows_verified=meter.rows, group_counts=dict(totals), source_admission=False,
                   pit_verified=False, economic_authority=False)
@@ -2961,18 +2966,18 @@ def _gap_dispatch(c, auth, state_dir, budget_state_dir, *, forbidden=False):
                 "13F_GAP_FAMILY_PREFIX")
         slot = c.WorkJournal(state, digest(_GAP_TASK.encode()))
         if slot.entries:
-            return dict(status="13F_GAP_RESERVED_READBACK_ONLY", _gap_nonce=_gap_nonce(c), automatic_retry=False)
+            return dict(status="13F_GAP_RESERVED_READBACK_ONLY", nonce=_gap_nonce(c), automatic_retry=False)
         _gap_verify_source(c, auth)
         _gap_authority(c, auth)
         _gap_history(c, auth)
         _gap_archival_schedule(c, c.utc())
-        slot.append("13F_GAP_RESERVED", _gap_nonce=_gap_nonce(c), control_sha256=_gap_control_digest(auth),
+        slot.append("13F_GAP_RESERVED", nonce=_gap_nonce(c), control_sha256=_gap_control_digest(auth),
                     allowance=auth["limits"], elapsed_reservation=auth["wall_seconds"],
                     opening_sha256=digest(encoded(opening)))
         _gap_verify_source(c, auth)
         _gap_authority(c, auth)
         _gap_history(c, auth)
-        control = dict(authorization=auth, _gap_nonce=_gap_nonce(c))
+        control = dict(authorization=auth, nonce=_gap_nonce(c))
         inputs = dict(private_root_folder_id=auth["private_root_folder_id"],
                       private_data_folder_id=auth["private_data_folder_id"], private_research_authorized="true",
                       noncommercial_terms_acknowledged="true", end_date=_GAP_END, max_new_symbols=str(GROUP_SIZE),
@@ -2984,7 +2989,7 @@ def _gap_dispatch(c, auth, state_dir, budget_state_dir, *, forbidden=False):
             require(sent.returncode == 0, "13F_GAP_DISPATCH_UNCERTAIN")
         except Exception:
             raise Refused("13F_GAP_DISPATCH_UNCERTAIN") from None
-        return dict(status="13F_GAP_POST_ACCEPTED_OUTCOME_PENDING", _gap_nonce=_gap_nonce(c),
+        return dict(status="13F_GAP_POST_ACCEPTED_OUTCOME_PENDING", nonce=_gap_nonce(c),
                     automatic_retry=False, source_admission=False)
     finally:
         try:
