@@ -113,6 +113,7 @@ jobs:
           fi
           python -m tools.a4_ohlc_forward_capture --receipt "$RUNNER_TEMP/a4-ohlc-receipt.json" "${args[@]}"
       - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
         with:
           name: a4-ohlc-metadata-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/a4-ohlc-receipt.json
