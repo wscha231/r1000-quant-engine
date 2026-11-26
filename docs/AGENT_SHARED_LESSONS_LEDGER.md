@@ -12129,3 +12129,12 @@ The early-cycle gate gave identical positive credit to missing and observed-flat
   On Python 3.14 the existing deep JSON fixture was still blocked by the
   source schema but did not produce the expected decoder reason. Use the
   repository's Python 3.12 CI for the full PR result.
+
+### 2026-11-26 — Retain benchmark collection failure receipts
+
+- `Daily Crisis Monitor` 45753892037 stored the primary A4 research report
+  while the OHLC job exited with `PERMISSION`. The old success-only artifact
+  step discarded the failure evidence. A bounded failure receipt now
+  records the session, stage and sanitized reason while the job still fails.
+- The supplier's latest Free plan lists QQQ and omits SPY. Confirm the
+  account entitlement and keep a denied pair outside the learning archive.

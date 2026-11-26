@@ -729,6 +729,39 @@ class OHLCForwardTests(unittest.TestCase):
             capture.assert_not_called()
             self.assertEqual(json.loads(target.read_text())['status'], 'SKIPPED_SCHEDULED_RETRY')
 
+    def test_refusals_publish_safe_diagnostics_without_writing_private_data(self):
+        import os
+        from tempfile import TemporaryDirectory
+
+        scope = dict(root_folder='owner-root', capture_folder='owner-folder', rights={})
+        cases = (
+            ('DRIVE_OPEN', ohlc.Refused('PERMISSION'), None, 'PERMISSION'),
+            ('PROVIDER_FETCH', None, ohlc.Refused('PERMISSION'), 'PERMISSION'),
+            ('DRIVE_OPEN', OSError('credential-bearing diagnostic'), None, 'A4_OHLC_CAPTURE_BLOCKED'),
+        )
+        for stage, drive_error, fetch_error, reason in cases:
+            with self.subTest(stage=stage, reason=reason), TemporaryDirectory() as directory:
+                target = Path(directory) / 'receipt.json'
+                with patch.object(sys, 'argv', ['capture', '--receipt', str(target)]), \
+                        patch.dict(os.environ, A4_OHLC_API_KEY='private-key',
+                                   A4_OHLC_SCOPE=json.dumps(scope), GITHUB_RUN_ID='123',
+                                   GITHUB_RUN_ATTEMPT='1', GITHUB_SHA='a'*40), \
+                        patch.object(ohlc, 'datetime') as clock, \
+                        patch.object(ohlc, 'OwnerDrive', side_effect=drive_error) as owner_drive, \
+                        patch.object(ohlc, 'read_ref'), patch.object(ohlc, 'http', side_effect=fetch_error) as fetch, \
+                        patch.object(ohlc.private, 'persist_object') as persist:
+                    clock.now.return_value = self.now
+                    owner_drive.return_value.root_id = scope['root_folder']
+                    with self.assertRaises(SystemExit) as blocked:
+                        ohlc.main()
+                self.assertEqual(blocked.exception.code, reason)
+                self.assertEqual(json.loads(target.read_bytes()), {
+                    'schema': 'a4-ohlc-public-receipt-v1', 'status': 'BLOCKED_CAPTURE',
+                    'stage': stage, 'reason': reason, 'expected_session': self.latest,
+                })
+                self.assertEqual(fetch.call_count, int(fetch_error is not None))
+                persist.assert_not_called()
+
     def test_distinct_run_ids_and_incomplete_indexes_cannot_replay_one_slot(self):
         created = ohlc.utc('2026-11-24T06:12:25Z')
         row = {'id': 11, 'created_at': created.isoformat()}
