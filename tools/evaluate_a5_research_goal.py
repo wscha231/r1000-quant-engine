@@ -17,33 +17,56 @@ from tools import nav_metrics_v2 as nav
 from tools.execution_cost_model import EXECUTION_COST_MODE_FIXED
 
 
-GOAL_POLICY = "matched_spy_base_concentrated_stretch_v2"
+GOAL_POLICY = "matched_spy_diagnostics_constrained_compounding_v3"
 CASH_BASIS = "MODELED_TRADE_DATE_LEDGER_CASH_OVER_CLOSING_NAV"
 
 
 def goal_outcome(kind, book, spy):
-    """Score the full net-NAV window. Month labels have no effect on either goal."""
+    """Keep the matched-SPY diagnostic separate from risk limits and admission."""
     # On the authenticated common window and capital, terminal NAV strictly orders
     # CAGR even when annualizing two adjacent representable values rounds them equal.
     beats_spy = book["ending_capital_usd"] > spy["ending_capital_usd"]
     drawdown_ok = abs(book["max_dd"]) <= abs(spy["max_dd"])
     base_met = beats_spy and drawdown_ok
-    stretch = "NOT_APPLICABLE"
-    if kind == "concentrated":
-        stretch = "NOT_EVALUATED_BASE_MISS"
-        if base_met:
-            stretch = "PASS" if book["cagr"] >= 0.40 else "MISS"
     return dict(status="PASS" if base_met else "MISS", return_goal_met=beats_spy,
-                drawdown_goal_met=drawdown_ok, stretch_status=stretch)
+                drawdown_goal_met=drawdown_ok,
+                stretch_status="RETIRED_FIXED_CAGR_TARGET" if kind == "concentrated" else "NOT_APPLICABLE")
+
+
+def compounding_objective(kind, book, spy):
+    """Continuous research objective; no fixed CAGR threshold or promotion power.
+
+    Supplied NAV is already net of costs. Terminal wealth orders CAGR only on
+    the authenticated common window, capital, and cash-flow basis in assess().
+    The existing drawdown limit is reported independently of SPY's drawdown.
+    """
+    identity = mission_identity(PORTFOLIO_MISSION_TARGETS)
+    drawdown_limit = identity["mission_contract_values"][kind]["max_dd_min"]
+    return dict(
+        policy="MAXIMIZE_NET_COMPOUNDING_WITHIN_EXISTING_RISK_CONSTRAINTS_V1",
+        status="MEASURED", fixed_cagr_target=None,
+        primary_measure="NET_TERMINAL_WEALTH_ON_AUTHENTICATED_MATCHED_WINDOW",
+        ending_capital_usd=book["ending_capital_usd"], cagr=book["cagr"],
+        net_wealth_difference_vs_spy_usd=book["ending_capital_usd"]-spy["ending_capital_usd"],
+        excess_cagr_vs_spy=book["cagr"]-spy["cagr"],
+        drawdown_constraint=dict(
+            status="MET" if book["max_dd"] >= drawdown_limit else "BREACHED",
+            max_dd_min=drawdown_limit, observed_max_dd=book["max_dd"],
+            source="PORTFOLIO_MISSION_TARGETS.max_dd",
+            mission_contract_sha256=identity["mission_contract_sha256"]),
+        recovery_policy="REPORT_PEAK_TO_RECOVERY_AND_RIGHT_CENSORED_ONGOING_EPISODES",
+        evidence_scope="RESEARCH_WINDOW_ONLY_NOT_FORWARD_ALPHA",
+        other_admission_gates_evaluated=False, promotion_allowed=False)
 
 
 def _project_mission(kind, book):
-    """Compare the verified research-window net NAV with the project's absolute targets."""
+    """Preserve the configured historical scorecard as a compatibility diagnostic."""
     identity = mission_identity(PORTFOLIO_MISSION_TARGETS)
     target = identity["mission_contract_values"][kind]
     cagr_met = book["cagr"] >= target["cagr_min"]
     drawdown_met = book["max_dd"] >= target["max_dd_min"]
     return dict(status="PASS" if cagr_met and drawdown_met else "MISS",
+                role="LEGACY_FIXED_TARGET_DIAGNOSTIC_NOT_RESEARCH_ACCEPTANCE",
                 basis="MATCHED_RESEARCH_WINDOW_NET_NAV",
                 mission_contract_id=identity["mission_contract_id"],
                 mission_contract_sha256=identity["mission_contract_sha256"],
@@ -141,6 +164,56 @@ def _recovery(rows, anchor):
                 observed_days=(date.fromisoformat(rows[-1]["session"])-low).days)
 
 
+def drawdown_durations(rows, anchor):
+    """Peak-to-recovery duration on an already validated daily NAV grid.
+
+    Equal highs reset the peak date, so flat time is not counted as underwater.
+    Session durations count observed grid intervals; the anchor is index zero.
+    A still-open episode has a lower bound, never a fabricated recovery time.
+    """
+    points = [dict(session=anchor["timestamp"][:10], nav=anchor["nav"])] + rows
+    peak = 0
+    active = None
+    episodes = []
+
+    def finish(episode, endpoint, recovered):
+        first, low = episode["peak_index"], episode["trough_index"]
+        days = (date.fromisoformat(points[endpoint]["session"]) -
+                date.fromisoformat(points[first]["session"])).days
+        return dict(
+            status="RECOVERED" if recovered else "UNRECOVERED_AT_END",
+            peak_session=points[first]["session"], trough_session=points[low]["session"],
+            recovery_session=points[endpoint]["session"] if recovered else None,
+            observed_end_session=points[endpoint]["session"],
+            max_dd=points[low]["nav"] / points[first]["nav"] - 1,
+            days=days if recovered else None, sessions=endpoint-first if recovered else None,
+            observed_days=days, observed_sessions=endpoint-first,
+            right_censored=not recovered)
+
+    for i, row in enumerate(points[1:], 1):
+        if row["nav"] >= points[peak]["nav"]:
+            if active is not None:
+                episodes.append(finish(active, i, True))
+                active = None
+            peak = i
+        elif active is None:
+            active = dict(peak_index=peak, trough_index=i)
+        elif row["nav"] < points[active["trough_index"]]["nav"]:
+            active["trough_index"] = i
+    ongoing = finish(active, len(points)-1, False) if active is not None else None
+    completed = list(episodes)
+    if ongoing is not None:
+        episodes.append(ongoing)
+    return dict(
+        status="MEASURED", basis="PEAK_TO_RECOVERY_WITHIN_OBSERVED_WINDOW",
+        session_basis="VALIDATED_GRID_INTERVALS_INCLUDING_ANCHOR",
+        max_drawdown_tie_policy="FIRST_DEEPEST_EPISODE_ONGOING_REPORTED_SEPARATELY",
+        max_drawdown_episode=min(episodes, key=lambda x: x["max_dd"]) if episodes else
+            dict(status="NO_DRAWDOWN", days=0, sessions=0, right_censored=False),
+        longest_completed_episode=max(completed, key=lambda x: x["days"]) if completed else None,
+        ongoing_episode=ongoing, completed_episode_count=len(completed))
+
+
 def _turnover(packet, book):
     """Gross buys plus sells divided by mean daily closing NAV, before fees."""
     try:
@@ -189,7 +262,9 @@ def _qqq_comparison(packet, book):
 def assess(packet, *, portfolio_kind, expected_manifest_sha256, end_session):
     """The external pin must come from the review of the named historical inputs."""
     base = dict(portfolio_kind=portfolio_kind, goal_policy=GOAL_POLICY,
-                research_only=True, promotion_allowed=False, project_mission=None)
+                status_basis="MATCHED_SPY_COMPARISON_ONLY_NOT_ADMISSION",
+                research_only=True, promotion_allowed=False, project_mission=None,
+                research_objective=None)
     try:
         manifest = packet["manifest"]
         nav.require(nav.digest(manifest) == expected_manifest_sha256, "GOAL_MANIFEST_PIN")
@@ -283,6 +358,7 @@ def assess(packet, *, portfolio_kind, expected_manifest_sha256, end_session):
         except (KeyError, TypeError, ValueError, OverflowError) as error:
             monthly = dict(status="DATA_BLOCKED", reason=str(error))
         return dict(base, **outcome,
+                    research_objective=compounding_objective(portfolio_kind, book, spy),
                     project_mission=_project_mission(portfolio_kind, book),
                     total_return=book["total_return"], cagr=book["cagr"], max_dd=book["max_dd"],
                     spy_total_return=spy["total_return"], spy_cagr=spy["cagr"], spy_max_dd=spy["max_dd"],
@@ -292,6 +368,10 @@ def assess(packet, *, portfolio_kind, expected_manifest_sha256, end_session):
                     recovery_from_worst_trough=_recovery(packet["portfolio"]["rows"],
                                                          packet["portfolio"]["context"]["anchor"]),
                     spy_recovery_from_worst_trough=_recovery(packet["spy"]["rows"], packet["spy"]["context"]["anchor"]),
+                    drawdown_durations=drawdown_durations(packet["portfolio"]["rows"],
+                                                         packet["portfolio"]["context"]["anchor"]),
+                    spy_drawdown_durations=drawdown_durations(packet["spy"]["rows"],
+                                                             packet["spy"]["context"]["anchor"]),
                     turnover=_turnover(packet, book), qqq=_qqq_comparison(packet, book),
                     reviewed_manifest_sha256=expected_manifest_sha256)
     except (TypeError, KeyError, ValueError, OverflowError) as error:
