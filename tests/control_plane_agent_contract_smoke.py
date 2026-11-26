@@ -2567,11 +2567,15 @@ class ManagedExecutionTests(unittest.TestCase):
         import yaml
         value = yaml.safe_load((ROOT/'.github/workflows/free_data_daily_update.yml').read_text(encoding='utf-8'))
         self.assertEqual(value['jobs']['daily_update']['if'],
-            "${{ github.event_name != 'workflow_dispatch' || !inputs.managed_refresh }}")
+            "${{ github.event_name != 'workflow_dispatch' || (!inputs.managed_refresh && !inputs.managed_benchmark_gap) }}")
         trigger = value.get('on',value.get(True))
         self.assertEqual(trigger['schedule'],[dict(cron='30 0 * * 2-6')])
-        self.assertFalse(trigger['workflow_dispatch']['inputs']['managed_refresh']['default'])
-        self.assertIn('inputs.managed_refresh',value['jobs']['managed_a1_refresh']['if'])
+        inputs = trigger['workflow_dispatch']['inputs']
+        self.assertFalse(inputs['managed_refresh']['default'])
+        self.assertFalse(inputs['managed_benchmark_gap']['default'])
+        managed_if = value['jobs']['managed_a1_refresh']['if']
+        self.assertIn('inputs.managed_refresh && !inputs.managed_benchmark_gap', managed_if)
+        self.assertIn('inputs.managed_benchmark_gap && !inputs.managed_refresh', managed_if)
         self.assertEqual(value['jobs']['managed_a1_refresh']['concurrency'],
                          dict(group='a1-private-research-single-writer',**{'cancel-in-progress':False}))
 

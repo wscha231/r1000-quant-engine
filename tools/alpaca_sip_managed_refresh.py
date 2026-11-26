@@ -982,10 +982,10 @@ def load_cadence_roster(control, drive, now):
 def execute(control, control_sha, policy, bootstrap, history, drive, meter, context,
             key, secret, clock=campaign.utc, meter_verifier=None, *, market_preflight):
     policy_tracked = set(policy["active_tickers"]) | set(policy["watch_tickers"])
+    if control.get("benchmark_gap_recovery") is not True:
+        require(policy_tracked <= set(control["authorized_tickers"]), "MANAGED_POLICY_SCOPE_CHANGED")
     subset = execution_scope(control)
     gap = benchmark_gap_recovery(control, subset)
-    policy_scope = policy_tracked & BENCHMARK_GAP_TICKERS if gap else policy_tracked
-    require(policy_scope <= set(control["authorized_tickers"]), "MANAGED_POLICY_SCOPE_CHANGED")
     retained_start = retained_qqq_start(control, subset)
     if subset is not None:
         benchmark = {"QQQ"} if gap or retained_start is not None or benchmark_sessions(control) else set()

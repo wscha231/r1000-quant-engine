@@ -9,6 +9,11 @@
   prefix. Restore its complete checkpoint and final meter before preparing
   the next bootstrap. Use one recovered SPY/QQQ group there and preserve the
   older originals separately for history.
+- PR 826's focused collector smoke passed while the broader control-plane
+  checks caught a changed ordinary policy refusal and the prior workflow
+  predicate. Keep the ordinary policy scope check before subset validation
+  and exercise both mutually exclusive manual inputs in the control-plane
+  contract before submitting the reviewed head.
 
 ## 2026-11-26 KST — Continue retained QQQ under a finite managed scope
 
