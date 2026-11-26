@@ -56,11 +56,14 @@ next close at its preceding peak. It cannot measure the investor's entire wait.
 - The still-open episode, with null recovery duration and an observed lower
   bound. Right-censored duration is never zero or a completed recovery time.
 
-The authenticated anchor is the first observation. Equal highs reset the peak
-date so that time spent at the high is not counted as underwater. Session
-durations count intervals on the validated grid. Tied deepest episodes retain
-the first one, matching the old trough diagnostic; any open tied episode is
-also reported independently. All periods are bounded by the observed window.
+The authenticated anchor is the first observation. Its date is the date in
+`America/New_York`, independent of the timestamp's stated offset. Equal highs
+reset the peak date so that time spent at the high is excluded. Session
+durations count NYSE closes after the peak through the recovery or last
+observation. If an episode begins at the anchor, the calendar supplies the
+elapsed closes through the first NAV row, without creating marks for those
+dates. Tied deepest episodes retain the first one, matching the old trough
+diagnostic. Any open tied episode is also reported independently.
 
 For archived result summaries that contain only peak/trough/recovery dates,
 one can derive the recorded MDD episode's complete duration. One cannot derive
@@ -76,5 +79,6 @@ no-second-fee checks are unchanged. Blocked inputs expose no research objective.
 The existing registered `tests/a5_research_goal_smoke.py` covers fixed-target
 retirement, exact risk boundaries, an end-to-end SPY PASS with a risk breach,
 peak/trough separation, different deepest and longest episodes, equal highs,
-tied deepest episodes, anchor intervals, and right censoring. Its synthetic
-fixtures do not establish real-input or economic validation.
+tied deepest episodes, timezone-equivalent anchors, multi-session anchor
+intervals, and right censoring. Its synthetic fixtures do not establish
+real-input or economic validation.

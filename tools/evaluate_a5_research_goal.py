@@ -7,6 +7,7 @@ from datetime import date, timedelta
 from itertools import groupby
 import sys
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -168,10 +169,13 @@ def drawdown_durations(rows, anchor):
     """Peak-to-recovery duration on an already validated daily NAV grid.
 
     Equal highs reset the peak date, so flat time is not counted as underwater.
-    Session durations count observed grid intervals; the anchor is index zero.
+    Within the daily grid, one interval is one NYSE close. From a pre-grid
+    anchor, count the actual closes after its timestamp.
     A still-open episode has a lower bound, never a fabricated recovery time.
     """
-    points = [dict(session=anchor["timestamp"][:10], nav=anchor["nav"])] + rows
+    anchor_time = nav.stamp(anchor["timestamp"])
+    anchor_date = anchor_time.astimezone(ZoneInfo("America/New_York")).date()
+    points = [dict(session=anchor_date.isoformat(), nav=anchor["nav"])] + rows
     peak = 0
     active = None
     episodes = []
@@ -180,14 +184,21 @@ def drawdown_durations(rows, anchor):
         first, low = episode["peak_index"], episode["trough_index"]
         days = (date.fromisoformat(points[endpoint]["session"]) -
                 date.fromisoformat(points[first]["session"])).days
+        sessions = endpoint - first
+        if first == 0:
+            import pandas_market_calendars as mcal
+
+            leading_schedule = mcal.get_calendar("NYSE").schedule(anchor_date, rows[0]["session"])
+            # Replace the single anchor-to-first-row interval with actual closes.
+            sessions += int((leading_schedule["market_close"] > anchor_time).sum()) - 1
         return dict(
             status="RECOVERED" if recovered else "UNRECOVERED_AT_END",
             peak_session=points[first]["session"], trough_session=points[low]["session"],
             recovery_session=points[endpoint]["session"] if recovered else None,
             observed_end_session=points[endpoint]["session"],
             max_dd=points[low]["nav"] / points[first]["nav"] - 1,
-            days=days if recovered else None, sessions=endpoint-first if recovered else None,
-            observed_days=days, observed_sessions=endpoint-first,
+            days=days if recovered else None, sessions=sessions if recovered else None,
+            observed_days=days, observed_sessions=sessions,
             right_censored=not recovered)
 
     for i, row in enumerate(points[1:], 1):
@@ -206,7 +217,7 @@ def drawdown_durations(rows, anchor):
         episodes.append(ongoing)
     return dict(
         status="MEASURED", basis="PEAK_TO_RECOVERY_WITHIN_OBSERVED_WINDOW",
-        session_basis="VALIDATED_GRID_INTERVALS_INCLUDING_ANCHOR",
+        session_basis="NYSE_CLOSES_AFTER_PEAK_THROUGH_OBSERVED_END",
         max_drawdown_tie_policy="FIRST_DEEPEST_EPISODE_ONGOING_REPORTED_SEPARATELY",
         max_drawdown_episode=min(episodes, key=lambda x: x["max_dd"]) if episodes else
             dict(status="NO_DRAWDOWN", days=0, sessions=0, right_censored=False),

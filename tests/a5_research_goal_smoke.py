@@ -12,7 +12,7 @@ from tools import nav_metrics_v2 as nav
 
 
 class GoalTests(unittest.TestCase):
-    def packet(self, values, spy_values):
+    def packet(self, values, spy_values, *, anchor_time="2021-09-30T20:00:00Z"):
         import pandas_market_calendars as mcal
         schedule = mcal.get_calendar("NYSE").schedule(start_date="2021-10-01", end_date="2026-11-06")
         dates = [value.date().isoformat() for value in schedule.index]
@@ -24,7 +24,7 @@ class GoalTests(unittest.TestCase):
             values = [points[0]]*(len(dates)-2) + list(points[1:])
             rows = [dict(session=d, timestamp=t.isoformat(), nav=v)
                     for d, t, v in zip(dates, schedule["market_close"], values)]
-            c = context(rows, anchor_nav=100000, anchor_time="2021-09-30T20:00:00Z")
+            c = context(rows, anchor_nav=100000, anchor_time=anchor_time)
             packet[name] = dict(context=c, rows=rows)
             manifest[name+"_context_sha256"] = nav.digest(c)
         book = packet["portfolio"]
@@ -157,6 +157,29 @@ class GoalTests(unittest.TestCase):
         flat = goal.drawdown_durations(rows, anchor)
         self.assertEqual(flat["max_drawdown_episode"]["status"], "NO_DRAWDOWN")
         self.assertIsNone(flat["ongoing_episode"])
+
+    def test_assess_recovery_anchor_uses_nyse_date_for_equivalent_timestamps(self):
+        values = [90000, 100000, 102000]
+        spy = [100000, 100000, 100000]
+        utc = self.assess(self.packet(values, spy))
+        offset = self.assess(self.packet(values, spy, anchor_time="2021-10-01T10:00:00+14:00"))
+        self.assertNotEqual(utc["status"], "DATA_BLOCKED")
+        self.assertEqual((offset["status"], offset["cagr"], offset["max_dd"]),
+                         (utc["status"], utc["cagr"], utc["max_dd"]))
+        expected = utc["drawdown_durations"]["max_drawdown_episode"]
+        self.assertEqual((expected["peak_session"], expected["days"]), ("2021-09-30", 1862))
+        self.assertEqual(offset["drawdown_durations"], utc["drawdown_durations"])
+
+    def test_assess_recovery_counts_nyse_closes_between_anchor_and_first_nav(self):
+        result = self.assess(self.packet([90000, 100000, 102000], [100000]*3,
+                                         anchor_time="2021-09-28T20:00:00Z"))
+        self.assertNotEqual(result["status"], "DATA_BLOCKED")
+        episode = result["drawdown_durations"]["max_drawdown_episode"]
+        self.assertEqual((episode["peak_session"], episode["trough_session"],
+                          episode["recovery_session"]),
+                         ("2021-09-28", "2021-10-01", "2026-11-05"))
+        self.assertEqual((episode["days"], episode["sessions"], episode["observed_sessions"]),
+                         (1864, 1282, 1282))
 
     def test_equal_depth_keeps_first_episode_and_reports_open_tie(self):
         rows = [dict(session="2026-01-"+day, nav=value) for day, value in

@@ -12094,3 +12094,8 @@ The early-cycle gate gave identical positive credit to missing and observed-flat
   an end-to-end SPY PASS with a breached MDD limit; both are covered in the
   existing registered research-goal smoke suite. See
   `A5_RESEARCH_COMPOUNDING_OBJECTIVE_V3.md` for the output contract.
+
+- Anchor timestamps can express the same instant with different date prefixes.
+  Normalize them to New York before counting calendar days. The anchor is
+  outside the validated NAV grid, so measure its leading interval using
+  actual NYSE closes after the anchor timestamp and test both cases end to end.
