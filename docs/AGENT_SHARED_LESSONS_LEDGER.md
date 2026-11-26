@@ -12074,6 +12074,32 @@ The early-cycle gate gave identical positive credit to missing and observed-flat
   certify copied bytes, not a complete report. Exercise corrupt and mismatched
   pairs in the actual workflow shell without remote transport.
 
+### 2026-11-26 — Separate the research objective, benchmark and recovery clock
+
+- Maximize repeatable net compounding within existing risk constraints; fixed
+  CAGR targets are not research acceptance thresholds. Retire the concentrated
+  40% stretch diagnostic and label the old configured mission scorecard as a
+  legacy comparison. A matched-SPY PASS cannot relax the portfolio's own MDD
+  limit or provide promotion authority. Keep official mission bindings intact
+  until their consumers undergo a separate explicit migration.
+- Trough-to-recovery days omit the decline before the trough. Report complete
+  peak-to-recovery duration, the longest completed episode, and the ongoing
+  right-censored episode separately. Reset equal highs; disclose the first
+  deepest-episode tie policy and retain an open tie in the ongoing field.
+- Reusing recorded result dates can correct a duration comparison without a
+  new replay. It does not reconstruct the longest episode or establish raw NAV,
+  source/PIT admission, or forward alpha. Cost scenarios share the same market
+  history and are sensitivity checks rather than independent observations.
+- Independent focused review requested an equal-depth/open-episode fixture and
+  an end-to-end SPY PASS with a breached MDD limit; both are covered in the
+  existing registered research-goal smoke suite. See
+  `A5_RESEARCH_COMPOUNDING_OBJECTIVE_V3.md` for the output contract.
+
+- Anchor timestamps can express the same instant with different date prefixes.
+  Normalize them to New York before counting calendar days. The anchor is
+  outside the validated NAV grid, so measure its leading interval using
+  actual NYSE closes after the anchor timestamp and test both cases end to end.
+
 ## 2026-11-26 - Bind retrospective SIP gaps to the approved session grid
 
 - A managed refresh resolves its end to the latest completed session and the

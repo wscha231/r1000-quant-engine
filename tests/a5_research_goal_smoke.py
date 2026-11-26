@@ -12,7 +12,7 @@ from tools import nav_metrics_v2 as nav
 
 
 class GoalTests(unittest.TestCase):
-    def packet(self, values, spy_values):
+    def packet(self, values, spy_values, *, anchor_time="2021-09-30T20:00:00Z"):
         import pandas_market_calendars as mcal
         schedule = mcal.get_calendar("NYSE").schedule(start_date="2021-10-01", end_date="2026-11-06")
         dates = [value.date().isoformat() for value in schedule.index]
@@ -24,7 +24,7 @@ class GoalTests(unittest.TestCase):
             values = [points[0]]*(len(dates)-2) + list(points[1:])
             rows = [dict(session=d, timestamp=t.isoformat(), nav=v)
                     for d, t, v in zip(dates, schedule["market_close"], values)]
-            c = context(rows, anchor_nav=100000, anchor_time="2021-09-30T20:00:00Z")
+            c = context(rows, anchor_nav=100000, anchor_time=anchor_time)
             packet[name] = dict(context=c, rows=rows)
             manifest[name+"_context_sha256"] = nav.digest(c)
         book = packet["portfolio"]
@@ -73,18 +73,19 @@ class GoalTests(unittest.TestCase):
             self.assertAlmostEqual(result["total_return"], values[-1]/100000-1)
         self.assertEqual(self.assess(self.packet(spy, spy), "concentrated")["status"], "DATA_BLOCKED")
 
-    def test_relative_base_and_separate_concentrated_stretch(self):
+    def test_relative_diagnostic_without_fixed_concentrated_cagr_target(self):
         spy = dict(cagr=.12, max_dd=-.20, ending_capital_usd=112000)
-        for cagr, drawdown, base, stretch in (
-            (.12, -.10, "MISS", "NOT_EVALUATED_BASE_MISS"), (.12000000001, -.20, "PASS", "MISS"),
-            (.39999999999, -.20, "PASS", "MISS"), (.40, -.20, "PASS", "PASS"),
-            (.50, -.2000000001, "MISS", "NOT_EVALUATED_BASE_MISS"),
+        for cagr, drawdown, base in (
+            (.12, -.10, "MISS"), (.12000000001, -.20, "PASS"),
+            (.39999999999, -.20, "PASS"), (.40, -.20, "PASS"),
+            (.50, -.2000000001, "MISS"),
         ):
             book = dict(cagr=cagr, max_dd=drawdown, ending_capital_usd=100000+100000*cagr)
             self.assertEqual(goal.goal_outcome("main", book, spy)["status"], base)
             self.assertEqual(goal.goal_outcome("main", book, spy)["stretch_status"], "NOT_APPLICABLE")
             result = goal.goal_outcome("concentrated", book, spy)
-            self.assertEqual((result["status"], result["stretch_status"]), (base, stretch))
+            self.assertEqual((result["status"], result["stretch_status"]),
+                             (base, "RETIRED_FIXED_CAGR_TARGET"))
         self.assertEqual(goal.goal_outcome("concentrated", dict(cagr=.43, max_dd=-.20, ending_capital_usd=143000),
                                           dict(cagr=.45, max_dd=-.30, ending_capital_usd=145000))["status"], "MISS")
         tiny = self.assess(self.packet([100000, 100000, math.nextafter(100000., math.inf)], [100000]*3))
@@ -95,6 +96,100 @@ class GoalTests(unittest.TestCase):
         self.assertEqual(low["project_mission"]["status"], "MISS")
         self.assertFalse(low["project_mission"]["cagr_met"])
         self.assertTrue(low["project_mission"]["drawdown_met"])
+        self.assertEqual(low["project_mission"]["role"],
+                         "LEGACY_FIXED_TARGET_DIAGNOSTIC_NOT_RESEARCH_ACCEPTANCE")
+        self.assertIsNone(low["research_objective"]["fixed_cagr_target"])
+
+    def test_compounding_objective_separates_benchmark_and_existing_risk_limit(self):
+        spy = dict(cagr=.12, max_dd=-.40, ending_capital_usd=112000)
+        for kind in ("main", "concentrated"):
+            for cagr in (.13, .30, .35, .40, .50, .80):
+                book = dict(cagr=cagr, max_dd=-.25, ending_capital_usd=100000*(1+cagr))
+                result = goal.compounding_objective(kind, book, spy)
+                self.assertEqual(result["status"], "MEASURED")
+                self.assertIsNone(result["fixed_cagr_target"])
+                self.assertEqual(result["drawdown_constraint"]["status"], "MET")
+                self.assertEqual(result["drawdown_constraint"]["max_dd_min"], -.25)
+                self.assertFalse(result["other_admission_gates_evaluated"])
+                self.assertFalse(result["promotion_allowed"])
+            book["max_dd"] = math.nextafter(-.25, -math.inf)
+            # Beating SPY on return and MDD cannot relax the portfolio's own limit.
+            self.assertEqual(goal.goal_outcome(kind, book, spy)["status"], "PASS")
+            self.assertEqual(goal.compounding_objective(kind, book, spy)["drawdown_constraint"]["status"],
+                             "BREACHED")
+        measured = self.assess(self.packet([100000, 70000, 700000], [100000, 60000, 110000]))
+        self.assertEqual(measured["status"], "PASS")
+        self.assertEqual(measured["status_basis"], "MATCHED_SPY_COMPARISON_ONLY_NOT_ADMISSION")
+        self.assertEqual(measured["research_objective"]["drawdown_constraint"]["status"], "BREACHED")
+        self.assertFalse(measured["promotion_allowed"])
+
+    def test_peak_to_recovery_longest_duration_and_equal_highs(self):
+        anchor = dict(nav=100, timestamp="2026-01-01T21:00:00Z")
+        rows = [dict(session="2026-01-"+day, nav=value) for day, value in
+                (("02", 95), ("03", 98), ("05", 100), ("08", 100),
+                 ("09", 70), ("10", 101), ("11", 80))]
+        result = goal.drawdown_durations(rows, anchor)
+        worst = result["max_drawdown_episode"]
+        longest = result["longest_completed_episode"]
+        self.assertEqual((worst["peak_session"], worst["trough_session"], worst["recovery_session"]),
+                         ("2026-01-08", "2026-01-09", "2026-01-10"))
+        self.assertEqual((worst["days"], worst["sessions"]), (2, 2))
+        self.assertEqual((longest["days"], longest["sessions"]), (4, 3))
+        self.assertEqual(result["completed_episode_count"], 2)
+        self.assertEqual(result["ongoing_episode"]["observed_days"], 1)
+        self.assertTrue(result["ongoing_episode"]["right_censored"])
+        self.assertIsNone(result["ongoing_episode"]["days"])
+        self.assertIsNone(result["ongoing_episode"]["sessions"])
+        # The legacy trough measure retains its explicit, different meaning.
+        self.assertEqual(goal._recovery(rows, anchor)["days"], 1)
+
+    def test_recovery_from_anchor_and_unrecovered_window(self):
+        anchor = dict(nav=100, timestamp="2026-01-01T21:00:00Z")
+        rows = [dict(session="2026-01-02", nav=90), dict(session="2026-01-03", nav=80)]
+        result = goal.drawdown_durations(rows, anchor)
+        worst = result["max_drawdown_episode"]
+        self.assertEqual(worst["status"], "UNRECOVERED_AT_END")
+        self.assertEqual((worst["observed_days"], worst["observed_sessions"]), (2, 2))
+        self.assertIsNone(worst["days"])
+        self.assertIsNone(worst["recovery_session"])
+        self.assertIsNone(result["longest_completed_episode"])
+        rows = [dict(session=r["session"], nav=100) for r in rows]
+        flat = goal.drawdown_durations(rows, anchor)
+        self.assertEqual(flat["max_drawdown_episode"]["status"], "NO_DRAWDOWN")
+        self.assertIsNone(flat["ongoing_episode"])
+
+    def test_assess_recovery_anchor_uses_nyse_date_for_equivalent_timestamps(self):
+        values = [90000, 100000, 102000]
+        spy = [100000, 100000, 100000]
+        utc = self.assess(self.packet(values, spy))
+        offset = self.assess(self.packet(values, spy, anchor_time="2021-10-01T10:00:00+14:00"))
+        self.assertNotEqual(utc["status"], "DATA_BLOCKED")
+        self.assertEqual((offset["status"], offset["cagr"], offset["max_dd"]),
+                         (utc["status"], utc["cagr"], utc["max_dd"]))
+        expected = utc["drawdown_durations"]["max_drawdown_episode"]
+        self.assertEqual((expected["peak_session"], expected["days"]), ("2021-09-30", 1862))
+        self.assertEqual(offset["drawdown_durations"], utc["drawdown_durations"])
+
+    def test_assess_recovery_counts_nyse_closes_between_anchor_and_first_nav(self):
+        result = self.assess(self.packet([90000, 100000, 102000], [100000]*3,
+                                         anchor_time="2021-09-28T20:00:00Z"))
+        self.assertNotEqual(result["status"], "DATA_BLOCKED")
+        episode = result["drawdown_durations"]["max_drawdown_episode"]
+        self.assertEqual((episode["peak_session"], episode["trough_session"],
+                          episode["recovery_session"]),
+                         ("2021-09-28", "2021-10-01", "2026-11-05"))
+        self.assertEqual((episode["days"], episode["sessions"], episode["observed_sessions"]),
+                         (1864, 1282, 1282))
+
+    def test_equal_depth_keeps_first_episode_and_reports_open_tie(self):
+        rows = [dict(session="2026-01-"+day, nav=value) for day, value in
+                (("02", 90), ("03", 100), ("04", 90))]
+        result = goal.drawdown_durations(rows, dict(nav=100, timestamp="2026-01-01T21:00:00Z"))
+        self.assertEqual(result["max_drawdown_episode"]["status"], "RECOVERED")
+        self.assertEqual(result["max_drawdown_episode"]["trough_session"], "2026-01-02")
+        self.assertEqual(result["ongoing_episode"]["status"], "UNRECOVERED_AT_END")
+        self.assertEqual(result["max_drawdown_tie_policy"],
+                         "FIRST_DEEPEST_EPISODE_ONGOING_REPORTED_SEPARATELY")
 
     def test_project_mission_thresholds_on_unrounded_measurements(self):
         for kind, threshold in (("main", .35), ("concentrated", .50)):
@@ -126,6 +221,7 @@ class GoalTests(unittest.TestCase):
         blocked = self.assess(p)
         self.assertEqual(blocked["status"], "DATA_BLOCKED")
         self.assertIsNone(blocked["project_mission"])
+        self.assertIsNone(blocked["research_objective"])
 
     def test_month_labels_calendar_cash_and_partial_period(self):
         # Daily grid validation happens before the diagnostic. Only month-end marks matter here.
@@ -160,6 +256,7 @@ class GoalTests(unittest.TestCase):
         p = self.packet([100000, 90000, 700000], [100000, 98000, 110000])
         blocked_optional = self.assess(p)
         self.assertEqual(blocked_optional["recovery_from_worst_trough"], dict(status="RECOVERED", days=1, sessions=1))
+        self.assertEqual(blocked_optional["drawdown_durations"]["max_drawdown_episode"]["days"], 2)
         self.assertEqual(blocked_optional["turnover"]["status"], "DATA_BLOCKED")
         self.assertEqual(blocked_optional["qqq"]["status"], "DATA_BLOCKED")
         untouched = self.assess(self.packet([100000, 90000, 99000], [100000, 98000, 110000]))
