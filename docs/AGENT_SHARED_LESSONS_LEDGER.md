@@ -12099,3 +12099,17 @@ The early-cycle gate gave identical positive credit to missing and observed-flat
   Normalize them to New York before counting calendar days. The anchor is
   outside the validated NAV grid, so measure its leading interval using
   actual NYSE closes after the anchor timestamp and test both cases end to end.
+
+## 2026-11-26 - Bind retrospective SIP gaps to the approved session grid
+
+- A managed refresh resolves its end to the latest completed session and the
+  legacy historical job uses its original start date. A fixed prior gap must
+  bind both request dates and the two adjustment bases, before provider I/O.
+- Derive the scope digest from the retained bytes and replay the exact grid
+  before dispatch. A mismatch leaves the one-time slot and prior data intact.
+- The fixed slot nonce, amended Source history and metered archival checkpoints
+  preserve unknown spend and partial groups. These captures remain private
+  research with separate dated security identity, source rights and PIT review.
+- The archived Price174 regression checks both workflow sparse checkout
+  boundaries. Put the dated profile in the existing pinned backfill file and
+  preserve the checkout lists byte for byte.
