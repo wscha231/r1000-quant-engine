@@ -12114,6 +12114,13 @@ The early-cycle gate gave identical positive credit to missing and observed-flat
   boundaries. Put the dated profile in the existing pinned backfill file and
   preserve the checkout lists byte for byte.
 
+### 2026-11-26 — Replay identical primary ZIP fixture bytes
+
+- PR validation 45788144094/job139800066102 failed while comparing two
+  ZIPs whose member contents matched. Creating each ZIP independently
+  adds its current member timestamps and can change the original hash.
+  Reuse the captured bytes for the idempotency and tampering checks.
+
 ### 2026-11-26 — Render daily crisis diagnostics from the stored JSON order
 
 - Sorted JSON can reorder nested evidence tables even when the report values

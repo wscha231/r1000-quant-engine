@@ -180,12 +180,13 @@ class PrimaryTests(unittest.TestCase):
 
     def test_same_capture_reuses_bytes_and_conflict_refuses_before_write(self):
         with tempfile.TemporaryDirectory() as d:
-            first=p.store_capture(d,archive('h8'),'h8',collected_at=NOW)
-            second=p.store_capture(d,archive('h8'),'h8',collected_at=NOW)
+            original = archive('h8')
+            first=p.store_capture(d,original,'h8',collected_at=NOW)
+            second=p.store_capture(d,original,'h8',collected_at=NOW)
             self.assertEqual(first,second)
             path=Path(d)/first['files'][0];path.write_bytes(b'tampered')
             before=set(Path(d).rglob('*'))
-            with self.assertRaises(ValueError):p.store_capture(d,archive('h8'),'h8',collected_at=NOW)
+            with self.assertRaises(ValueError):p.store_capture(d,original,'h8',collected_at=NOW)
             self.assertEqual(before,set(Path(d).rglob('*')))
 
     def test_shared_transport_readback_recomputes_original_and_rejects_tampering(self):
