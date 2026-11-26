@@ -563,8 +563,11 @@ def build_monitor(args: argparse.Namespace) -> dict[str, Any]:
         },
     }
     payload.update(market_payload)
-    (output_dir / "crisis_action_status.md").write_text(render_report(payload), encoding="utf-8")
-    (output_dir / "summary.json").write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    summary = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    # The workflow verifies Markdown by rendering the stored JSON again.
+    markdown = render_report(json.loads(summary)).encode("utf-8")
+    (output_dir / "crisis_action_status.md").write_bytes(markdown)
+    (output_dir / "summary.json").write_bytes(summary)
     if args.update_history and health["current_report_status"] != "BLOCKED":
         history_path.parent.mkdir(parents=True, exist_ok=True)
         history_path.write_text(json.dumps(next_history, indent=2, sort_keys=True) + "\n", encoding="utf-8")
