@@ -582,3 +582,41 @@ For approval preparation, reconcile the complete benchmark prefix before
 signing. The earlier QQQ capture alone does not prove a contiguous baseline
 through November 24. Keep the A4 price bundle, private readback, Native
 qualification and current risk report as downstream evidence.
+
+## Manual SPY and QQQ archive recovery
+
+The existing workflow accepts the manual `managed_benchmark_gap` input for
+the five missing NYSE sessions on November 18, 19, 20, 23, and 24, 2026.
+It uses the dedicated private `A1_MANAGED_BENCHMARK_GAP_CONTROL` and bypasses
+the regular enable variable. The other manual mode and the legacy job
+are excluded. The workflow keeps the existing Source single-writer group.
+
+Use task `R1000-A1-SPY-QQQ-GAP-20261126` with `benchmark_gap_recovery=true`,
+exact execution and authorized lists `["QQQ","SPY"]`, two required symbols, one
+attempt, and a window of up to 24 hours. Its own existing-format #448 OWNER
+evidence binds the private control, rights and conservative opening
+accounting after the protected deployment. Use a separate empty private
+journal and the same owner-only data and evidence folders as the original
+capture. Keep the full 5,400-second job reservation. The existing quota
+and cost gates still apply. Per-run maximums are four provider GETs,
+256 Drive attempts, 32 MiB of transfer and 2 MiB of newly stored bytes.
+The named workflow history refuses a second attempt or an incomplete
+census even if the private control or authorization window changes.
+
+The worker checks the fixed calendar and delayed-feed endpoint. Before the
+first provider request, both archived asset identities and complete raw/split
+grids must end November 17. The exact missing interval is November 18
+through November 24 inclusive. A complete run reads back all 20 raw/split
+cells, emits the original and normalized objects and private checkpoint,
+and binds the finalized meter to that checkpoint. A partial result stays
+blocked and its incurred usage is retained.
+
+For the subsequent 608-symbol control, use the original November 17 archived
+groups and the verified recovery checkpoint, final meter and private group
+readback as the handoff evidence. First verify each control's own journal and
+that the recovered dates are the next five NYSE sessions. In the new reviewed
+bootstrap, use the recovery receipt as the sole SPY/QQQ group. The older
+groups remain in the archive with their original evidence for lookbacks.
+Adding both versions as bootstrap groups fails duplicate-ticker validation.
+The recovery checkpoint covers only the two benchmarks through November 24.
+A4 still requires its separately verified November 25 608-symbol input.

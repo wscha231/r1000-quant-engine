@@ -41,6 +41,14 @@ JOB = "Managed A1 private OHLCV refresh"
 JOB_RESERVATION_SECONDS = 5400  # job timeout, including setup/final artifact
 PROVIDER_END_DELAY_MINUTES = 15  # conservative historical SIP, no real-time assumption
 MONITOR_BENCHMARK_SESSIONS = 22  # current and prior 20-session relative strength
+BENCHMARK_GAP_TASK = "R1000-A1-SPY-QQQ-GAP-20261126"
+BENCHMARK_GAP_RUN = "A1 SIP SPY-QQQ November 2026 gap recovery"
+BENCHMARK_GAP_TICKERS = {"QQQ", "SPY"}
+BENCHMARK_GAP_PARENT = "2026-11-17"
+BENCHMARK_GAP_SESSIONS = ("2026-11-18", "2026-11-19", "2026-11-20", "2026-11-23", "2026-11-24")
+BENCHMARK_GAP_END = "2026-11-25"  # exclusive
+BENCHMARK_GAP_CAPS = dict(provider_gets=4, drive_requests=256,
+                          drive_bytes=32 * 1024**2, storage_bytes=2 * 1024**2)
 
 
 class MetadataReader:
@@ -122,6 +130,38 @@ def retained_qqq_start(control, scope):
     require(all(control["per_run_allowance"][key] <= ceiling for key, ceiling in caps.items()),
             "MANAGED_RETAINED_QQQ_LIMIT")
     return value
+
+
+def benchmark_gap_recovery(control, scope):
+    if "benchmark_gap_recovery" not in control:
+        return False
+    require(control["benchmark_gap_recovery"] is True and control["task_key"] == BENCHMARK_GAP_TASK
+            and scope == BENCHMARK_GAP_TICKERS == set(control["authorized_tickers"])
+            and control["max_symbols_per_run"] == 2 and control["max_runs"] == 1
+            and control["backfill_tickers"] == [] and not control.get("include_previous_close", False)
+            and not {"cadence", "first_capture_identity", "retained_qqq_from_session"} & control.keys(),
+            "MANAGED_BENCHMARK_GAP_SCOPE")
+    window = campaign.utc(control["expires_at"]) - campaign.utc(control["not_before"])
+    allowance = control["per_run_allowance"]
+    require(timedelta(0) < window <= timedelta(hours=24)
+            and allowance["provider_gets"] == BENCHMARK_GAP_CAPS["provider_gets"]
+            and all(0 < allowance[k] <= cap for k, cap in BENCHMARK_GAP_CAPS.items()),
+            "MANAGED_BENCHMARK_GAP_LIMIT")
+    return True
+
+
+def benchmark_gap_market_gate(observed):
+    from tools.run_daily_market_session_gate import mcal
+
+    schedule = mcal.get_calendar("NYSE").schedule(
+        start_date=BENCHMARK_GAP_SESSIONS[0], end_date=BENCHMARK_GAP_SESSIONS[-1])
+    require(tuple(schedule.index.strftime("%Y-%m-%d")) == BENCHMARK_GAP_SESSIONS,
+            "MANAGED_BENCHMARK_GAP_CALENDAR")
+    require(all(campaign.utc(close.isoformat()) + timedelta(minutes=120) <= observed
+                for close in schedule.market_close), "MANAGED_BENCHMARK_GAP_UNSETTLED")
+    require(provider_endpoint_gate(BENCHMARK_GAP_SESSIONS[-1], observed)["ready"],
+            "MANAGED_BENCHMARK_GAP_UNSETTLED")
+    return dict(ready=True, session_date=BENCHMARK_GAP_SESSIONS[-1], checked_at_utc=observed.isoformat())
 
 
 def first_capture_profile(control, now):
@@ -265,7 +305,9 @@ def validate_control(control, inventory_sha, policy_sha, now):
     require(isinstance(control.get("backfill_tickers"), list)
             and managed.symbols(control["backfill_tickers"]) <= set(control.get("authorized_tickers", []))
             and managed.symbols(control.get("authorized_tickers")), "MANAGED_TICKER_SCOPE")
-    retained_qqq_start(control, execution_scope(control))
+    scope = execution_scope(control)
+    benchmark_gap_recovery(control, scope)
+    retained_qqq_start(control, scope)
     first_capture_profile(control, now)
     benchmark_sessions(control)
     if "cadence" in control:
@@ -360,6 +402,23 @@ def run_history(control, gh, context):
         require(len(found) == 1 and found[0].get("status") == "completed", "MANAGED_JOB_UNCONFIRMED")
         run["managed_skipped"] = found[0].get("conclusion") == "skipped"
     return rows
+
+
+def benchmark_gap_history(control, gh, context):
+    query = urlencode(dict(event="workflow_dispatch", created=">=2026-11-26T00:00:00Z", per_page=100))
+    payload = gh(f"repos/{REPO}/actions/workflows/{WORKFLOW}/runs?" + query)
+    rows = payload.get("workflow_runs")
+    require(isinstance(rows, list) and payload.get("total_count") == len(rows) <= 100,
+            "MANAGED_BENCHMARK_GAP_HISTORY")
+    matches = [row for row in rows if row.get("display_title") == BENCHMARK_GAP_RUN]
+    require(len(matches) == 1, "MANAGED_BENCHMARK_GAP_ALREADY_ATTEMPTED")
+    current = matches[0]
+    require(current.get("id") == context["run_id"] and current.get("status") == "in_progress"
+            and current.get("event") == "workflow_dispatch" and current.get("head_branch") == "master"
+            and current.get("head_sha") == context["head"] and current.get("run_attempt") == 1
+            and campaign.utc(control["not_before"]) <= campaign.utc(current["created_at"])
+                < campaign.utc(control["expires_at"]), "MANAGED_BENCHMARK_GAP_HISTORY")
+    return matches
 
 
 def provider_endpoint_gate(session, now):
@@ -755,6 +814,11 @@ def collect_groups(drive, meter, control, bootstrap, tracked, prior_coverage,
                 require(expected_sessions(start, end) <= tail, "MANAGED_INCREMENTAL_WINDOW")
     held.update(missing)
     retained_start = control.get("retained_qqq_from_session")
+    gap = control.get("benchmark_gap_recovery") is True
+    if gap:
+        require(not held and coverage == dict.fromkeys(BENCHMARK_GAP_TICKERS, BENCHMARK_GAP_PARENT)
+                and windows == {(BENCHMARK_GAP_SESSIONS[0], BENCHMARK_GAP_END): sorted(BENCHMARK_GAP_TICKERS)},
+                "MANAGED_BENCHMARK_GAP_BASELINE")
     if retained_start is not None:
         require(not held and tracked <= set(coverage), "MANAGED_RETAINED_QQQ_BASELINE")
         for start, end in windows:
@@ -785,6 +849,8 @@ def collect_groups(drive, meter, control, bootstrap, tracked, prior_coverage,
         standalone_id = capture.asset_record(original, t)["id"]
         require(t not in identities or identities[t] == standalone_id, "MANAGED_IDENTITY_CONFLICT")
         identities[t] = standalone_id
+    if gap:
+        require(not held, "MANAGED_BENCHMARK_GAP_BASELINE")
     if retained_start is not None:
         require(not held, "MANAGED_RETAINED_QQQ_BASELINE")
     if initial:
@@ -916,11 +982,13 @@ def load_cadence_roster(control, drive, now):
 def execute(control, control_sha, policy, bootstrap, history, drive, meter, context,
             key, secret, clock=campaign.utc, meter_verifier=None, *, market_preflight):
     policy_tracked = set(policy["active_tickers"]) | set(policy["watch_tickers"])
-    require(policy_tracked <= set(control["authorized_tickers"]), "MANAGED_POLICY_SCOPE_CHANGED")
     subset = execution_scope(control)
+    gap = benchmark_gap_recovery(control, subset)
+    policy_scope = policy_tracked & BENCHMARK_GAP_TICKERS if gap else policy_tracked
+    require(policy_scope <= set(control["authorized_tickers"]), "MANAGED_POLICY_SCOPE_CHANGED")
     retained_start = retained_qqq_start(control, subset)
     if subset is not None:
-        benchmark = {"QQQ"} if retained_start is not None or benchmark_sessions(control) else set()
+        benchmark = {"QQQ"} if gap or retained_start is not None or benchmark_sessions(control) else set()
         require(subset <= policy_tracked | benchmark, "MANAGED_EXECUTION_SCOPE")
     tracked = policy_tracked if subset is None else subset
     cadence = control.get("cadence")
@@ -949,6 +1017,10 @@ def execute(control, control_sha, policy, bootstrap, history, drive, meter, cont
     # No provider request occurs until this durable reservation has read back.
     terminal = dict(base, parent_sha256=reserved["sha256"], state="BLOCKED",
                     coverage_updates={}, held={}, receipts=[], reason="MANAGED_INTERRUPTED")
+    if gap:
+        terminal["archival_benchmark_gap"] = dict(
+            sessions=list(BENCHMARK_GAP_SESSIONS), baseline_session=BENCHMARK_GAP_PARENT,
+            bootstrap_sha256=control["bootstrap_ref"]["sha256"])
     identity_kwargs = {}
     if "first_capture_identity" in control:
         terminal["first_capture_identity_evidence"] = []
@@ -957,7 +1029,8 @@ def execute(control, control_sha, policy, bootstrap, history, drive, meter, cont
         observed = clock()
         require(observed >= campaign.utc(market_preflight["checked_at_utc"]),
                 "MANAGED_MARKET_CLOCK_REGRESSION")
-        gate = managed.cadence_market_gate(now_utc=observed, cadence=cadence)
+        gate = (benchmark_gap_market_gate(observed) if gap
+                else managed.cadence_market_gate(now_utc=observed, cadence=cadence))
         require(gate["ready"], "MANAGED_MARKET_WINDOW")
         require(market_preflight["ready"] is True
                 and gate["session_date"] == market_preflight["session_date"],
@@ -978,7 +1051,11 @@ def execute(control, control_sha, policy, bootstrap, history, drive, meter, cont
         if scheduling is not None:
             terminal["tier_progress"] = managed.tier_progress(
                 scheduling, tracked, dict(coverage, **updates), held, gate["session_date"])
-        if retained_start is not None:
+        if gap:
+            if held or rows != 20 or updates != dict.fromkeys(BENCHMARK_GAP_TICKERS, gate["session_date"]):
+                terminal["reason"] = "MANAGED_BENCHMARK_GAP_INCOMPLETE"
+                raise Refused(terminal["reason"])
+        elif retained_start is not None:
             if held or updates != dict.fromkeys(tracked, gate["session_date"]):
                 terminal["reason"] = "MANAGED_RETAINED_QQQ_INCOMPLETE"
                 raise Refused(terminal["reason"])
@@ -1051,22 +1128,28 @@ def run(args, *, gh=campaign.gh_json, drive_factory=OwnerDrive, clock=campaign.u
     if policy.get("automatic_capture_enabled") is not True:
         return dict(status="WAIT_OWNER_EVIDENCE", provider_requests=0, dispatches=0,
                     collection_enabled=False, source_admission=False, pit_verified=False)
-    raw = os.environ.get("A1_MANAGED_OHLCV_CONTROL", "")
+    gap_requested = os.environ.get("A1_MANAGED_BENCHMARK_GAP", "") == "true"
+    control_name = "A1_MANAGED_BENCHMARK_GAP_CONTROL" if gap_requested else "A1_MANAGED_OHLCV_CONTROL"
+    raw = os.environ.get(control_name, "")
     require(0 < len(raw.encode()) <= 16384, "MANAGED_CONTROL_REQUIRED")
     control = decode(raw.encode())
     now = clock()
     control_sha = validate_control(control, inventory_sha, policy_sha, now)
+    gap = control.get("benchmark_gap_recovery") is True
+    require(gap == gap_requested, "MANAGED_BENCHMARK_GAP_ROUTE")
     deadline = min(campaign.utc(control["expires_at"]),
                    now + timedelta(seconds=control["max_active_seconds_per_run"]))
     gh = MetadataReader(gh, deadline, clock)
     ctx = context_from_env()
+    require(not gap or ctx["event"] == "workflow_dispatch", "MANAGED_BENCHMARK_GAP_ROUTE")
     deployed_at = deployed_source(control, gh, ctx)
     require(owner_grant(control, control_sha, gh, now) >= deployed_at, "MANAGED_GRANT_PREDATES_DEPLOYMENT")
-    history = run_history(control, gh, ctx)
+    history = benchmark_gap_history(control, gh, ctx) if gap else run_history(control, gh, ctx)
     source_history_fence(control, gh)
     observed = clock()  # metadata validation must not freeze the provider clock
     require(observed >= now, "MANAGED_MARKET_CLOCK_REGRESSION")
-    gate = managed.cadence_market_gate(now_utc=observed, cadence=control.get("cadence"))
+    gate = (benchmark_gap_market_gate(observed) if gap
+            else managed.cadence_market_gate(now_utc=observed, cadence=control.get("cadence")))
     target_sessions = benchmark_sessions(control)
     if target_sessions:
         require(gate.get("session_date") == target_sessions[-1], "MANAGED_BENCHMARK_SESSION_CHANGED")
