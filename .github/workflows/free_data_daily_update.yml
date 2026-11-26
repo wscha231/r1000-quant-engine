@@ -1,10 +1,15 @@
 name: Free Data Daily Update
+run-name: ${{ github.event_name == 'workflow_dispatch' && inputs.managed_benchmark_gap && 'A1 SIP SPY-QQQ November 2026 gap recovery' || 'Free Data Daily Update' }}
 
 on:
   workflow_dispatch:
     inputs:
       managed_refresh:
         description: 'Explicit private A1 maintenance request; requires deployed policy and standing OWNER evidence'
+        type: boolean
+        default: false
+      managed_benchmark_gap:
+        description: 'One owner-bound SPY and QQQ capture for the five missing November 2026 sessions'
         type: boolean
         default: false
       force_run:
@@ -34,10 +39,11 @@ jobs:
   managed_a1_refresh:
     name: Managed A1 private OHLCV refresh
     if: >-
-      vars.A1_MANAGED_OHLCV_ENABLED == 'true' &&
       github.ref == 'refs/heads/master' &&
-      (github.event_name == 'schedule' ||
-       (github.event_name == 'workflow_dispatch' && inputs.managed_refresh))
+      ((github.event_name == 'workflow_dispatch' && inputs.managed_benchmark_gap && !inputs.managed_refresh) ||
+       (vars.A1_MANAGED_OHLCV_ENABLED == 'true' &&
+        (github.event_name == 'schedule' ||
+         (github.event_name == 'workflow_dispatch' && inputs.managed_refresh && !inputs.managed_benchmark_gap))))
     runs-on: ubuntu-latest
     timeout-minutes: 90
     concurrency:
@@ -62,7 +68,9 @@ jobs:
       - name: Verify standing rights, cumulative reservation and missing intervals
         env:
           PYTHONPATH: .
-          A1_MANAGED_OHLCV_CONTROL: ${{ secrets.A1_MANAGED_OHLCV_CONTROL }}
+          A1_MANAGED_OHLCV_CONTROL: ${{ !inputs.managed_benchmark_gap && secrets.A1_MANAGED_OHLCV_CONTROL || '' }}
+          A1_MANAGED_BENCHMARK_GAP: ${{ github.event_name == 'workflow_dispatch' && inputs.managed_benchmark_gap }}
+          A1_MANAGED_BENCHMARK_GAP_CONTROL: ${{ inputs.managed_benchmark_gap && secrets.A1_MANAGED_BENCHMARK_GAP_CONTROL || '' }}
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
           MACRO_DRIVE_CONFIG: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
@@ -83,7 +91,7 @@ jobs:
           retention-days: 90
 
   daily_update:
-    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.managed_refresh }}
+    if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.managed_refresh && !inputs.managed_benchmark_gap) }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
 

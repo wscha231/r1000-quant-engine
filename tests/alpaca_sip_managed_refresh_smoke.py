@@ -354,6 +354,119 @@ class ComponentHoldTests(unittest.TestCase):
             self.assertEqual(collect.call_count, 1)
             self.assertEqual(runtime.journal_rows(self.drive, self.control), baseline)
 
+    def benchmark_gap_control(self):
+        self.now = runtime.campaign.utc("2026-11-26T12:00:00Z")
+        self.control.update(task_key=runtime.BENCHMARK_GAP_TASK, benchmark_gap_recovery=True,
+            not_before="2026-11-26T11:00:00Z", expires_at="2026-11-27T11:00:00Z",
+            max_runs=1, max_symbols_per_run=2, authorized_tickers=["QQQ", "SPY"],
+            execution_tickers=["QQQ", "SPY"], per_run_allowance=dict(runtime.BENCHMARK_GAP_CAPS),
+            bootstrap_ref={"sha256": "a" * 64})
+        self.meter = runtime.campaign.RuntimeMeter(self.control["per_run_allowance"],
+            self.root / "gap-meter.json", (self.now + timedelta(minutes=5)).isoformat(),
+            dict(run_id=1, run_attempt=1, source_sha="2" * 40, managed_control_sha256="b" * 64,
+                 parent_checkpoint_sha256=None, examined_before=0),
+            clock=lambda: self.now, opener=self.opener)
+        self.drive.meter = self.meter
+        self.identities = {}
+
+    def test_benchmark_gap_scope_calendar_and_single_named_attempt(self):
+        self.benchmark_gap_control()
+        scope = runtime.execution_scope(self.control)
+        self.assertTrue(runtime.benchmark_gap_recovery(self.control, scope))
+        self.assertEqual(runtime.benchmark_gap_market_gate(self.now)["session_date"], "2026-11-24")
+        with self.assertRaisesRegex(runtime.Refused, "^MANAGED_BENCHMARK_GAP_UNSETTLED$"):
+            runtime.benchmark_gap_market_gate(runtime.campaign.utc("2026-11-25T00:14:58Z"))
+        for change in ({"max_runs": 2}, {"backfill_tickers": ["SPY"]},
+                       {"retained_qqq_from_session": "2026-11-25"}, {"include_previous_close": True},
+                       {"authorized_tickers": ["AAPL", "QQQ", "SPY"]}):
+            with self.subTest(change=change), self.assertRaisesRegex(runtime.Refused, "^MANAGED_BENCHMARK_GAP_SCOPE$"):
+                runtime.benchmark_gap_recovery(dict(self.control, **change), scope)
+        current = dict(id=1, head_sha="2" * 40, status="in_progress", event="workflow_dispatch",
+                       head_branch="master", run_attempt=1, created_at="2026-11-26T12:00:00Z",
+                       display_title=runtime.BENCHMARK_GAP_RUN)
+        ctx = dict(run_id=1, head="2" * 40)
+        self.assertEqual(runtime.benchmark_gap_history(self.control,
+            lambda _: dict(workflow_runs=[current], total_count=1), ctx), [current])
+        with self.assertRaisesRegex(runtime.Refused, "^MANAGED_BENCHMARK_GAP_ALREADY_ATTEMPTED$"):
+            runtime.benchmark_gap_history(self.control, lambda _: dict(
+                workflow_runs=[current, dict(current, id=2, status="completed")], total_count=2), ctx)
+        with self.assertRaisesRegex(runtime.Refused, "^MANAGED_BENCHMARK_GAP_HISTORY$"):
+            runtime.benchmark_gap_history(self.control,
+                lambda _: dict(workflow_runs=[current], total_count=2), ctx)
+
+    def test_benchmark_gap_archives_exact_window_and_hands_off_one_group(self):
+        self.benchmark_gap_control()
+        before = [self.scoped_baseline({t: ["2026-11-17"]}, start="2026-11-17", end="2026-11-18")
+                  for t in ("SPY", "QQQ")]
+        old_bootstrap = dict(groups=before, asset_identity_refs={})
+        gate = runtime.benchmark_gap_market_gate(self.now)
+        run = dict(id=1, head_sha="2" * 40)
+        result = runtime.execute(self.control, "b" * 64, dict(active_tickers=["AAPL", "SPY"], watch_tickers=[]),
+            old_bootstrap, [run], self.drive, self.meter, dict(run_id=1, head="2" * 40),
+            "fixture-key", "fixture-secret", lambda: self.now, market_preflight=gate)
+        self.assertEqual((result["session"], result["rows"], result["held"]), ("2026-11-24", 20, 0))
+        self.meter.finish("COMPLETE")
+        meter = runtime.decode(self.meter.journal.read_bytes())
+
+        def verify_final(producer, checkpoint):
+            return runtime.verify_final_meter(meter, producer, checkpoint, "b" * 64, runtime.BENCHMARK_GAP_CAPS)
+
+        rows = runtime.journal_rows(self.drive, self.control)
+        parent, coverage, held = runtime.restore_journal(rows, [run, dict(id=2)], "b" * 64, verify_final)
+        self.assertEqual((parent, coverage, held),
+            (result["checkpoint_sha256"], {"QQQ": "2026-11-24", "SPY": "2026-11-24"}, {}))
+        terminal = next(row for sha256, row in rows if sha256 == parent)
+        self.assertEqual(terminal["archival_benchmark_gap"], dict(
+            sessions=list(runtime.BENCHMARK_GAP_SESSIONS), baseline_session="2026-11-17", bootstrap_sha256="a" * 64))
+        self.assertEqual(len(self.opener.urls), 4)
+        queries = [parse_qs(urlsplit(url).query) for url in self.opener.urls if "/bars?" in url]
+        self.assertEqual({q["adjustment"][0] for q in queries}, {"raw", "split"})
+        self.assertTrue(all(q["symbols"] == ["QQQ,SPY"] and q["feed"] == ["sip"]
+                            and q["start"] == ["2026-11-18T00:00:00Z"]
+                            and q["end"] == ["2026-11-24T23:59:59Z"] for q in queries))
+
+        # The recovery run proves the chain separately. The new 608 bootstrap
+        # uses its latest verified receipt once, while original past groups remain in Drive.
+        recovered = dict(provider="alpaca_sip", symbols=["QQQ", "SPY"],
+                         receipt=terminal["receipts"][0]["objects"][-1])
+        self.control.pop("benchmark_gap_recovery")
+        self.retained_qqq_control()
+        benchmark = {"QQQ", "SPY"}
+        retained = runtime.bootstrap_coverage(self.drive, self.control, dict(groups=[recovered]), benchmark)
+        self.assertEqual(retained, coverage)
+        self.assertEqual(runtime.missing_windows(benchmark, retained, "2026-11-25", set()),
+            ({("2026-11-25", "2026-11-26"): ["QQQ", "SPY"]}, [], {}))
+        with self.assertRaisesRegex(runtime.Refused, "^MANAGED_BOOTSTRAP_DUPLICATE$"):
+            runtime.bootstrap_coverage(self.drive, self.control, dict(groups=before + [recovered]), benchmark)
+        self.meter = runtime.campaign.RuntimeMeter(self.control["per_run_allowance"],
+            self.root / "tail-meter.json", (self.now + timedelta(minutes=5)).isoformat(),
+            dict(run_id=2, run_attempt=1, source_sha="2" * 40, managed_control_sha256="c" * 64,
+                 parent_checkpoint_sha256=None, examined_before=0),
+            clock=lambda: self.now, opener=self.opener)
+        self.drive.meter = self.meter
+        tail, held, _, _, count = self.collect([recovered], tracked=("QQQ", "SPY"), session="2026-11-25")
+        self.assertEqual((tail, held, count), ({"QQQ": "2026-11-25", "SPY": "2026-11-25"}, {}, 4))
+        tail_queries = [parse_qs(urlsplit(url).query) for url in self.opener.urls[4:] if "/bars?" in url]
+        self.assertEqual(len(tail_queries), 2)
+        self.assertTrue(all(q["start"] == ["2026-11-25T00:00:00Z"]
+                            and q["end"] == ["2026-11-25T23:59:59Z"] for q in tail_queries))
+
+    def test_benchmark_gap_requires_the_prior_close_before_any_provider_call(self):
+        self.benchmark_gap_control()
+        older = self.scoped_baseline({"QQQ": ["2026-11-16"], "SPY": ["2026-11-16"]},
+                                    start="2026-11-16", end="2026-11-17")
+        with self.assertRaisesRegex(runtime.Refused, "^MANAGED_BENCHMARK_GAP_BASELINE$"):
+            self.collect([older], tracked=("QQQ", "SPY"), session="2026-11-24")
+        self.assertEqual(self.opener.urls, [])
+
+    def test_benchmark_gap_manual_workflow_separates_the_controls(self):
+        workflow = (runtime.ROOT / ".github/workflows/free_data_daily_update.yml").read_text(encoding="utf-8")
+        self.assertIn(runtime.BENCHMARK_GAP_RUN, workflow)
+        self.assertIn("inputs.managed_benchmark_gap && !inputs.managed_refresh", workflow)
+        self.assertIn("(!inputs.managed_refresh && !inputs.managed_benchmark_gap)", workflow)
+        self.assertIn("inputs.managed_benchmark_gap && secrets.A1_MANAGED_BENCHMARK_GAP_CONTROL || ''", workflow)
+        self.assertIn("!inputs.managed_benchmark_gap && secrets.A1_MANAGED_OHLCV_CONTROL || ''", workflow)
+
     def test_transient_benchmark_refuses_oversized_ranges_before_provider(self):
         self.benchmark_window()
         window = self.control["first_capture_identity"]["benchmark_window"]

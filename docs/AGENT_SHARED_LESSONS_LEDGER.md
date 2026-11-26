@@ -1,5 +1,20 @@
 # Agent Shared Lessons Ledger
 
+## 2026-11-26 KST — Keep the two-benchmark archive recovery separate
+
+- The approved Alpaca store's 304 recent receipts matched the two stock-only
+  runs. OHLC.io November 18 and 19 readback proves a separate raw series.
+  The finite manual recovery uses a dedicated grant and journal and derives
+  exactly five missing sessions from the verified November 17 benchmark
+  prefix. Restore its complete checkpoint and final meter before preparing
+  the next bootstrap. Use one recovered SPY/QQQ group there and preserve the
+  older originals separately for history.
+- PR 826's focused collector smoke passed while the broader control-plane
+  checks caught a changed ordinary policy refusal and the prior workflow
+  predicate. Keep the ordinary policy scope check before subset validation
+  and exercise both mutually exclusive manual inputs in the control-plane
+  contract before submitting the reviewed head.
+
 ## 2026-11-26 KST — Continue retained QQQ under a finite managed scope
 
 - The original QQQ exception is a one-run discovery path. To continue its
