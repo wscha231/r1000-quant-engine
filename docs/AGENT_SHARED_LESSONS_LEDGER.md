@@ -12099,3 +12099,14 @@ The early-cycle gate gave identical positive credit to missing and observed-flat
   Normalize them to New York before counting calendar days. The anchor is
   outside the validated NAV grid, so measure its leading interval using
   actual NYSE closes after the anchor timestamp and test both cases end to end.
+
+### 2026-11-26 — Render daily crisis diagnostics from the stored JSON order
+
+- Sorted JSON can reorder nested evidence tables even when the report values
+  are identical. Render the Markdown from the same serialized summary used by
+  the Drive preflight and write both as UTF-8 bytes. Preserve the byte-match
+  guard and the blocked report's no-history and no-action boundaries.
+- Run 45753892037 failed before Drive transport in the report-pair guard. The
+  retained research report reproduces this failure mode with reordered evidence.
+  Without the run's original daily pair, the exact cause of its failure remains
+  unconfirmed.
