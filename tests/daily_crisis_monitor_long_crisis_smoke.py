@@ -233,6 +233,10 @@ class LegacyCurrentnessTests(unittest.TestCase):
                                 cutoff="2026-10-17T00:45:00+00:00", session="2026-10-16")
         # A partial current diagnostic remains evidence, not a reason to reopen G0.
         report["financing_conditions"] = {"status": "OBSERVED", "fixture": True}
+        report["existing_market_context"] = {"macro": {
+            "vix": {"observation_date": "2026-10-16", "value": 21.0, "status": "OBSERVED"},
+            "hy_oas": {"observation_date": "2026-10-15", "value": 3.2, "status": "OBSERVED"},
+        }}
         before = copy.deepcopy(report)
         def attach(payload, args, now):
             payload["market_analysis"] = report
@@ -243,6 +247,14 @@ class LegacyCurrentnessTests(unittest.TestCase):
         self.assertEqual(result[0]["market_analysis"], before)
         self.assertEqual(report, before)
         self.assertFalse(result[0]["long_crisis"]["current_report_eligible"])
+        root = self.root / "report"
+        stored = json.loads((root / "summary.json").read_bytes())
+        self.assertEqual(stored["expected_session"], "2026-10-16")
+        markdown = root / "crisis_action_status.md"
+        # Use the same comparison as the workflow's pre-sync verification.
+        rendered = monitor.render_report(stored)
+        self.assertEqual(markdown.read_text(encoding="utf-8"), rendered)
+        self.assertEqual(markdown.read_bytes(), rendered.encode("utf-8"))
 
     def test_missing_or_corrupt_configured_a4_request_uses_native_refusal(self):
         root = self.root/"market_inputs"

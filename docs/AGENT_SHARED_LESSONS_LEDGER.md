@@ -12113,3 +12113,19 @@ The early-cycle gate gave identical positive credit to missing and observed-flat
 - The archived Price174 regression checks both workflow sparse checkout
   boundaries. Put the dated profile in the existing pinned backfill file and
   preserve the checkout lists byte for byte.
+
+### 2026-11-26 — Render daily crisis diagnostics from the stored JSON order
+
+- Sorted JSON can reorder nested evidence tables even when the report values
+  are identical. Render the Markdown from the same serialized summary used by
+  the Drive preflight and write both as UTF-8 bytes. Preserve the byte-match
+  guard and the blocked report's no-history and no-action boundaries.
+- Run 45753892037 failed before Drive transport in the report-pair guard. The
+  retained research report reproduces this failure mode with reordered evidence.
+  Without the run's original daily pair, the exact cause of its failure remains
+  unconfirmed.
+- The full locally optimized smoke surfaced a Windows harness difference.
+  Restoring a patched environment removed injected empty Git config values.
+  On Python 3.14 the existing deep JSON fixture was still blocked by the
+  source schema but did not produce the expected decoder reason. Use the
+  repository's Python 3.12 CI for the full PR result.
