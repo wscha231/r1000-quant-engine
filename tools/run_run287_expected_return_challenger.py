@@ -95,8 +95,12 @@ def _binding_features(row: Mapping[str, Any], names: list[str]) -> str:
 
 def _pre_fit_source_bindings(requests, universe, schema):
     """Bind metadata to the full denominator before either features or labels are used."""
-    _binding_need(type(requests) is list and 1 <= len(requests) <= 8, "reader_requests")
     scoped = schema == PRE_FIT_ISSUER_BINDING_SCHEMA
+    # V2 descriptors are metadata, already subject to the reference byte cap.
+    # The cohort can require a distinct generation for each of its issuers.
+    _binding_need(type(requests) is list and
+                  1 <= len(requests) <= (min(len(universe), PRE_FIT_MAX_ROWS) + 1 if scoped else 8),
+                  "reader_requests")
     price_instruments = set()
     issuer_instruments = {}
     instrument_owners = {}
@@ -112,6 +116,8 @@ def _pre_fit_source_bindings(requests, universe, schema):
             price_owner = price_owners.setdefault((feature_date, ids["prices"]), issuer)
             _binding_need(price_owner == issuer, "price_instrument_issuer_conflict")
 
+    if scoped:
+        _binding_need(len(requests) <= len(issuer_instruments) + 1, "reader_requests")
     price_hash = None
     price_generation = None
     financial = {}
@@ -313,6 +319,18 @@ def validate_pre_fit_binding(frame: pd.DataFrame, binding: Mapping[str, Any],
         _binding_need(len(mature[horizon]) >= contract["model"]["minimum_training_rows"] and
                       len(set(mature[horizon])) >= contract["model"]["minimum_training_decision_dates"],
                       "insufficient_mature_training_cohort")
+    recent_start = decision_day - pd.DateOffset(months=contract["model"]["recent_history_months"])
+    date_floor = recent_start.date().isoformat()
+    recent_mature = {h: [date for date in dates if date >= date_floor] for h, dates in mature.items()}
+    recent_cohort = {
+        str(h): {"rows": len(dates), "decision_dates": len(set(dates))}
+        for h, dates in recent_mature.items()
+    }
+    minimum_rows = contract["model"]["minimum_training_rows"]
+    minimum_dates = contract["model"]["minimum_training_decision_dates"]
+    recent_blockers = [str(h) for h in (63, 126)
+                       if recent_cohort[str(h)]["rows"] < minimum_rows
+                       or recent_cohort[str(h)]["decision_dates"] < minimum_dates]
     experiment = values["experiment"]
     _binding_need(type(experiment.get("candidate_id")) is str and bool(experiment["candidate_id"]) and
                   all(type(experiment.get(name)) is str and SHA256_RE.fullmatch(experiment[name]) is not None
@@ -327,6 +345,8 @@ def validate_pre_fit_binding(frame: pd.DataFrame, binding: Mapping[str, Any],
             "completed_decision_session":completed.date().isoformat(),
             "training_label_cutoff_exclusive": completed.isoformat(),
             "mature_rows": {str(h): len(mature[h]) for h in HORIZONS},
+            "recent_mature_cohort": {"start_inclusive": date_floor, "by_horizon": recent_cohort,
+                                     "horizons_below_minimum": recent_blockers},
             "reference_sha256": reference_hashes, "reader_requests": requests,
             "source_authentication": "NOT_REPLAYED", "source_admission_granted": False,
             "selection_source_authentication": "HASH_REFERENCES_NOT_REPLAYED",
