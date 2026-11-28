@@ -14,6 +14,9 @@
 - SEC fails-to-deliver files can corroborate a ticker and CUSIP on a settlement
   date. Later publication and missing zero-balance records make the series
   unsuitable as a real-time identity feed, price clock, or listing register.
+- Validate the entire benchmark response against its separately recorded
+  observation clock. Filtering to requested dates can hide a later bar in a
+  response that would otherwise be accepted as available earlier.
 
 ## 2026-11-27 KST — Separate pre-fit descriptor count from financial admission
 

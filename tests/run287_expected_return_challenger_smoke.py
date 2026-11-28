@@ -1806,7 +1806,6 @@ def test_pre_fit_historical_financial_release_is_bound_and_fail_closed():
             return pin
 
         original_pin = store("objects", original)
-        observation_pin = store("objects", b"synthetic original dissemination observation")
         rights_pin = store("objects", b"synthetic rights source")
         features_pin = store("objects", b"synthetic feature replay evidence")
         identity_pin = store("objects", b"synthetic identity replay evidence")
@@ -1818,19 +1817,27 @@ def test_pre_fit_historical_financial_release_is_bound_and_fail_closed():
         label = dict(feature_date=row["feature_date"], ticker=row["ticker"], security_id=row["security_id"],
                      horizon=63, stock_return=110.0 / 100.0 - 1, benchmark_return=105.0 / 100.0 - 1,
                      stock_label_end=end, benchmark_label_end=end, available_at=end + "T23:00:00+00:00")
-        chart_pin = store("objects", {"chart": {"result": [{
-            "meta": {"symbol": "SPY", "currency": "USD", "instrumentType": "ETF",
-                     "exchangeTimezoneName": "America/New_York"},
-            "timestamp": [int(pd.Timestamp(day + "T15:00:00Z").timestamp()) for day in (entry, end)],
-            "indicators": {"quote": [{"close": [100.0, 105.0], "volume": [100, 200]}],
-                           "adjclose": [{"adjclose": [100.0, 105.0]}]},
-        }]}})
+        def chart(rows):
+            return store("objects", {"chart": {"result": [{
+                "meta": {"symbol": "SPY", "currency": "USD", "instrumentType": "ETF",
+                         "exchangeTimezoneName": "America/New_York"},
+                "timestamp": [int(pd.Timestamp(day + "T15:00:00Z").timestamp()) for day, _ in rows],
+                "indicators": {"quote": [{"close": [value for _, value in rows], "volume": [100] * len(rows)}],
+                               "adjclose": [{"adjclose": [value for _, value in rows]}]},
+            }]}})
+
+        def observation(source, raw, observed, basis):
+            return store("objects", {"schema": "run287-historical-original-observation-v1",
+                                     "source": source, "raw_source_sha256": raw,
+                                     "observed_at": observed, "basis": basis})
 
         def prepare(*, available="2024-11-12T15:06:00Z", purpose="training",
-                    primary_pin=original_pin, row_overrides=None, bad_benchmark=None):
+                    primary_pin=original_pin, row_overrides=None, bad_benchmark=None,
+                    future_chart=False, late_capture=False):
             proof = dict(schema="sec-as-filed-availability-proof-v1", accession=accession,
                          original_sha256=primary_pin, available_at=available,
-                         basis="ORIGINAL_DISSEMINATION", original_observation_sha256=observation_pin)
+                         basis="ORIGINAL_DISSEMINATION", original_observation_sha256=observation(
+                             "SEC_EDGAR_AS_FILED", primary_pin, "2024-11-12T15:06:00Z", "ORIGINAL_DISSEMINATION"))
             filing = dict(accession=accession, cik="0000001234", form="10-Q",
                           accepted_at="2024-11-12T15:05:00Z", available_at=available,
                           availability_basis="ORIGINAL_DISSEMINATION", original_sha256=primary_pin,
@@ -1852,15 +1859,23 @@ def test_pre_fit_historical_financial_release_is_bound_and_fail_closed():
             rights = store("objects", dict(scope, schema="run287-historical-training-rights-v1",
                 purpose=purpose, valid_from="2025-08-01T00:00:00Z", expires_at="2025-09-01T00:00:00Z",
                 original_rights_sha256=dict.fromkeys(("prices", "benchmark", "financial"), rights_pin)))
-            clocks = [dict(session_date=day, available_from=day + "T23:00:00Z", raw_source_sha256=chart_pin)
-                      for day in (entry, end)]
-            clock_pin = store("objects", {"schema": "run287-benchmark-original-availability-v1", "source": "YF:SPY",
-                                         "security_id": "CUSIP:78462F103", "rows": clocks,
-                                         "availability_basis": "CONTEMPORANEOUS_VERIFIED_CAPTURE",
-                                         "original_observation_sha256": observation_pin})
-            benchmark = [dict(clock, ticker="SPY", source="YF:SPY", security_id="CUSIP:78462F103",
-                              availability_proof_sha256=clock_pin, close=value)
-                         for clock, value in zip(clocks, (100.0, 105.0))]
+            benchmark = []
+            capture_basis = "CONTEMPORANEOUS_VERIFIED_CAPTURE"
+            for day, value in ((entry, 100.0), (end, 105.0)):
+                chart_rows = [(day, value)]
+                if future_chart and day == entry:
+                    chart_rows.append(("2025-09-02", 130.0))
+                raw_pin = chart(chart_rows)
+                observed = day + ("T23:00:01Z" if late_capture and day == end else "T23:00:00Z")
+                clock = dict(session_date=day, available_from=day + "T23:00:00Z", raw_source_sha256=raw_pin)
+                clock_pin = store("objects", {
+                    "schema": "run287-benchmark-original-availability-v1", "source": "YF:SPY",
+                    "security_id": "CUSIP:78462F103", "rows": [clock], "raw_source_sha256": raw_pin,
+                    "availability_basis": capture_basis,
+                    "original_observation_sha256": observation("YF:SPY", raw_pin, observed, capture_basis),
+                })
+                benchmark.append(dict(clock, ticker="SPY", source="YF:SPY", security_id="CUSIP:78462F103",
+                                      availability_proof_sha256=clock_pin, close=value))
             if bad_benchmark:
                 benchmark[-1].update(bad_benchmark)
             labels = [dict(label, entry_session=entry, endpoint_row_sha256=[
@@ -1926,6 +1941,11 @@ def test_pre_fit_historical_financial_release_is_bound_and_fail_closed():
         validate(wrong_price, [approval], "historical_label_original_benchmark_close", expected_price_calls=1)
         wrong_clock, approval = prepare(bad_benchmark={"available_from": end + "T23:30:00Z"})
         validate(wrong_clock, [approval], "historical_label_benchmark_publication_clock", expected_price_calls=1)
+        late_original, approval = prepare(late_capture=True)
+        validate(late_original, [approval], "historical_label_benchmark_publication_clock", expected_price_calls=1)
+        future_original, approval = prepare(future_chart=True)
+        validate(future_original, [approval], "historical_label_benchmark_original_after_observation",
+                 expected_price_calls=1)
         validate(readiness, [approved], "historical_training_exact_default_branch_required", head="2" * 40)
         validate(readiness, [approved], "historical_training_review_clock", observed="2025-09-01T00:00:00Z")
         undersized = dict(readiness, recent_mature_cohort={"horizons_below_minimum": ["126"]})

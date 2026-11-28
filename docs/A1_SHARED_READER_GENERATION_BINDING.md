@@ -580,6 +580,10 @@ SPY originals. The runner parses the original Yahoo adjusted closes, matches
 the scoped benchmark availability receipt and compares the result and the
 latest of both legs' clocks to the bound label. The A6-reviewed stock input
 must carry the total-return basis. No portfolio execution calculation changes.
+The SEC and Yahoo receipts also bind an independent observation to each
+original response hash. A later receipt cannot certify an earlier label
+clock. A chart body with a market session after its recorded observation
+fails even when that session is outside the requested label window.
 
 Rights, review and availability objects are read from the existing
 `shared-research-v1/objects` archive and issuer packets from its

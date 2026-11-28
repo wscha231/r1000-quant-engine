@@ -637,6 +637,16 @@ def _pre_fit_training_review(readiness, prices, financial, read_object):
     return pin, registry_head, label_proof
 
 
+def _pre_fit_source_observation(proof, source, raw_pin, read_object):
+    """Bind the approved clock to the exact version of the provider response."""
+    observation = _binding_json(read_object("objects", proof["original_observation_sha256"]))
+    _binding_need(observation["schema"] == "run287-historical-original-observation-v1" and
+                  observation["source"] == source and observation["raw_source_sha256"] == raw_pin and
+                  observation["basis"] == proof["availability_basis"],
+                  "historical_original_observation_identity")
+    return _binding_stamp(observation["observed_at"])
+
+
 def _replay_pre_fit_financial_source(request, readiness, read_object, review_pin):
     from zoneinfo import ZoneInfo
     from tools.sec_filing_version_research import _header_value
@@ -673,7 +683,9 @@ def _replay_pre_fit_financial_source(request, readiness, read_object, review_pin
                       publication["available_at"] == filing["available_at"] and
                       publication["basis"] == filing["availability_basis"],
                       "historical_financial_publication_proof")
-        read_object("objects", publication["original_observation_sha256"])
+        _binding_need(accepted <= _pre_fit_source_observation(
+            dict(publication, availability_basis=publication["basis"]), "SEC_EDGAR_AS_FILED",
+            filing["original_sha256"], read_object) <= available, "historical_financial_observation_clock")
         original = read_object("objects", filing["original_sha256"], 8 * 1024 * 1024)
         header, sep, body = original.partition(b"</SEC-HEADER>")
         _binding_need(bool(sep) and len(header) <= 32 * 1024 and b"<DOCUMENT>" in body and
@@ -723,6 +735,7 @@ def _replay_pre_fit_financial_source(request, readiness, read_object, review_pin
 
 def _replay_pre_fit_label_sources(proof, stock_rows, readiness, read_object):
     """Join approved benchmark bytes and live Reader rows to every mature label."""
+    from zoneinfo import ZoneInfo
     from tools.run_multi_asset_leadership import parse_chart
 
     labels, benchmark_rows = proof["labels"], proof["benchmark_rows"]
@@ -744,12 +757,7 @@ def _replay_pre_fit_label_sources(proof, stock_rows, readiness, read_object):
     _binding_need(all(session in closes and closes[session] <= stamp for session, (_, stamp) in benchmark.items()),
                   "historical_label_benchmark_clock")
     asset = {"asset_id": proof["benchmark_security_id"], "symbol": "SPY", "price_unit": "USD"}
-    for pin, sessions in originals.items():
-        native = parse_chart(read_object("objects", pin, 8 * 1024 * 1024), asset, readiness["decision_time"],
-                             {session: closes[session] for session in sessions})
-        values = {row["session"]: row["total_return_index"] for row in native}
-        _binding_need(all(values.get(session) == benchmark[session][0]["close"] for session in sessions),
-                      "historical_label_original_benchmark_close")
+    observation_clocks = {}
     for pin, sessions in clock_proofs.items():
         clock_doc = _binding_json(read_object("objects", pin))
         _binding_need(clock_doc["schema"] == "run287-benchmark-original-availability-v1" and
@@ -759,12 +767,31 @@ def _replay_pre_fit_label_sources(proof, stock_rows, readiness, read_object):
         _binding_need(clock_doc["availability_basis"] in
                       {"ORIGINAL_DISSEMINATION", "CONTEMPORANEOUS_VERIFIED_CAPTURE"},
                       "historical_label_benchmark_publication_basis")
-        read_object("objects", clock_doc["original_observation_sha256"])
+        raw_pin = clock_doc["raw_source_sha256"]
+        observation = _pre_fit_source_observation(clock_doc, "YF:SPY", raw_pin, read_object)
+        selected_observation = observation_clocks.setdefault(raw_pin, observation)
+        _binding_need(selected_observation == observation, "historical_label_benchmark_observation_conflict")
         observed = {item["session_date"]: (item["raw_source_sha256"], _binding_stamp(item["available_from"]))
                     for item in clock_doc["rows"]}
         _binding_need(len(observed) == len(clock_doc["rows"]) and all(
             observed.get(session) == (benchmark[session][0]["raw_source_sha256"], benchmark[session][1])
+            and observed[session][0] == raw_pin and observation <= observed[session][1]
             for session in sessions), "historical_label_benchmark_publication_clock")
+    eastern = ZoneInfo("America/New_York")
+    for pin, sessions in originals.items():
+        raw = read_object("objects", pin, 8 * 1024 * 1024)
+        observed = observation_clocks[pin]
+        native = parse_chart(raw, asset, observed.isoformat(), {session: closes[session] for session in sessions})
+        timestamps = _binding_json(raw)["chart"]["result"][0]["timestamp"]
+        last_day = datetime.fromtimestamp(max(timestamps), eastern).date().isoformat()
+        if last_day not in closes:
+            day = NYSE.schedule(start_date=last_day, end_date=last_day)
+            _binding_need(len(day) == 1, "historical_label_benchmark_observation_session")
+            closes[last_day] = pd.Timestamp(day.iloc[0]["market_close"])
+        _binding_need(closes[last_day] <= observed, "historical_label_benchmark_original_after_observation")
+        values = {row["session"]: row["total_return_index"] for row in native}
+        _binding_need(all(values.get(session) == benchmark[session][0]["close"] for session in sessions),
+                      "historical_label_original_benchmark_close")
 
     fields = ("feature_date", "ticker", "horizon", "security_id", "stock_return",
               "benchmark_return", "stock_label_end", "benchmark_label_end", "available_at")
