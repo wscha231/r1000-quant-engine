@@ -1,5 +1,14 @@
 # Agent Shared Lessons Ledger
 
+## 2026-11-28 KST — Bind the exact financial replay and data rights before fit
+
+- Exact 63-session price arithmetic and dated issuer/class witnesses can be
+  recovered without proving a historical tradable security, the original
+  label availability or training rights. Keep those limits in the receipt.
+- Seal the complete V2 feature and label binding, rights, and independent A6
+  replay before allowing reviewed as-filed financial bytes into the fit path.
+  Require the same protected registry head at the canonical U0 gate.
+
 ## 2026-11-27 KST — Separate pre-fit descriptor count from financial admission
 
 - Bound V2 Reader descriptors by one price generation plus the distinct

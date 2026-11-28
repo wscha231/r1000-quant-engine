@@ -550,3 +550,35 @@ Each requested fact context must be unique and observed in the original after
 validation; extra missing references cannot accompany a valid context. Numeric
 scale uses the exact Decimal sign/digits/exponent tuple without ambient-context
 rounding, including signed values beyond28 significant digits.
+
+## Historical financial replay for the Run287 V2 pre-fit binding
+
+The Run287 pre-fit runner can replay an independently reviewed as-filed
+release for the full V2 denominator. Its authority is an exact
+`run287-reviewed-historical-training-v1` entry in the existing
+`admitted_frozen_generations` field of the protected default branch dataset
+registry. The entry pins the immutable review SHA-256 and the input binding
+content hash excluding its execution commit. This avoids a cycle when the
+registry is committed. The reviewed runner blob hash and existing exact
+execution commit check separately bind the code.
+The review joins the exact price generation, `YF:SPY`, every issuer generation,
+explicit time-limited training rights, and the independent A6 replay. No entry
+is shipped for any current research input.
+
+A6 must authenticate the original version, units, contexts, derived feature
+values, security and corporate-action lineage, and both label availability
+clocks, then bind its original replay to the full input binding hash. The
+runner rechecks the reviewed bytes, training scope, original SEC accession,
+CIK, form, reporting period, acceptance timestamp and availability proof.
+Every selected filing version must be available by its feature clock. The
+per-issuer row hash joins the original feature values, security, sessions and
+cutoffs to the complete V2 denominator, including the latest unlabelled rows.
+The existing price Reader still has to succeed in training mode.
+
+Rights, review and availability objects are read from the existing
+`shared-research-v1/objects` archive and issuer packets from its
+`generations` directory. Reads are local, byte-bounded and content-addressed.
+The registry head used by replay must match the canonical U0 artifact before
+fit. The original walk-forward, cohort controls and downstream release
+requirements still apply. This path cannot admit the research-date SEC
+packet or the forward archival CompanyFacts Reader.

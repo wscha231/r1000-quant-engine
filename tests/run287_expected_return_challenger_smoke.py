@@ -1383,9 +1383,11 @@ def test_pre_fit_separate_issuer_generations():
         for row in values[role]["rows"]:
             row["financial_generation_id"] = MOD.canonical_sha256(by_key[MOD._binding_key(row)])
 
-    def validate():
+    def validate(code_sha=None):
         binding, resolver, _ = _pre_fit_binding(values, decision)
         binding["schema"] = MOD.PRE_FIT_ISSUER_BINDING_SCHEMA
+        if code_sha is not None:
+            binding["code_sha"] = code_sha
         return MOD.validate_pre_fit_binding(frame, binding, cfg,
             feature_store_sha256=binding["feature_store_sha256"], artifact_resolver=resolver)
 
@@ -1449,10 +1451,13 @@ def test_pre_fit_separate_issuer_generations():
         _pre_fit_check("price_instrument_issuer_conflict" in str(exc), str(exc))
     else:
         raise AssertionError("one price instrument used for two issuers on the same date")
+    registry_only_commit = validate("a" * 40)
+    _pre_fit_check(registry_only_commit["training_input_sha256"] == result["training_input_sha256"] and
+                   registry_only_commit["binding_sha256"] != result["binding_sha256"], "approval has no Git commit cycle")
     try:
         MOD.replay_pre_fit_training_sources(result, ".")
     except ValueError as exc:
-        _pre_fit_check("FINANCIAL_TRAINING_ADMISSION_UNSUPPORTED" in str(exc), str(exc))
+        _pre_fit_check("HISTORICAL_FINANCIAL_TRAINING_RELEASE_MISSING" in str(exc), str(exc))
     else:
         raise AssertionError("metadata binding authorized a fit")
 
@@ -1764,6 +1769,132 @@ def test_pre_fit_public_price_reader_replay_is_not_financial_authority() -> None
         except ValueError as exc:_pre_fit_check("FINANCIAL_TRAINING_ADMISSION_UNSUPPORTED" in str(exc),str(exc))
         else:raise AssertionError("research-only financial route trained")
     finally:holder.doCleanups()
+
+
+def test_pre_fit_historical_financial_release_is_bound_and_fail_closed():
+    """Synthetic proofs exercise the reviewed route without issuing an approval."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        issuer = "CIK:0000001234"
+        accession = "0000001234-24-000020"
+        decision = "2025-08-29T20:10:00Z"
+        binding = "b" * 64
+        price = dict(role="prices", dataset_id=MOD.PRE_FIT_DATASETS["prices"],
+                     data_generation_id="c" * 64)
+        registry = {
+            "schema": "research-dataset-registry-v1", "mode": "RESEARCH_ONLY",
+            "eligible_for_selector": False, "admitted_frozen_generations": [],
+        }
+        row = dict(feature_date="2024-11-29", ticker="AAA", security_id="AAA-SHARES",
+                   financial_instrument_id=issuer, decision_at="2024-11-29T18:05:00Z",
+                   feature_available_at="2024-11-29T18:00:00Z", feature_sha256="e" * 64)
+        original = (
+            b"<SEC-HEADER>\n<ACCEPTANCE-DATETIME>20241112100500\n"
+            b"ACCESSION NUMBER: 0000001234-24-000020\nCENTRAL INDEX KEY: 0000001234\n"
+            b"CONFORMED SUBMISSION TYPE: 10-Q\nCONFORMED PERIOD OF REPORT: 20240930\n"
+            b"FILED AS OF DATE: 20241112\nDATE AS OF CHANGE: 20241112\n"
+            b"</SEC-HEADER>\n<DOCUMENT>\nfixture only\n</DOCUMENT>\n"
+        )
+
+        def store(directory, value):
+            raw = value if type(value) is bytes else MOD.canonical_bytes(value)
+            pin = MOD.hashlib.sha256(raw).hexdigest()
+            path = root / "shared-research-v1" / directory / pin
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(raw)
+            return pin
+
+        original_pin = store("objects", original)
+        observation_pin = store("objects", b"synthetic original dissemination observation")
+        rights_pin = store("objects", b"synthetic rights source")
+        review_pin = store("objects", b"synthetic replay evidence")
+
+        def prepare(*, available="2024-11-12T15:06:00Z", purpose="training",
+                    primary_pin=original_pin, row_overrides=None):
+            proof = dict(schema="sec-as-filed-availability-proof-v1", accession=accession,
+                         original_sha256=primary_pin, available_at=available,
+                         basis="ORIGINAL_DISSEMINATION", original_observation_sha256=observation_pin)
+            filing = dict(accession=accession, cik="0000001234", form="10-Q",
+                          accepted_at="2024-11-12T15:05:00Z", available_at=available,
+                          availability_basis="ORIGINAL_DISSEMINATION", original_sha256=primary_pin,
+                          availability_proof_sha256=store("objects", proof))
+            rows = [dict(row, **(row_overrides or {}), source_accessions=[accession])]
+            generation = store("generations", {
+                "schema": MOD.PRE_FIT_FINANCIAL_GENERATION_SCHEMA,
+                "dataset_id": MOD.PRE_FIT_DATASETS["financial"], "provider": "SEC_EDGAR_AS_FILED",
+                "issuer_id": issuer, "consumer_id": "SYNTHETIC", "eligible_for_selector": False,
+                "filings": [filing], "rows": rows,
+            })
+            financial = dict(role="financial", dataset_id=MOD.PRE_FIT_DATASETS["financial"],
+                             issuer_id=issuer, data_generation_id=generation, consumer_id="SYNTHETIC",
+                             instrument_ids=[issuer], required_sessions=["2024-11-29"],
+                             required_start="2024-11-29", required_end="2024-11-29", minimum_rows=1,
+                             expected_row_set_sha256=MOD.canonical_sha256(rows))
+            scope = dict(training_input_sha256=binding, financial_generations={issuer: generation},
+                         price_generation_id=price["data_generation_id"], benchmark_source="YF:SPY")
+            rights = store("objects", dict(scope, schema="run287-historical-training-rights-v1",
+                purpose=purpose, valid_from="2025-08-01T00:00:00Z", expires_at="2025-09-01T00:00:00Z",
+                original_rights_sha256=dict.fromkeys(("prices", "benchmark", "financial"), rights_pin)))
+            a6 = store("objects", {
+                "schema": "run287-historical-training-a6-v1", "training_input_sha256": binding,
+                "training_rights_sha256": rights, "status": "VERIFIED_ORIGINAL_FEATURE_LABEL_REPLAY",
+                "reviewed_at": "2025-08-28T20:00:00Z",
+                "original_replay_sha256": dict.fromkeys(
+                    ("financial_features", "security_identity", "label_availability"), review_pin),
+            })
+            review = store("objects", dict(scope, schema=MOD.PRE_FIT_FINANCIAL_REVIEW_SCHEMA,
+                purpose="training", classification="REAL_SOURCE", runner_sha256="d" * 64, training_rights_sha256=rights,
+                independent_a6_sha256=a6, reviewed_at="2025-08-29T18:00:00Z", expires_at="2025-09-01T00:00:00Z"))
+            accepted = {"schema": MOD.PRE_FIT_FINANCIAL_REVIEW_SCHEMA, "training_input_sha256": binding,
+                        "review_sha256": review}
+            readiness = {"schema": MOD.PRE_FIT_ISSUER_BINDING_SCHEMA, "training_input_sha256": binding,
+                         "decision_time": decision, "reader_requests": [price, financial],
+                         "recent_mature_cohort": {"horizons_below_minimum": []},
+                         "financial_feature_rows_sha256": {issuer: MOD.canonical_sha256([row])}}
+            return readiness, accepted
+
+        def validate(readiness, accepted=(), expected_error=None, observed=decision, head="1" * 40):
+            with patch.object(MOD, "git_blob_bytes", return_value=MOD.canonical_bytes(
+                    dict(registry, admitted_frozen_generations=list(accepted)))), \
+                    patch.object(MOD, "git_default_branch_sha", return_value="1" * 40), \
+                    patch.object(MOD, "git_head", return_value=head), \
+                    patch.object(MOD, "git_blob_sha256", return_value="d" * 64), \
+                    patch.object(MOD, "_v2_h1_observed_at", return_value=pd.Timestamp(observed)), \
+                    patch.object(MOD, "replay_pre_fit_price_source", return_value={"role": "prices"}) as reader:
+                if expected_error is not None:
+                    try:
+                        MOD.replay_pre_fit_training_sources(readiness, root)
+                    except ValueError as exc:
+                        _pre_fit_check(expected_error in str(exc), str(exc))
+                    else:
+                        raise AssertionError("unqualified financial release was replayed")
+                    _pre_fit_check(reader.call_count == 0, "failure precedes price Reader")
+                    return
+                result = MOD.replay_pre_fit_training_sources(readiness, root)
+                _pre_fit_check(reader.call_count == 1 and len(result) == 2, "both routes replay")
+                _pre_fit_check(result[1]["review_sha256"] == accepted[0]["review_sha256"], "release pin")
+
+        readiness, approved = prepare()
+        validate(readiness, expected_error="HISTORICAL_FINANCIAL_TRAINING_RELEASE_MISSING")
+        validate(readiness, [approved])
+        validate(readiness, [approved], "historical_training_exact_default_branch_required", head="2" * 40)
+        validate(readiness, [approved], "historical_training_review_clock", observed="2025-09-01T00:00:00Z")
+        undersized = dict(readiness, recent_mature_cohort={"horizons_below_minimum": ["126"]})
+        validate(undersized, [approved], "insufficient_recent_mature_training_cohort")
+        missing_rights, approval = prepare(purpose="research")
+        validate(missing_rights, [approval], "historical_training_rights")
+        late, approval = prepare(available="2024-11-29T18:06:00Z")
+        validate(late, [approval], "historical_financial_decision_clock")
+        relabelled, approval = prepare(row_overrides={"security_id": "ANOTHER-SHARE-CLASS"})
+        validate(relabelled, [approval], "historical_financial_feature_join")
+        unrelated_pin = store("objects", original.replace(b"0000001234-24-000020", b"0000001234-24-000021"))
+        wrong_filing, approval = prepare(primary_pin=unrelated_pin)
+        validate(wrong_filing, [approval], "historical_financial_original_filing")
+        later_amendment = store("objects", original.replace(b"CHANGE: 20241112", b"CHANGE: 20241205"))
+        changed_filing, approval = prepare(primary_pin=later_amendment)
+        validate(changed_filing, [approval], "historical_financial_original_version_clock")
+        (root / "shared-research-v1" / "objects" / original_pin).write_bytes(original + b"changed")
+        validate(readiness, [approved], "historical_training_object_bytes")
 
 
 def _calendar_check(condition, reason):
@@ -2361,6 +2492,7 @@ def main() -> int:
     test_pre_fit_separate_issuer_generations()
     test_pre_fit_mature_history_cannot_substitute_for_recent_cohort()
     test_pre_fit_public_price_reader_replay_is_not_financial_authority()
+    test_pre_fit_historical_financial_release_is_bound_and_fail_closed()
     test_pre_fit_optional_timing_and_peer_actual_maturity()
     test_pre_fit_optional_21_labels_absent_remain_unknown()
     test_pre_fit_batch_masks_and_clocks_preserve_rows_with_linear_key_work()
