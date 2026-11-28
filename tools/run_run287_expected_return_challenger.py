@@ -742,23 +742,28 @@ def _replay_pre_fit_label_sources(proof, stock_rows, readiness, read_object):
     _binding_need(type(labels) is list and 0 < len(labels) <= len(HORIZONS) * PRE_FIT_MAX_ROWS and
                   type(benchmark_rows) is list and 0 < len(benchmark_rows) <= PRE_FIT_MAX_ROWS,
                   "historical_label_replay_count")
-    originals, clock_proofs, benchmark = {}, {}, {}
+    originals, clock_proofs, benchmark, by_row_hash = {}, {}, {}, {}
     for item in benchmark_rows:
         session, close = item["session_date"], item["close"]
-        _binding_need(session not in benchmark and item["source"] == "YF:SPY" and item["ticker"] == "SPY" and
+        raw_pin = item["raw_source_sha256"]
+        key = (session, raw_pin)
+        _binding_need(key not in benchmark and item["source"] == "YF:SPY" and item["ticker"] == "SPY" and
                       item["security_id"] == proof["benchmark_security_id"] and bool(item["security_id"]) and
                       type(close) in (int, float) and math.isfinite(close) and close > 0,
                       "historical_label_benchmark_row")
-        benchmark[session] = (item, _binding_stamp(item["available_from"]))
-        originals.setdefault(item["raw_source_sha256"], []).append(session)
-        clock_proofs.setdefault(item["availability_proof_sha256"], []).append(session)
-    schedule = NYSE.schedule(start_date=min(benchmark), end_date=max(benchmark))
+        benchmark[key] = (item, _binding_stamp(item["available_from"]))
+        by_row_hash[canonical_sha256(item)] = benchmark[key]
+        originals.setdefault(raw_pin, []).append(session)
+        clock_proofs.setdefault(item["availability_proof_sha256"], []).append(key)
+    sessions = [session for session, _ in benchmark]
+    schedule = NYSE.schedule(start_date=min(sessions), end_date=max(sessions))
     closes = {day.date().isoformat(): pd.Timestamp(row.market_close) for day, row in schedule.iterrows()}
-    _binding_need(all(session in closes and closes[session] <= stamp for session, (_, stamp) in benchmark.items()),
+    _binding_need(all(session in closes and closes[session] <= stamp
+                      for (session, _), (_, stamp) in benchmark.items()),
                   "historical_label_benchmark_clock")
     asset = {"asset_id": proof["benchmark_security_id"], "symbol": "SPY", "price_unit": "USD"}
     observation_clocks = {}
-    for pin, sessions in clock_proofs.items():
+    for pin, endpoint_keys in clock_proofs.items():
         clock_doc = _binding_json(read_object("objects", pin))
         _binding_need(clock_doc["schema"] == "run287-benchmark-original-availability-v1" and
                       clock_doc["source"] == "YF:SPY" and
@@ -774,9 +779,9 @@ def _replay_pre_fit_label_sources(proof, stock_rows, readiness, read_object):
         observed = {item["session_date"]: (item["raw_source_sha256"], _binding_stamp(item["available_from"]))
                     for item in clock_doc["rows"]}
         _binding_need(len(observed) == len(clock_doc["rows"]) and all(
-            observed.get(session) == (benchmark[session][0]["raw_source_sha256"], benchmark[session][1])
-            and observed[session][0] == raw_pin and observation <= observed[session][1]
-            for session in sessions), "historical_label_benchmark_publication_clock")
+            raw_pin == key[1] and observed.get(key[0]) == (raw_pin, benchmark[key][1])
+            and observation <= observed[key[0]][1]
+            for key in endpoint_keys), "historical_label_benchmark_publication_clock")
     eastern = ZoneInfo("America/New_York")
     for pin, sessions in originals.items():
         raw = read_object("objects", pin, 8 * 1024 * 1024)
@@ -790,7 +795,7 @@ def _replay_pre_fit_label_sources(proof, stock_rows, readiness, read_object):
             closes[last_day] = pd.Timestamp(day.iloc[0]["market_close"])
         _binding_need(closes[last_day] <= observed, "historical_label_benchmark_original_after_observation")
         values = {row["session"]: row["total_return_index"] for row in native}
-        _binding_need(all(values.get(session) == benchmark[session][0]["close"] for session in sessions),
+        _binding_need(all(values.get(session) == benchmark[session, pin][0]["close"] for session in sessions),
                       "historical_label_original_benchmark_close")
 
     fields = ("feature_date", "ticker", "horizon", "security_id", "stock_return",
@@ -813,14 +818,18 @@ def _replay_pre_fit_label_sources(proof, stock_rows, readiness, read_object):
                       pd.Timestamp(row["benchmark_label_end"]).date().isoformat() == end,
                       "historical_label_session_pair")
         a, b = (stocks.get((row["security_id"], day)) for day in (entry, end))
-        _binding_need(a is not None and b is not None and entry in benchmark and end in benchmark and
-                      a["ticker"] == row["ticker"] == b["ticker"], "historical_label_endpoints")
-        c, c_clock = benchmark[entry]
-        d, d_clock = benchmark[end]
+        _binding_need(a is not None and b is not None and a["ticker"] == row["ticker"] == b["ticker"],
+                      "historical_label_endpoints")
+        endpoint_hashes = row["endpoint_row_sha256"]
+        _binding_need(type(endpoint_hashes) is list and len(endpoint_hashes) == 4 and
+                      all(type(pin) is str and SHA256_RE.fullmatch(pin) for pin in endpoint_hashes) and
+                      endpoint_hashes[:2] == [canonical_sha256(a), canonical_sha256(b)] and
+                      all(pin in by_row_hash for pin in endpoint_hashes[2:]), "historical_label_endpoint_hash")
+        (c, c_clock), (d, d_clock) = (by_row_hash[pin] for pin in endpoint_hashes[2:])
+        _binding_need(c["session_date"] == entry and d["session_date"] == end,
+                      "historical_label_benchmark_session_pair")
         _binding_need(c["raw_source_sha256"] == d["raw_source_sha256"],
                       "historical_label_benchmark_adjustment_vintage")
-        expected = [canonical_sha256(item) for item in (a, b, c, d)]
-        _binding_need(row["endpoint_row_sha256"] == expected, "historical_label_endpoint_hash")
         # Match the existing V1 producer: stock adjusted opens and SPY adjusted closes.
         # Execution simulation keeps its independent next-close contract.
         _binding_need(math.isclose(b["open"] / a["open"] - 1, row["stock_return"], abs_tol=1e-12, rel_tol=0)

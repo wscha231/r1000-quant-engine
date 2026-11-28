@@ -1811,9 +1811,12 @@ def test_pre_fit_historical_financial_release_is_bound_and_fail_closed():
         identity_pin = store("objects", b"synthetic identity replay evidence")
         entry = "2024-12-02"
         end = MOD.expected_nyse_label_ends(pd.Series([row["feature_date"]]), 63).iloc[0].date().isoformat()
+        long_end = MOD.expected_nyse_label_ends(pd.Series([row["feature_date"]]), 126).iloc[0].date().isoformat()
         stock_rows = [dict(instrument_id=row["security_id"], ticker=row["ticker"], session_date=day,
                            available_from=day + "T22:00:00Z", open=value)
                       for day, value in ((entry, 100.0), (end, 110.0))]
+        long_stock = dict(stock_rows[-1], session_date=long_end, open=120.0,
+                          available_from=long_end + "T22:00:00Z")
         label = dict(feature_date=row["feature_date"], ticker=row["ticker"], security_id=row["security_id"],
                      horizon=63, stock_return=110.0 / 100.0 - 1, benchmark_return=105.0 / 100.0 - 1,
                      stock_label_end=end, benchmark_label_end=end, available_at=end + "T23:00:00+00:00")
@@ -1831,9 +1834,28 @@ def test_pre_fit_historical_financial_release_is_bound_and_fail_closed():
                                      "source": source, "raw_source_sha256": raw,
                                      "observed_at": observed, "basis": basis})
 
+        def benchmark_pair(vintage, *, future_chart=False, late_capture=False, split_vintages=False):
+            result = []
+            capture_basis = "CONTEMPORANEOUS_VERIFIED_CAPTURE"
+            chart_vintage = [*vintage, ("2025-09-02", 130.0)] if future_chart else vintage
+            for day, value in vintage:
+                raw_pin = chart([(day, value)] if split_vintages else chart_vintage)
+                observed_day = day if split_vintages else vintage[-1][0]
+                observed = observed_day + ("T23:00:01Z" if late_capture else "T23:00:00Z")
+                clock = dict(session_date=day, available_from=observed_day + "T23:00:00Z", raw_source_sha256=raw_pin)
+                clock_pin = store("objects", {
+                    "schema": "run287-benchmark-original-availability-v1", "source": "YF:SPY",
+                    "security_id": "CUSIP:78462F103", "rows": [clock], "raw_source_sha256": raw_pin,
+                    "availability_basis": capture_basis,
+                    "original_observation_sha256": observation("YF:SPY", raw_pin, observed, capture_basis),
+                })
+                result.append(dict(clock, ticker="SPY", source="YF:SPY", security_id="CUSIP:78462F103",
+                                   availability_proof_sha256=clock_pin, close=value))
+            return result
+
         def prepare(*, available="2024-11-12T15:06:00Z", purpose="training",
                     primary_pin=original_pin, row_overrides=None, bad_benchmark=None,
-                    future_chart=False, late_capture=False, split_vintages=False):
+                    future_chart=False, late_capture=False, split_vintages=False, both_horizons=False):
             proof = dict(schema="sec-as-filed-availability-proof-v1", accession=accession,
                          original_sha256=primary_pin, available_at=available,
                          basis="ORIGINAL_DISSEMINATION", original_observation_sha256=observation(
@@ -1859,29 +1881,22 @@ def test_pre_fit_historical_financial_release_is_bound_and_fail_closed():
             rights = store("objects", dict(scope, schema="run287-historical-training-rights-v1",
                 purpose=purpose, valid_from="2025-08-01T00:00:00Z", expires_at="2025-09-01T00:00:00Z",
                 original_rights_sha256=dict.fromkeys(("prices", "benchmark", "financial"), rights_pin)))
-            benchmark = []
-            capture_basis = "CONTEMPORANEOUS_VERIFIED_CAPTURE"
-            same_vintage = [(entry, 100.0), (end, 105.0)]
-            if future_chart:
-                same_vintage.append(("2025-09-02", 130.0))
-            for day, value in ((entry, 100.0), (end, 105.0)):
-                chart_rows = [(day, value)] if split_vintages else same_vintage
-                observed_day = day if split_vintages else end
-                raw_pin = chart(chart_rows)
-                observed = observed_day + ("T23:00:01Z" if late_capture else "T23:00:00Z")
-                clock = dict(session_date=day, available_from=observed_day + "T23:00:00Z", raw_source_sha256=raw_pin)
-                clock_pin = store("objects", {
-                    "schema": "run287-benchmark-original-availability-v1", "source": "YF:SPY",
-                    "security_id": "CUSIP:78462F103", "rows": [clock], "raw_source_sha256": raw_pin,
-                    "availability_basis": capture_basis,
-                    "original_observation_sha256": observation("YF:SPY", raw_pin, observed, capture_basis),
-                })
-                benchmark.append(dict(clock, ticker="SPY", source="YF:SPY", security_id="CUSIP:78462F103",
-                                      availability_proof_sha256=clock_pin, close=value))
+            benchmark = benchmark_pair([(entry, 100.0), (end, 105.0)], future_chart=future_chart,
+                                       late_capture=late_capture, split_vintages=split_vintages)
             if bad_benchmark:
                 benchmark[-1].update(bad_benchmark)
+            plain_labels = [label]
             labels = [dict(label, entry_session=entry, endpoint_row_sha256=[
                 MOD.canonical_sha256(bar) for bar in [*stock_rows, *benchmark]])]
+            if both_horizons:
+                long_benchmark = benchmark_pair([(entry, 98.0), (long_end, 109.0)])
+                long_label = dict(label, horizon=126, stock_return=120.0 / 100.0 - 1,
+                                  benchmark_return=109.0 / 98.0 - 1, stock_label_end=long_end,
+                                  benchmark_label_end=long_end, available_at=long_end + "T23:00:00+00:00")
+                labels.append(dict(long_label, entry_session=entry, endpoint_row_sha256=[
+                    MOD.canonical_sha256(bar) for bar in [stock_rows[0], long_stock, *long_benchmark]]))
+                plain_labels.append(long_label)
+                benchmark.extend(long_benchmark)
             replay = store("objects", {
                 "schema": MOD.PRE_FIT_LABEL_REPLAY_SCHEMA, "training_input_sha256": binding,
                 "price_generation_id": price["data_generation_id"], "benchmark_source": "YF:SPY",
@@ -1903,7 +1918,7 @@ def test_pre_fit_historical_financial_release_is_bound_and_fail_closed():
             readiness = {"schema": MOD.PRE_FIT_ISSUER_BINDING_SCHEMA, "training_input_sha256": binding,
                          "decision_time": decision, "reader_requests": [price, financial],
                          "recent_mature_cohort": {"horizons_below_minimum": []},
-                         "label_replay_rows_sha256": MOD.canonical_sha256([label]),
+                         "label_replay_rows_sha256": MOD.canonical_sha256(plain_labels),
                          "financial_feature_rows_sha256": {issuer: MOD.canonical_sha256([row])}}
             return readiness, accepted
 
@@ -1950,6 +1965,8 @@ def test_pre_fit_historical_financial_release_is_bound_and_fail_closed():
                  expected_price_calls=1)
         mixed_vintage, approval = prepare(split_vintages=True)
         validate(mixed_vintage, [approval], "historical_label_benchmark_adjustment_vintage", expected_price_calls=1)
+        overlapping, approval = prepare(both_horizons=True)
+        validate(overlapping, [approval], replay_rows=[*stock_rows, long_stock])
         validate(readiness, [approved], "historical_training_exact_default_branch_required", head="2" * 40)
         validate(readiness, [approved], "historical_training_review_clock", observed="2025-09-01T00:00:00Z")
         undersized = dict(readiness, recent_mature_cohort={"horizons_below_minimum": ["126"]})

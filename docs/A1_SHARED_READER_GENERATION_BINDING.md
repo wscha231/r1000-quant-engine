@@ -586,7 +586,9 @@ clock. A chart body with a market session after its recorded observation
 fails even when that session is outside the requested label window.
 Both SPY endpoints of a return must come from the same original adjusted
 snapshot. Adjusted prices captured on opposite sides of a distribution can
-have different scales even when both captures are authentic.
+have different scales even when both captures are authentic. Labels select
+the exact row hashes, so overlapping horizons can reuse a session with
+different vintages and retain their own maturity clocks.
 
 Rights, review and availability objects are read from the existing
 `shared-research-v1/objects` archive and issuer packets from its

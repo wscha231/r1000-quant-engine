@@ -19,6 +19,8 @@
   response that would otherwise be accepted as available earlier.
 - Quote both SPY endpoints from one adjustment vintage. A dividend between
   two individually verified adjusted snapshots can still distort their ratio.
+  Key the endpoint by its exact row, so different exits can share an entry
+  session without forcing the earlier label onto the later vintage.
 
 ## 2026-11-27 KST — Separate pre-fit descriptor count from financial admission
 
