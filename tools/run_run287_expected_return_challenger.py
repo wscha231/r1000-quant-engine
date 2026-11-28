@@ -817,6 +817,8 @@ def _replay_pre_fit_label_sources(proof, stock_rows, readiness, read_object):
                       a["ticker"] == row["ticker"] == b["ticker"], "historical_label_endpoints")
         c, c_clock = benchmark[entry]
         d, d_clock = benchmark[end]
+        _binding_need(c["raw_source_sha256"] == d["raw_source_sha256"],
+                      "historical_label_benchmark_adjustment_vintage")
         expected = [canonical_sha256(item) for item in (a, b, c, d)]
         _binding_need(row["endpoint_row_sha256"] == expected, "historical_label_endpoint_hash")
         # Match the existing V1 producer: stock adjusted opens and SPY adjusted closes.

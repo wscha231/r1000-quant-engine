@@ -584,6 +584,9 @@ The SEC and Yahoo receipts also bind an independent observation to each
 original response hash. A later receipt cannot certify an earlier label
 clock. A chart body with a market session after its recorded observation
 fails even when that session is outside the requested label window.
+Both SPY endpoints of a return must come from the same original adjusted
+snapshot. Adjusted prices captured on opposite sides of a distribution can
+have different scales even when both captures are authentic.
 
 Rights, review and availability objects are read from the existing
 `shared-research-v1/objects` archive and issuer packets from its

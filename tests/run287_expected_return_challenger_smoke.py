@@ -1833,7 +1833,7 @@ def test_pre_fit_historical_financial_release_is_bound_and_fail_closed():
 
         def prepare(*, available="2024-11-12T15:06:00Z", purpose="training",
                     primary_pin=original_pin, row_overrides=None, bad_benchmark=None,
-                    future_chart=False, late_capture=False):
+                    future_chart=False, late_capture=False, split_vintages=False):
             proof = dict(schema="sec-as-filed-availability-proof-v1", accession=accession,
                          original_sha256=primary_pin, available_at=available,
                          basis="ORIGINAL_DISSEMINATION", original_observation_sha256=observation(
@@ -1861,13 +1861,15 @@ def test_pre_fit_historical_financial_release_is_bound_and_fail_closed():
                 original_rights_sha256=dict.fromkeys(("prices", "benchmark", "financial"), rights_pin)))
             benchmark = []
             capture_basis = "CONTEMPORANEOUS_VERIFIED_CAPTURE"
+            same_vintage = [(entry, 100.0), (end, 105.0)]
+            if future_chart:
+                same_vintage.append(("2025-09-02", 130.0))
             for day, value in ((entry, 100.0), (end, 105.0)):
-                chart_rows = [(day, value)]
-                if future_chart and day == entry:
-                    chart_rows.append(("2025-09-02", 130.0))
+                chart_rows = [(day, value)] if split_vintages else same_vintage
+                observed_day = day if split_vintages else end
                 raw_pin = chart(chart_rows)
-                observed = day + ("T23:00:01Z" if late_capture and day == end else "T23:00:00Z")
-                clock = dict(session_date=day, available_from=day + "T23:00:00Z", raw_source_sha256=raw_pin)
+                observed = observed_day + ("T23:00:01Z" if late_capture else "T23:00:00Z")
+                clock = dict(session_date=day, available_from=observed_day + "T23:00:00Z", raw_source_sha256=raw_pin)
                 clock_pin = store("objects", {
                     "schema": "run287-benchmark-original-availability-v1", "source": "YF:SPY",
                     "security_id": "CUSIP:78462F103", "rows": [clock], "raw_source_sha256": raw_pin,
@@ -1946,6 +1948,8 @@ def test_pre_fit_historical_financial_release_is_bound_and_fail_closed():
         future_original, approval = prepare(future_chart=True)
         validate(future_original, [approval], "historical_label_benchmark_original_after_observation",
                  expected_price_calls=1)
+        mixed_vintage, approval = prepare(split_vintages=True)
+        validate(mixed_vintage, [approval], "historical_label_benchmark_adjustment_vintage", expected_price_calls=1)
         validate(readiness, [approved], "historical_training_exact_default_branch_required", head="2" * 40)
         validate(readiness, [approved], "historical_training_review_clock", observed="2025-09-01T00:00:00Z")
         undersized = dict(readiness, recent_mature_cohort={"horizons_below_minimum": ["126"]})

@@ -17,6 +17,8 @@
 - Validate the entire benchmark response against its separately recorded
   observation clock. Filtering to requested dates can hide a later bar in a
   response that would otherwise be accepted as available earlier.
+- Quote both SPY endpoints from one adjustment vintage. A dividend between
+  two individually verified adjusted snapshots can still distort their ratio.
 
 ## 2026-11-27 KST — Separate pre-fit descriptor count from financial admission
 
