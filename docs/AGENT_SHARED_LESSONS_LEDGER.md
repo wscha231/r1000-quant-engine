@@ -1,5 +1,32 @@
 # Agent Shared Lessons Ledger
 
+## 2026-11-28 KST — Bind the exact financial replay and data rights before fit
+
+- Exact 63-session price arithmetic and dated issuer/class witnesses can be
+  recovered without proving a historical tradable security, the original
+  label availability or training rights. Keep those limits in the receipt.
+- Seal the complete V2 feature and label binding, rights, and independent A6
+  replay before allowing reviewed as-filed financial bytes into the fit path.
+  Require the same protected registry head at the canonical U0 gate.
+- Keep the shared Reader's empty admission list separate from reviewed Run287
+  releases. Bind label returns and clocks to both actual price legs at replay.
+  A named benchmark and an opaque evidence hash alone leave a gap.
+- SEC fails-to-deliver files can corroborate a ticker and CUSIP on a settlement
+  date. Later publication and missing zero-balance records make the series
+  unsuitable as a real-time identity feed, price clock, or listing register.
+- Validate the entire benchmark response against its separately recorded
+  observation clock. Filtering to requested dates can hide a later bar in a
+  response that would otherwise be accepted as available earlier.
+- Quote both SPY endpoints from one adjustment vintage. A dividend between
+  two individually verified adjusted snapshots can still distort their ratio.
+  Key the endpoint by its exact row, so different exits can share an entry
+  session without forcing the earlier label onto the later vintage.
+- The reader registry is a byte-pinned dependency of the current reuse
+  entries `group_423_574` and `group_591`. Even an empty training-release
+  field changes both bindings. Update the exact current Git blob hash and
+  run the manual catalog tests, preserving historical snapshots and the
+  refusal of modified or missing dependencies.
+
 ## 2026-11-27 KST — Separate pre-fit descriptor count from financial admission
 
 - Bound V2 Reader descriptors by one price generation plus the distinct

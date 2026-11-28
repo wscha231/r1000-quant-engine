@@ -1383,9 +1383,11 @@ def test_pre_fit_separate_issuer_generations():
         for row in values[role]["rows"]:
             row["financial_generation_id"] = MOD.canonical_sha256(by_key[MOD._binding_key(row)])
 
-    def validate():
+    def validate(code_sha=None):
         binding, resolver, _ = _pre_fit_binding(values, decision)
         binding["schema"] = MOD.PRE_FIT_ISSUER_BINDING_SCHEMA
+        if code_sha is not None:
+            binding["code_sha"] = code_sha
         return MOD.validate_pre_fit_binding(frame, binding, cfg,
             feature_store_sha256=binding["feature_store_sha256"], artifact_resolver=resolver)
 
@@ -1449,10 +1451,13 @@ def test_pre_fit_separate_issuer_generations():
         _pre_fit_check("price_instrument_issuer_conflict" in str(exc), str(exc))
     else:
         raise AssertionError("one price instrument used for two issuers on the same date")
+    registry_only_commit = validate("a" * 40)
+    _pre_fit_check(registry_only_commit["training_input_sha256"] == result["training_input_sha256"] and
+                   registry_only_commit["binding_sha256"] != result["binding_sha256"], "approval has no Git commit cycle")
     try:
         MOD.replay_pre_fit_training_sources(result, ".")
     except ValueError as exc:
-        _pre_fit_check("FINANCIAL_TRAINING_ADMISSION_UNSUPPORTED" in str(exc), str(exc))
+        _pre_fit_check("HISTORICAL_FINANCIAL_TRAINING_RELEASE_MISSING" in str(exc), str(exc))
     else:
         raise AssertionError("metadata binding authorized a fit")
 
@@ -1764,6 +1769,222 @@ def test_pre_fit_public_price_reader_replay_is_not_financial_authority() -> None
         except ValueError as exc:_pre_fit_check("FINANCIAL_TRAINING_ADMISSION_UNSUPPORTED" in str(exc),str(exc))
         else:raise AssertionError("research-only financial route trained")
     finally:holder.doCleanups()
+
+
+def test_pre_fit_historical_financial_release_is_bound_and_fail_closed():
+    """Synthetic proofs exercise the reviewed route without issuing an approval."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        issuer = "CIK:0000001234"
+        accession = "0000001234-24-000020"
+        decision = "2025-08-29T20:10:00Z"
+        binding = "b" * 64
+        price = dict(role="prices", dataset_id=MOD.PRE_FIT_DATASETS["prices"],
+                     data_generation_id="c" * 64)
+        registry = {
+            "schema": "research-dataset-registry-v1", "mode": "RESEARCH_ONLY",
+            "eligible_for_selector": False, "admitted_frozen_generations": [],
+            "reviewed_run287_training_releases": [],
+        }
+        row = dict(feature_date="2024-11-29", ticker="AAA", security_id="AAA-SHARES",
+                   financial_instrument_id=issuer, decision_at="2024-11-29T18:05:00Z",
+                   feature_available_at="2024-11-29T18:00:00Z", feature_sha256="e" * 64)
+        original = (
+            b"<SEC-HEADER>\n<ACCEPTANCE-DATETIME>20241112100500\n"
+            b"ACCESSION NUMBER: 0000001234-24-000020\nCENTRAL INDEX KEY: 0000001234\n"
+            b"CONFORMED SUBMISSION TYPE: 10-Q\nCONFORMED PERIOD OF REPORT: 20240930\n"
+            b"FILED AS OF DATE: 20241112\nDATE AS OF CHANGE: 20241112\n"
+            b"</SEC-HEADER>\n<DOCUMENT>\nfixture only\n</DOCUMENT>\n"
+        )
+
+        def store(directory, value):
+            raw = value if type(value) is bytes else MOD.canonical_bytes(value)
+            pin = MOD.hashlib.sha256(raw).hexdigest()
+            path = root / "shared-research-v1" / directory / pin
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(raw)
+            return pin
+
+        original_pin = store("objects", original)
+        rights_pin = store("objects", b"synthetic rights source")
+        features_pin = store("objects", b"synthetic feature replay evidence")
+        identity_pin = store("objects", b"synthetic identity replay evidence")
+        entry = "2024-12-02"
+        end = MOD.expected_nyse_label_ends(pd.Series([row["feature_date"]]), 63).iloc[0].date().isoformat()
+        long_end = MOD.expected_nyse_label_ends(pd.Series([row["feature_date"]]), 126).iloc[0].date().isoformat()
+        stock_rows = [dict(instrument_id=row["security_id"], ticker=row["ticker"], session_date=day,
+                           available_from=day + "T22:00:00Z", open=value)
+                      for day, value in ((entry, 100.0), (end, 110.0))]
+        long_stock = dict(stock_rows[-1], session_date=long_end, open=120.0,
+                          available_from=long_end + "T22:00:00Z")
+        label = dict(feature_date=row["feature_date"], ticker=row["ticker"], security_id=row["security_id"],
+                     horizon=63, stock_return=110.0 / 100.0 - 1, benchmark_return=105.0 / 100.0 - 1,
+                     stock_label_end=end, benchmark_label_end=end, available_at=end + "T23:00:00+00:00")
+        def chart(rows):
+            return store("objects", {"chart": {"result": [{
+                "meta": {"symbol": "SPY", "currency": "USD", "instrumentType": "ETF",
+                         "exchangeTimezoneName": "America/New_York"},
+                "timestamp": [int(pd.Timestamp(day + "T15:00:00Z").timestamp()) for day, _ in rows],
+                "indicators": {"quote": [{"close": [value for _, value in rows], "volume": [100] * len(rows)}],
+                               "adjclose": [{"adjclose": [value for _, value in rows]}]},
+            }]}})
+
+        def observation(source, raw, observed, basis):
+            return store("objects", {"schema": "run287-historical-original-observation-v1",
+                                     "source": source, "raw_source_sha256": raw,
+                                     "observed_at": observed, "basis": basis})
+
+        def benchmark_pair(vintage, *, future_chart=False, late_capture=False, split_vintages=False):
+            result = []
+            capture_basis = "CONTEMPORANEOUS_VERIFIED_CAPTURE"
+            chart_vintage = [*vintage, ("2025-09-02", 130.0)] if future_chart else vintage
+            for day, value in vintage:
+                raw_pin = chart([(day, value)] if split_vintages else chart_vintage)
+                observed_day = day if split_vintages else vintage[-1][0]
+                observed = observed_day + ("T23:00:01Z" if late_capture else "T23:00:00Z")
+                clock = dict(session_date=day, available_from=observed_day + "T23:00:00Z", raw_source_sha256=raw_pin)
+                clock_pin = store("objects", {
+                    "schema": "run287-benchmark-original-availability-v1", "source": "YF:SPY",
+                    "security_id": "CUSIP:78462F103", "rows": [clock], "raw_source_sha256": raw_pin,
+                    "availability_basis": capture_basis,
+                    "original_observation_sha256": observation("YF:SPY", raw_pin, observed, capture_basis),
+                })
+                result.append(dict(clock, ticker="SPY", source="YF:SPY", security_id="CUSIP:78462F103",
+                                   availability_proof_sha256=clock_pin, close=value))
+            return result
+
+        def prepare(*, available="2024-11-12T15:06:00Z", purpose="training",
+                    primary_pin=original_pin, row_overrides=None, bad_benchmark=None,
+                    future_chart=False, late_capture=False, split_vintages=False, both_horizons=False):
+            proof = dict(schema="sec-as-filed-availability-proof-v1", accession=accession,
+                         original_sha256=primary_pin, available_at=available,
+                         basis="ORIGINAL_DISSEMINATION", original_observation_sha256=observation(
+                             "SEC_EDGAR_AS_FILED", primary_pin, "2024-11-12T15:06:00Z", "ORIGINAL_DISSEMINATION"))
+            filing = dict(accession=accession, cik="0000001234", form="10-Q",
+                          accepted_at="2024-11-12T15:05:00Z", available_at=available,
+                          availability_basis="ORIGINAL_DISSEMINATION", original_sha256=primary_pin,
+                          availability_proof_sha256=store("objects", proof))
+            rows = [dict(row, **(row_overrides or {}), source_accessions=[accession])]
+            generation = store("generations", {
+                "schema": MOD.PRE_FIT_FINANCIAL_GENERATION_SCHEMA,
+                "dataset_id": MOD.PRE_FIT_DATASETS["financial"], "provider": "SEC_EDGAR_AS_FILED",
+                "issuer_id": issuer, "consumer_id": "SYNTHETIC", "eligible_for_selector": False,
+                "filings": [filing], "rows": rows,
+            })
+            financial = dict(role="financial", dataset_id=MOD.PRE_FIT_DATASETS["financial"],
+                             issuer_id=issuer, data_generation_id=generation, consumer_id="SYNTHETIC",
+                             instrument_ids=[issuer], required_sessions=["2024-11-29"],
+                             required_start="2024-11-29", required_end="2024-11-29", minimum_rows=1,
+                             expected_row_set_sha256=MOD.canonical_sha256(rows))
+            scope = dict(training_input_sha256=binding, financial_generations={issuer: generation},
+                         price_generation_id=price["data_generation_id"], benchmark_source="YF:SPY")
+            rights = store("objects", dict(scope, schema="run287-historical-training-rights-v1",
+                purpose=purpose, valid_from="2025-08-01T00:00:00Z", expires_at="2025-09-01T00:00:00Z",
+                original_rights_sha256=dict.fromkeys(("prices", "benchmark", "financial"), rights_pin)))
+            benchmark = benchmark_pair([(entry, 100.0), (end, 105.0)], future_chart=future_chart,
+                                       late_capture=late_capture, split_vintages=split_vintages)
+            if bad_benchmark:
+                benchmark[-1].update(bad_benchmark)
+            plain_labels = [label]
+            labels = [dict(label, entry_session=entry, endpoint_row_sha256=[
+                MOD.canonical_sha256(bar) for bar in [*stock_rows, *benchmark]])]
+            if both_horizons:
+                long_benchmark = benchmark_pair([(entry, 98.0), (long_end, 109.0)])
+                long_label = dict(label, horizon=126, stock_return=120.0 / 100.0 - 1,
+                                  benchmark_return=109.0 / 98.0 - 1, stock_label_end=long_end,
+                                  benchmark_label_end=long_end, available_at=long_end + "T23:00:00+00:00")
+                labels.append(dict(long_label, entry_session=entry, endpoint_row_sha256=[
+                    MOD.canonical_sha256(bar) for bar in [stock_rows[0], long_stock, *long_benchmark]]))
+                plain_labels.append(long_label)
+                benchmark.extend(long_benchmark)
+            replay = store("objects", {
+                "schema": MOD.PRE_FIT_LABEL_REPLAY_SCHEMA, "training_input_sha256": binding,
+                "price_generation_id": price["data_generation_id"], "benchmark_source": "YF:SPY",
+                "benchmark_security_id": "CUSIP:78462F103", "benchmark_adjustment_basis": "TOTAL_RETURN",
+                "labels": labels, "benchmark_rows": benchmark,
+            })
+            a6 = store("objects", {
+                "schema": "run287-historical-training-a6-v1", "training_input_sha256": binding,
+                "training_rights_sha256": rights, "status": "VERIFIED_ORIGINAL_FEATURE_LABEL_REPLAY",
+                "reviewed_at": "2025-08-28T20:00:00Z",
+                "original_replay_sha256": dict(financial_features=features_pin, security_identity=identity_pin,
+                                               label_availability=replay),
+            })
+            review = store("objects", dict(scope, schema=MOD.PRE_FIT_FINANCIAL_REVIEW_SCHEMA,
+                purpose="training", classification="REAL_SOURCE", runner_sha256="d" * 64, training_rights_sha256=rights,
+                independent_a6_sha256=a6, reviewed_at="2025-08-29T18:00:00Z", expires_at="2025-09-01T00:00:00Z"))
+            accepted = {"schema": MOD.PRE_FIT_FINANCIAL_REVIEW_SCHEMA, "training_input_sha256": binding,
+                        "review_sha256": review}
+            readiness = {"schema": MOD.PRE_FIT_ISSUER_BINDING_SCHEMA, "training_input_sha256": binding,
+                         "decision_time": decision, "reader_requests": [price, financial],
+                         "recent_mature_cohort": {"horizons_below_minimum": []},
+                         "label_replay_rows_sha256": MOD.canonical_sha256(plain_labels),
+                         "financial_feature_rows_sha256": {issuer: MOD.canonical_sha256([row])}}
+            return readiness, accepted
+
+        def validate(readiness, accepted=(), expected_error=None, observed=decision, head="1" * 40,
+                     replay_rows=stock_rows, expected_price_calls=0):
+            def price_reader(*args, verify_labels, **kwargs):
+                verify_labels(replay_rows)
+                return {"role": "prices"}
+
+            with patch.object(MOD, "git_blob_bytes", return_value=MOD.canonical_bytes(
+                    dict(registry, reviewed_run287_training_releases=list(accepted)))), \
+                    patch.object(MOD, "git_default_branch_sha", return_value="1" * 40), \
+                    patch.object(MOD, "git_head", return_value=head), \
+                    patch.object(MOD, "git_blob_sha256", return_value="d" * 64), \
+                    patch.object(MOD, "_v2_h1_observed_at", return_value=pd.Timestamp(observed)), \
+                    patch.object(MOD, "replay_pre_fit_price_source", side_effect=price_reader) as reader:
+                if expected_error is not None:
+                    try:
+                        MOD.replay_pre_fit_training_sources(readiness, root)
+                    except ValueError as exc:
+                        _pre_fit_check(expected_error in str(exc), str(exc))
+                    else:
+                        raise AssertionError("unqualified financial release was replayed")
+                    _pre_fit_check(reader.call_count == expected_price_calls, "refusal at expected stage")
+                    return
+                result = MOD.replay_pre_fit_training_sources(readiness, root)
+                _pre_fit_check(reader.call_count == 1 and len(result) == 2, "both routes replay")
+                _pre_fit_check(result[1]["review_sha256"] == accepted[0]["review_sha256"], "release pin")
+
+        readiness, approved = prepare()
+        validate(readiness, expected_error="HISTORICAL_FINANCIAL_TRAINING_RELEASE_MISSING")
+        validate(readiness, [approved])
+        validate(readiness, [approved, approved], "historical_training_duplicate_registry_binding")
+        validate(readiness, [approved], "historical_label_endpoints", replay_rows=stock_rows[:1],
+                 expected_price_calls=1)
+        wrong_price, approval = prepare(bad_benchmark={"close": 107.0})
+        validate(wrong_price, [approval], "historical_label_original_benchmark_close", expected_price_calls=1)
+        wrong_clock, approval = prepare(bad_benchmark={"available_from": end + "T23:30:00Z"})
+        validate(wrong_clock, [approval], "historical_label_benchmark_publication_clock", expected_price_calls=1)
+        late_original, approval = prepare(late_capture=True)
+        validate(late_original, [approval], "historical_label_benchmark_publication_clock", expected_price_calls=1)
+        future_original, approval = prepare(future_chart=True)
+        validate(future_original, [approval], "historical_label_benchmark_original_after_observation",
+                 expected_price_calls=1)
+        mixed_vintage, approval = prepare(split_vintages=True)
+        validate(mixed_vintage, [approval], "historical_label_benchmark_adjustment_vintage", expected_price_calls=1)
+        overlapping, approval = prepare(both_horizons=True)
+        validate(overlapping, [approval], replay_rows=[*stock_rows, long_stock])
+        validate(readiness, [approved], "historical_training_exact_default_branch_required", head="2" * 40)
+        validate(readiness, [approved], "historical_training_review_clock", observed="2025-09-01T00:00:00Z")
+        undersized = dict(readiness, recent_mature_cohort={"horizons_below_minimum": ["126"]})
+        validate(undersized, [approved], "insufficient_recent_mature_training_cohort")
+        missing_rights, approval = prepare(purpose="research")
+        validate(missing_rights, [approval], "historical_training_rights")
+        late, approval = prepare(available="2024-11-29T18:06:00Z")
+        validate(late, [approval], "historical_financial_decision_clock")
+        relabelled, approval = prepare(row_overrides={"security_id": "ANOTHER-SHARE-CLASS"})
+        validate(relabelled, [approval], "historical_financial_feature_join")
+        unrelated_pin = store("objects", original.replace(b"0000001234-24-000020", b"0000001234-24-000021"))
+        wrong_filing, approval = prepare(primary_pin=unrelated_pin)
+        validate(wrong_filing, [approval], "historical_financial_original_filing")
+        later_amendment = store("objects", original.replace(b"CHANGE: 20241112", b"CHANGE: 20241205"))
+        changed_filing, approval = prepare(primary_pin=later_amendment)
+        validate(changed_filing, [approval], "historical_financial_original_version_clock")
+        (root / "shared-research-v1" / "objects" / original_pin).write_bytes(original + b"changed")
+        validate(readiness, [approved], "historical_training_object_bytes")
 
 
 def _calendar_check(condition, reason):
@@ -2361,6 +2582,7 @@ def main() -> int:
     test_pre_fit_separate_issuer_generations()
     test_pre_fit_mature_history_cannot_substitute_for_recent_cohort()
     test_pre_fit_public_price_reader_replay_is_not_financial_authority()
+    test_pre_fit_historical_financial_release_is_bound_and_fail_closed()
     test_pre_fit_optional_timing_and_peer_actual_maturity()
     test_pre_fit_optional_21_labels_absent_remain_unknown()
     test_pre_fit_batch_masks_and_clocks_preserve_rows_with_linear_key_work()
