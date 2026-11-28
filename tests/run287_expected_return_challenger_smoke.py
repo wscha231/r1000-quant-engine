@@ -1784,6 +1784,7 @@ def test_pre_fit_historical_financial_release_is_bound_and_fail_closed():
         registry = {
             "schema": "research-dataset-registry-v1", "mode": "RESEARCH_ONLY",
             "eligible_for_selector": False, "admitted_frozen_generations": [],
+            "reviewed_run287_training_releases": [],
         }
         row = dict(feature_date="2024-11-29", ticker="AAA", security_id="AAA-SHARES",
                    financial_instrument_id=issuer, decision_at="2024-11-29T18:05:00Z",
@@ -1807,10 +1808,26 @@ def test_pre_fit_historical_financial_release_is_bound_and_fail_closed():
         original_pin = store("objects", original)
         observation_pin = store("objects", b"synthetic original dissemination observation")
         rights_pin = store("objects", b"synthetic rights source")
-        review_pin = store("objects", b"synthetic replay evidence")
+        features_pin = store("objects", b"synthetic feature replay evidence")
+        identity_pin = store("objects", b"synthetic identity replay evidence")
+        entry = "2024-12-02"
+        end = MOD.expected_nyse_label_ends(pd.Series([row["feature_date"]]), 63).iloc[0].date().isoformat()
+        stock_rows = [dict(instrument_id=row["security_id"], ticker=row["ticker"], session_date=day,
+                           available_from=day + "T22:00:00Z", open=value)
+                      for day, value in ((entry, 100.0), (end, 110.0))]
+        label = dict(feature_date=row["feature_date"], ticker=row["ticker"], security_id=row["security_id"],
+                     horizon=63, stock_return=110.0 / 100.0 - 1, benchmark_return=105.0 / 100.0 - 1,
+                     stock_label_end=end, benchmark_label_end=end, available_at=end + "T23:00:00+00:00")
+        chart_pin = store("objects", {"chart": {"result": [{
+            "meta": {"symbol": "SPY", "currency": "USD", "instrumentType": "ETF",
+                     "exchangeTimezoneName": "America/New_York"},
+            "timestamp": [int(pd.Timestamp(day + "T15:00:00Z").timestamp()) for day in (entry, end)],
+            "indicators": {"quote": [{"close": [100.0, 105.0], "volume": [100, 200]}],
+                           "adjclose": [{"adjclose": [100.0, 105.0]}]},
+        }]}})
 
         def prepare(*, available="2024-11-12T15:06:00Z", purpose="training",
-                    primary_pin=original_pin, row_overrides=None):
+                    primary_pin=original_pin, row_overrides=None, bad_benchmark=None):
             proof = dict(schema="sec-as-filed-availability-proof-v1", accession=accession,
                          original_sha256=primary_pin, available_at=available,
                          basis="ORIGINAL_DISSEMINATION", original_observation_sha256=observation_pin)
@@ -1835,12 +1852,31 @@ def test_pre_fit_historical_financial_release_is_bound_and_fail_closed():
             rights = store("objects", dict(scope, schema="run287-historical-training-rights-v1",
                 purpose=purpose, valid_from="2025-08-01T00:00:00Z", expires_at="2025-09-01T00:00:00Z",
                 original_rights_sha256=dict.fromkeys(("prices", "benchmark", "financial"), rights_pin)))
+            clocks = [dict(session_date=day, available_from=day + "T23:00:00Z", raw_source_sha256=chart_pin)
+                      for day in (entry, end)]
+            clock_pin = store("objects", {"schema": "run287-benchmark-original-availability-v1", "source": "YF:SPY",
+                                         "security_id": "CUSIP:78462F103", "rows": clocks,
+                                         "availability_basis": "CONTEMPORANEOUS_VERIFIED_CAPTURE",
+                                         "original_observation_sha256": observation_pin})
+            benchmark = [dict(clock, ticker="SPY", source="YF:SPY", security_id="CUSIP:78462F103",
+                              availability_proof_sha256=clock_pin, close=value)
+                         for clock, value in zip(clocks, (100.0, 105.0))]
+            if bad_benchmark:
+                benchmark[-1].update(bad_benchmark)
+            labels = [dict(label, entry_session=entry, endpoint_row_sha256=[
+                MOD.canonical_sha256(bar) for bar in [*stock_rows, *benchmark]])]
+            replay = store("objects", {
+                "schema": MOD.PRE_FIT_LABEL_REPLAY_SCHEMA, "training_input_sha256": binding,
+                "price_generation_id": price["data_generation_id"], "benchmark_source": "YF:SPY",
+                "benchmark_security_id": "CUSIP:78462F103", "benchmark_adjustment_basis": "TOTAL_RETURN",
+                "labels": labels, "benchmark_rows": benchmark,
+            })
             a6 = store("objects", {
                 "schema": "run287-historical-training-a6-v1", "training_input_sha256": binding,
                 "training_rights_sha256": rights, "status": "VERIFIED_ORIGINAL_FEATURE_LABEL_REPLAY",
                 "reviewed_at": "2025-08-28T20:00:00Z",
-                "original_replay_sha256": dict.fromkeys(
-                    ("financial_features", "security_identity", "label_availability"), review_pin),
+                "original_replay_sha256": dict(financial_features=features_pin, security_identity=identity_pin,
+                                               label_availability=replay),
             })
             review = store("objects", dict(scope, schema=MOD.PRE_FIT_FINANCIAL_REVIEW_SCHEMA,
                 purpose="training", classification="REAL_SOURCE", runner_sha256="d" * 64, training_rights_sha256=rights,
@@ -1850,17 +1886,23 @@ def test_pre_fit_historical_financial_release_is_bound_and_fail_closed():
             readiness = {"schema": MOD.PRE_FIT_ISSUER_BINDING_SCHEMA, "training_input_sha256": binding,
                          "decision_time": decision, "reader_requests": [price, financial],
                          "recent_mature_cohort": {"horizons_below_minimum": []},
+                         "label_replay_rows_sha256": MOD.canonical_sha256([label]),
                          "financial_feature_rows_sha256": {issuer: MOD.canonical_sha256([row])}}
             return readiness, accepted
 
-        def validate(readiness, accepted=(), expected_error=None, observed=decision, head="1" * 40):
+        def validate(readiness, accepted=(), expected_error=None, observed=decision, head="1" * 40,
+                     replay_rows=stock_rows, expected_price_calls=0):
+            def price_reader(*args, verify_labels, **kwargs):
+                verify_labels(replay_rows)
+                return {"role": "prices"}
+
             with patch.object(MOD, "git_blob_bytes", return_value=MOD.canonical_bytes(
-                    dict(registry, admitted_frozen_generations=list(accepted)))), \
+                    dict(registry, reviewed_run287_training_releases=list(accepted)))), \
                     patch.object(MOD, "git_default_branch_sha", return_value="1" * 40), \
                     patch.object(MOD, "git_head", return_value=head), \
                     patch.object(MOD, "git_blob_sha256", return_value="d" * 64), \
                     patch.object(MOD, "_v2_h1_observed_at", return_value=pd.Timestamp(observed)), \
-                    patch.object(MOD, "replay_pre_fit_price_source", return_value={"role": "prices"}) as reader:
+                    patch.object(MOD, "replay_pre_fit_price_source", side_effect=price_reader) as reader:
                 if expected_error is not None:
                     try:
                         MOD.replay_pre_fit_training_sources(readiness, root)
@@ -1868,7 +1910,7 @@ def test_pre_fit_historical_financial_release_is_bound_and_fail_closed():
                         _pre_fit_check(expected_error in str(exc), str(exc))
                     else:
                         raise AssertionError("unqualified financial release was replayed")
-                    _pre_fit_check(reader.call_count == 0, "failure precedes price Reader")
+                    _pre_fit_check(reader.call_count == expected_price_calls, "refusal at expected stage")
                     return
                 result = MOD.replay_pre_fit_training_sources(readiness, root)
                 _pre_fit_check(reader.call_count == 1 and len(result) == 2, "both routes replay")
@@ -1877,6 +1919,13 @@ def test_pre_fit_historical_financial_release_is_bound_and_fail_closed():
         readiness, approved = prepare()
         validate(readiness, expected_error="HISTORICAL_FINANCIAL_TRAINING_RELEASE_MISSING")
         validate(readiness, [approved])
+        validate(readiness, [approved, approved], "historical_training_duplicate_registry_binding")
+        validate(readiness, [approved], "historical_label_endpoints", replay_rows=stock_rows[:1],
+                 expected_price_calls=1)
+        wrong_price, approval = prepare(bad_benchmark={"close": 107.0})
+        validate(wrong_price, [approval], "historical_label_original_benchmark_close", expected_price_calls=1)
+        wrong_clock, approval = prepare(bad_benchmark={"available_from": end + "T23:30:00Z"})
+        validate(wrong_clock, [approval], "historical_label_benchmark_publication_clock", expected_price_calls=1)
         validate(readiness, [approved], "historical_training_exact_default_branch_required", head="2" * 40)
         validate(readiness, [approved], "historical_training_review_clock", observed="2025-09-01T00:00:00Z")
         undersized = dict(readiness, recent_mature_cohort={"horizons_below_minimum": ["126"]})

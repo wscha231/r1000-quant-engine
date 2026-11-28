@@ -61,6 +61,7 @@ PRE_FIT_DATASETS = {"prices": "ds.us.prices.daily", "financial": "ds.us.financia
 PRE_FIT_TRAINING_REGISTRY = "data_static/research_dataset_registry_v1.json"
 PRE_FIT_FINANCIAL_REVIEW_SCHEMA = "run287-reviewed-historical-training-v1"
 PRE_FIT_FINANCIAL_GENERATION_SCHEMA = "run287-as-filed-financial-training-v1"
+PRE_FIT_LABEL_REPLAY_SCHEMA = "run287-historical-label-replay-v1"
 EX_POST_FEATURE_RE = re.compile(r"(^|_)(onset|peak|phase_offset|event_selected|hold_18m)(_|$)", re.I)
 
 
@@ -266,7 +267,7 @@ def validate_pre_fit_binding(frame: pd.DataFrame, binding: Mapping[str, Any],
     _binding_need(len(labels) == len(label_rows) and set(labels) ==
                   {(key, horizon) for key in records for horizon in HORIZONS}, "label_denominator")
     mature = {h: [] for h in HORIZONS}
-    label_statuses, training_examples = [], []
+    label_statuses, training_examples, labels_to_replay = [], [], []
     decision_day = completed
     embargo = nyse_embargo_cutoffs([decision_day], contract["purge_and_windows"]["embargo_nyse_sessions"])[decision_day]
     label_closes = {}
@@ -288,6 +289,11 @@ def validate_pre_fit_binding(frame: pd.DataFrame, binding: Mapping[str, Any],
             _binding_need(label_closes[end] <= available,
                           "label_availability")
             status = "MATURE" if available < decision else "IMMATURE"
+            if status == "MATURE" and binding["schema"] == PRE_FIT_ISSUER_BINDING_SCHEMA:
+                labels_to_replay.append(dict(
+                    feature_date=key[0], ticker=key[1], horizon=horizon,
+                    security_id=universe[key]["reader_instrument_ids"]["prices"],
+                    **original, available_at=available.isoformat()))
         else:
             _binding_need(label.get("available_at") is None, "unknown_label_not_mature")
             status = "UNKNOWN"
@@ -367,6 +373,8 @@ def validate_pre_fit_binding(frame: pd.DataFrame, binding: Mapping[str, Any],
             "reference_sha256": reference_hashes, "reader_requests": requests,
             "financial_feature_rows_sha256": {
                 issuer: canonical_sha256(rows) for issuer, rows in financial_rows.items()},
+            "label_replay_rows_sha256": canonical_sha256(sorted(
+                labels_to_replay, key=lambda r: (r["feature_date"], r["ticker"], r["horizon"]))),
             "source_authentication": "NOT_REPLAYED", "source_admission_granted": False,
             "selection_source_authentication": "HASH_REFERENCES_NOT_REPLAYED",
             "local_bounds": {"per_reference_bytes": PRE_FIT_MAX_FILE,
@@ -517,7 +525,7 @@ def apply_pre_fit_label_clocks(prepared: pd.DataFrame, readiness: Mapping[str, A
 
 
 def replay_pre_fit_price_source(request: Mapping[str, Any], *, decision_time: str,
-                                root: str | Path) -> dict:
+                                root: str | Path, verify_labels=None) -> dict:
     """Reuse the public Reader's actual training admission; never trust a DTO flag.
 
     No restore, new generation, provider or collector. Research-only financial
@@ -546,6 +554,15 @@ def replay_pre_fit_price_source(request: Mapping[str, Any], *, decision_time: st
                       receipt["pit_status"] == "VERIFIED" and receipt["requested_session_coverage_verified"] is True and
                       receipt["required_sessions_sha256"] == access.digest(access.encoded(request["required_sessions"])),
                       "training_reader_original_join")
+    if verify_labels is not None:
+        manifest = _binding_json(access.read_object(
+            reader.transport, f"{access.PREFIX_V1}/generations/{receipt['data_generation_id']}",
+            receipt["data_generation_id"], 1024 * 1024))
+        selected_ids = set(request["instrument_ids"])
+        _binding_need(all(item["instrument"]["adjustment_basis"] == "TOTAL_RETURN"
+            for dataset in manifest["datasets"] for item in dataset["files"]
+            if item["instrument"]["instrument_id"] in selected_ids), "historical_label_stock_price_basis")
+        verify_labels(result.rows)
     return dict(role=request["role"], generation=receipt["data_generation_id"],
             row_set_sha256=receipt["row_set_sha256"], receipt_sha256=hashlib.sha256(result.receipt_bytes).hexdigest(),
             consumer_id=receipt["consumer_id"], scope="PUBLIC_READER_TRAINING_BYTES_ONLY")
@@ -559,9 +576,16 @@ def _pre_fit_training_review(readiness, prices, financial, read_object):
                   registry["mode"] == "RESEARCH_ONLY" and registry["eligible_for_selector"] is False,
                   "historical_training_registry")
     binding = readiness["training_input_sha256"]
-    approved = [entry for entry in registry["admitted_frozen_generations"]
-                if type(entry) is dict and entry.get("schema") == PRE_FIT_FINANCIAL_REVIEW_SCHEMA
-                and entry.get("training_input_sha256") == binding]
+    entries = registry.get("reviewed_run287_training_releases", [])
+    _binding_need(type(entries) is list and len(entries) <= 1024 and all(
+        type(entry) is dict and set(entry) == {"schema", "training_input_sha256", "review_sha256"} and
+        entry["schema"] == PRE_FIT_FINANCIAL_REVIEW_SCHEMA and
+        all(type(entry[k]) is str and SHA256_RE.fullmatch(entry[k]) is not None
+            for k in ("training_input_sha256", "review_sha256")) for entry in entries),
+        "historical_training_registry_entries")
+    _binding_need(len({entry["training_input_sha256"] for entry in entries}) == len(entries),
+                  "historical_training_duplicate_registry_binding")
+    approved = [entry for entry in entries if entry["training_input_sha256"] == binding]
     _binding_need(len(approved) == 1, "HISTORICAL_FINANCIAL_TRAINING_RELEASE_MISSING")
     _binding_need(git_head() == registry_head, "historical_training_exact_default_branch_required")
     pin = approved[0]["review_sha256"]
@@ -600,9 +624,17 @@ def _pre_fit_training_review(readiness, prices, financial, read_object):
     _binding_need(type(a6["original_replay_sha256"]) is dict and set(a6["original_replay_sha256"]) ==
                   {"financial_features", "security_identity", "label_availability"},
                   "historical_training_independent_provenance")
-    for evidence in sorted(set(a6["original_replay_sha256"].values())):
-        read_object("objects", evidence)
-    return pin, registry_head
+    proofs = a6["original_replay_sha256"]
+    for role in ("financial_features", "security_identity"):
+        read_object("objects", proofs[role])
+    label_proof = _binding_json(read_object("objects", proofs["label_availability"], PRE_FIT_MAX_FILE))
+    _binding_need(label_proof["schema"] == PRE_FIT_LABEL_REPLAY_SCHEMA and
+                  label_proof["training_input_sha256"] == binding and
+                  label_proof["price_generation_id"] == price_generation and
+                  label_proof["benchmark_source"] == "YF:SPY" and
+                  label_proof["benchmark_adjustment_basis"] == "TOTAL_RETURN",
+                  "historical_label_benchmark_source")
+    return pin, registry_head, label_proof
 
 
 def _replay_pre_fit_financial_source(request, readiness, read_object, review_pin):
@@ -689,6 +721,87 @@ def _replay_pre_fit_financial_source(request, readiness, read_object, review_pin
                 scope="PROTECTED_AS_FILED_HISTORICAL_TRAINING_REPLAY")
 
 
+def _replay_pre_fit_label_sources(proof, stock_rows, readiness, read_object):
+    """Join approved benchmark bytes and live Reader rows to every mature label."""
+    from tools.run_multi_asset_leadership import parse_chart
+
+    labels, benchmark_rows = proof["labels"], proof["benchmark_rows"]
+    _binding_need(type(labels) is list and 0 < len(labels) <= len(HORIZONS) * PRE_FIT_MAX_ROWS and
+                  type(benchmark_rows) is list and 0 < len(benchmark_rows) <= PRE_FIT_MAX_ROWS,
+                  "historical_label_replay_count")
+    originals, clock_proofs, benchmark = {}, {}, {}
+    for item in benchmark_rows:
+        session, close = item["session_date"], item["close"]
+        _binding_need(session not in benchmark and item["source"] == "YF:SPY" and item["ticker"] == "SPY" and
+                      item["security_id"] == proof["benchmark_security_id"] and bool(item["security_id"]) and
+                      type(close) in (int, float) and math.isfinite(close) and close > 0,
+                      "historical_label_benchmark_row")
+        benchmark[session] = (item, _binding_stamp(item["available_from"]))
+        originals.setdefault(item["raw_source_sha256"], []).append(session)
+        clock_proofs.setdefault(item["availability_proof_sha256"], []).append(session)
+    schedule = NYSE.schedule(start_date=min(benchmark), end_date=max(benchmark))
+    closes = {day.date().isoformat(): pd.Timestamp(row.market_close) for day, row in schedule.iterrows()}
+    _binding_need(all(session in closes and closes[session] <= stamp for session, (_, stamp) in benchmark.items()),
+                  "historical_label_benchmark_clock")
+    asset = {"asset_id": proof["benchmark_security_id"], "symbol": "SPY", "price_unit": "USD"}
+    for pin, sessions in originals.items():
+        native = parse_chart(read_object("objects", pin, 8 * 1024 * 1024), asset, readiness["decision_time"],
+                             {session: closes[session] for session in sessions})
+        values = {row["session"]: row["total_return_index"] for row in native}
+        _binding_need(all(values.get(session) == benchmark[session][0]["close"] for session in sessions),
+                      "historical_label_original_benchmark_close")
+    for pin, sessions in clock_proofs.items():
+        clock_doc = _binding_json(read_object("objects", pin))
+        _binding_need(clock_doc["schema"] == "run287-benchmark-original-availability-v1" and
+                      clock_doc["source"] == "YF:SPY" and
+                      clock_doc["security_id"] == proof["benchmark_security_id"],
+                      "historical_label_benchmark_publication_proof")
+        _binding_need(clock_doc["availability_basis"] in
+                      {"ORIGINAL_DISSEMINATION", "CONTEMPORANEOUS_VERIFIED_CAPTURE"},
+                      "historical_label_benchmark_publication_basis")
+        read_object("objects", clock_doc["original_observation_sha256"])
+        observed = {item["session_date"]: (item["raw_source_sha256"], _binding_stamp(item["available_from"]))
+                    for item in clock_doc["rows"]}
+        _binding_need(len(observed) == len(clock_doc["rows"]) and all(
+            observed.get(session) == (benchmark[session][0]["raw_source_sha256"], benchmark[session][1])
+            for session in sessions), "historical_label_benchmark_publication_clock")
+
+    fields = ("feature_date", "ticker", "horizon", "security_id", "stock_return",
+              "benchmark_return", "stock_label_end", "benchmark_label_end", "available_at")
+    keys = [(row["feature_date"], row["ticker"], row["horizon"]) for row in labels]
+    _binding_need(keys == sorted(set(keys)) and canonical_sha256([
+        {field: row[field] for field in fields} for row in labels]) == readiness["label_replay_rows_sha256"],
+        "historical_label_denominator")
+    entry_dates = pd.Series(sorted({key[0] for key in keys}))
+    entries = dict(zip(entry_dates, expected_nyse_label_ends(entry_dates, 0)))
+    stock_endpoints = {(r["security_id"], day) for r in labels for day in (
+        r["entry_session"], pd.Timestamp(r["stock_label_end"]).date().isoformat())}
+    stocks = {(r["instrument_id"], r["session_date"]): dict(r) for r in stock_rows
+              if (r["instrument_id"], r["session_date"]) in stock_endpoints}
+    decision = _binding_stamp(readiness["decision_time"])
+    for row in labels:
+        feature, entry = row["feature_date"], row["entry_session"]
+        end = pd.Timestamp(row["stock_label_end"]).date().isoformat()
+        _binding_need(entries[feature].date().isoformat() == entry and
+                      pd.Timestamp(row["benchmark_label_end"]).date().isoformat() == end,
+                      "historical_label_session_pair")
+        a, b = (stocks.get((row["security_id"], day)) for day in (entry, end))
+        _binding_need(a is not None and b is not None and entry in benchmark and end in benchmark and
+                      a["ticker"] == row["ticker"] == b["ticker"], "historical_label_endpoints")
+        c, c_clock = benchmark[entry]
+        d, d_clock = benchmark[end]
+        expected = [canonical_sha256(item) for item in (a, b, c, d)]
+        _binding_need(row["endpoint_row_sha256"] == expected, "historical_label_endpoint_hash")
+        # Match the existing V1 producer: stock adjusted opens and SPY adjusted closes.
+        # Execution simulation keeps its independent next-close contract.
+        _binding_need(math.isclose(b["open"] / a["open"] - 1, row["stock_return"], abs_tol=1e-12, rel_tol=0)
+                      and math.isclose(d["close"] / c["close"] - 1, row["benchmark_return"],
+                                       abs_tol=1e-12, rel_tol=0), "historical_label_return")
+        available = max(_binding_stamp(a["available_from"]), _binding_stamp(b["available_from"]), c_clock, d_clock)
+        _binding_need(available == _binding_stamp(row["available_at"]) < decision,
+                      "historical_label_actual_availability")
+
+
 def replay_pre_fit_training_sources(readiness: Mapping[str, Any], root: str | Path) -> list[dict]:
     requests = readiness["reader_requests"]
     for request in requests:
@@ -720,9 +833,12 @@ def replay_pre_fit_training_sources(readiness: Mapping[str, Any], root: str | Pa
         total += len(raw)
         return raw
 
-    review_pin, registry_head = _pre_fit_training_review(readiness, prices[0], financial, read_object)
+    review_pin, registry_head, label_proof = _pre_fit_training_review(readiness, prices[0], financial, read_object)
     receipts = [_replay_pre_fit_financial_source(r, readiness, read_object, review_pin) for r in financial]
-    price = replay_pre_fit_price_source(prices[0], decision_time=readiness["decision_time"], root=root)
+    def verify_labels(stock_rows):
+        _replay_pre_fit_label_sources(label_proof, stock_rows, readiness, read_object)
+    price = replay_pre_fit_price_source(
+        prices[0], decision_time=readiness["decision_time"], root=root, verify_labels=verify_labels)
     return [dict(price, training_review_sha256=review_pin, review_registry_head=registry_head), *receipts]
 
 

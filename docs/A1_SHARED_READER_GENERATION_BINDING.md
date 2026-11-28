@@ -555,9 +555,10 @@ rounding, including signed values beyond28 significant digits.
 
 The Run287 pre-fit runner can replay an independently reviewed as-filed
 release for the full V2 denominator. Its authority is an exact
-`run287-reviewed-historical-training-v1` entry in the existing
-`admitted_frozen_generations` field of the protected default branch dataset
-registry. The entry pins the immutable review SHA-256 and the input binding
+`run287-reviewed-historical-training-v1` entry in
+`reviewed_run287_training_releases` in the existing protected dataset
+registry. The shared Reader's `admitted_frozen_generations` stays empty.
+The entry pins the immutable review SHA-256 and the input binding
 content hash excluding its execution commit. This avoids a cycle when the
 registry is committed. The reviewed runner blob hash and existing exact
 execution commit check separately bind the code.
@@ -573,7 +574,12 @@ CIK, form, reporting period, acceptance timestamp and availability proof.
 Every selected filing version must be available by its feature clock. The
 per-issuer row hash joins the original feature values, security, sessions and
 cutoffs to the complete V2 denominator, including the latest unlabelled rows.
-The existing price Reader still has to succeed in training mode.
+A typed maturity replay joins each complete historical label to hashed
+endpoints from the training Price Reader and independently reviewed Yahoo
+SPY originals. The runner parses the original Yahoo adjusted closes, matches
+the scoped benchmark availability receipt and compares the result and the
+latest of both legs' clocks to the bound label. The A6-reviewed stock input
+must carry the total-return basis. No portfolio execution calculation changes.
 
 Rights, review and availability objects are read from the existing
 `shared-research-v1/objects` archive and issuer packets from its

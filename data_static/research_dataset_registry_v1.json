@@ -3,6 +3,7 @@
   "mode": "RESEARCH_ONLY",
   "eligible_for_selector": false,
   "admitted_frozen_generations": [],
+  "reviewed_run287_training_releases": [],
   "source_manifest_complete": false,
   "datasets": {
     "ds.us.prices.daily": {

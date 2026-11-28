@@ -8,6 +8,12 @@
 - Seal the complete V2 feature and label binding, rights, and independent A6
   replay before allowing reviewed as-filed financial bytes into the fit path.
   Require the same protected registry head at the canonical U0 gate.
+- Keep the shared Reader's empty admission list separate from reviewed Run287
+  releases. Bind label returns and clocks to both actual price legs at replay.
+  A named benchmark and an opaque evidence hash alone leave a gap.
+- SEC fails-to-deliver files can corroborate a ticker and CUSIP on a settlement
+  date. Later publication and missing zero-balance records make the series
+  unsuitable as a real-time identity feed, price clock, or listing register.
 
 ## 2026-11-27 KST — Separate pre-fit descriptor count from financial admission
 
