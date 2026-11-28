@@ -21,6 +21,11 @@
   two individually verified adjusted snapshots can still distort their ratio.
   Key the endpoint by its exact row, so different exits can share an entry
   session without forcing the earlier label onto the later vintage.
+- The reader registry is a byte-pinned dependency of the current reuse
+  entries `group_423_574` and `group_591`. Even an empty training-release
+  field changes both bindings. Update the exact current Git blob hash and
+  run the manual catalog tests, preserving historical snapshots and the
+  refusal of modified or missing dependencies.
 
 ## 2026-11-27 KST — Separate pre-fit descriptor count from financial admission
 
