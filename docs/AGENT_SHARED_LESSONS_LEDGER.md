@@ -1,5 +1,17 @@
 # Agent Shared Lessons Ledger
 
+## 2026-11-27 KST — Separate pre-fit descriptor count from financial admission
+
+- Bound V2 Reader descriptors by one price generation plus the distinct
+  issuers in the full decision denominator. Descriptors are local metadata
+  covered by the existing byte and row caps. That count does not change the
+  budget for reading source objects.
+- Count mature 63/126-session labels in both the long and recent windows.
+  The long cohort cannot substitute for the recent cohort. SEC filing-date
+  replay and archival CompanyFacts readback each establish a narrower scope
+  than historical financial training. Verify qualifying version availability,
+  purpose rights, security linkage and derived feature values separately.
+
 ## 2026-11-26 KST — Keep the two-benchmark archive recovery separate
 
 - The approved Alpaca store's 304 recent receipts matched the two stock-only

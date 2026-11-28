@@ -1293,14 +1293,14 @@ def _pre_fit_check(condition, message):
         raise AssertionError(message)
 
 
-def _pre_fit_fixture():
+def _pre_fit_fixture(history=("2024-01-31", "2024-02-29", "2024-03-28", "2024-04-30")):
     """200 mature rows on four dates plus 50 unlabelled prediction rows.
 
     All originals are disposable synthetic metadata, never Source admission.
     The denominator includes selection failures and unknowns, not winners only.
     """
     cfg = contract()
-    days = pd.to_datetime(["2024-01-31", "2024-02-29", "2024-03-28", "2024-04-30", "2026-11-10"])
+    days = pd.to_datetime([*history, "2026-11-10"])
     decision = "2026-11-11T08:00:00Z"
     features = sorted({n for names in cfg["features"].values() for n in names})
     ends = {h: MOD.expected_nyse_label_ends(pd.Series(days), h) for h in MOD.HORIZONS}
@@ -1366,14 +1366,15 @@ def test_pre_fit_separate_issuer_generations():
     frame, values, cfg, decision = _pre_fit_fixture()
     members = values["universe"]["rows"]
     # Multiple share classes can point at the same issuer's financial statements.
+    issuers = [f"CIK:{i}" for i in range(1, 11)]
     for member in members:
-        issuer = "CIK:" + str(1 + int(member["ticker"][1:]) % 2)
+        issuer = issuers[int(member["ticker"][1:]) % len(issuers)]
         member["issuer_id"] = member["reader_instrument_ids"]["financial"] = issuer
     price, template = values["reader_requests"]["requests"]
     financial = [dict(template, issuer_id=issuer, instrument_ids=[issuer],
                       data_generation_id=MOD.canonical_sha256(issuer))
-                 for issuer in ("CIK:1", "CIK:2")]
-    requests = [financial[1], price, financial[0]]
+                 for issuer in issuers]
+    requests = [*reversed(financial), price]
     values["reader_requests"]["requests"] = requests
     # Both requests deliberately advertise the SAME row hash. Generation and
     # issuer must still be bound for every feature row and horizon, even UNKNOWNs.
@@ -1390,8 +1391,9 @@ def test_pre_fit_separate_issuer_generations():
 
     result = validate()
     _pre_fit_check(result["schema"] == MOD.PRE_FIT_ISSUER_BINDING_SCHEMA and
+                   result["denominator_rows"] == 250 and len(result["reader_requests"]) == 11 and
                    result["mature_rows"]["63"] == 200 and not result["learning_eligible"],
-                   "issuer-specific metadata binding")
+                   "issuer-specific metadata binding beyond eight descriptors")
     for role, reason in (("features", "feature_source_join"), ("labels", "label_provider_or_source_join")):
         row = values[role]["rows"][-1]
         original = row["financial_generation_id"]
@@ -1409,19 +1411,20 @@ def test_pre_fit_separate_issuer_generations():
     def sources(reqs, universe=keyed):
         return MOD._pre_fit_source_bindings(reqs, universe, MOD.PRE_FIT_ISSUER_BINDING_SCHEMA)
     _pre_fit_check(sources(requests) == sources(list(reversed(requests))), "request order must not select the issuer")
+    tail = financial[2:]
     for bad, reason in (
-        ([price, financial[0]], "financial_and_price_origins_required"),
-        (requests + [financial[0]], "financial_issuer_request"),
-        (requests + [dict(template, issuer_id="OTHER")], "financial_issuer_request"),
-        ([price, financial[0], dict(financial[1], instrument_ids=["CIK:1"])], "reader_denominator_identity"),
-        ([price, financial[0], dict(financial[1], data_generation_id=financial[0]["data_generation_id"])],
+        ([price, *financial[:-1]], "financial_and_price_origins_required"),
+        ([price, financial[0], financial[0], *tail], "financial_issuer_request"),
+        ([price, dict(financial[0], issuer_id="OTHER"), *financial[1:]], "financial_issuer_request"),
+        ([price, financial[0], dict(financial[1], instrument_ids=["CIK:1"]), *tail], "reader_denominator_identity"),
+        ([price, financial[0], dict(financial[1], data_generation_id=financial[0]["data_generation_id"]), *tail],
          "duplicate_financial_generation"),
         ([dict(price, data_generation_id=financial[0]["data_generation_id"]), *financial],
          "financial_price_generation_alias"),
         ([*financial, dict(price, data_generation_id=financial[0]["data_generation_id"])],
          "financial_price_generation_alias"),
-        (requests + [price], "reader_component_roles"),
-        (requests * 3, "reader_requests"),
+        ([price, price, *financial[1:]], "reader_component_roles"),
+        (requests + [financial[0]], "reader_requests"),
     ):
         try:
             sources(bad)
@@ -1452,6 +1455,22 @@ def test_pre_fit_separate_issuer_generations():
         _pre_fit_check("FINANCIAL_TRAINING_ADMISSION_UNSUPPORTED" in str(exc), str(exc))
     else:
         raise AssertionError("metadata binding authorized a fit")
+
+
+def test_pre_fit_mature_history_cannot_substitute_for_recent_cohort():
+    # All labels mature and all dates pass embargo. Only three dates are inside
+    # the fixed 36-month window, so the fit's recent sample still falls short.
+    frame, values, cfg, decision = _pre_fit_fixture(
+        ("2023-10-31", "2023-11-30", "2024-02-29", "2024-03-28"))
+    result = _pre_fit_validate(frame, values, cfg, decision)
+    recent = result["recent_mature_cohort"]
+    _pre_fit_check(recent["start_inclusive"] == "2023-11-10", "same inclusive V1 cutoff")
+    for horizon in ("63", "126"):
+        _pre_fit_check(result["mature_rows"][horizon] == 200 and
+                       recent["by_horizon"][horizon] == {"rows": 150, "decision_dates": 3},
+                       "separate full and recent mature cohorts")
+    _pre_fit_check(recent["horizons_below_minimum"] == ["63", "126"] and
+                   not result["learning_eligible"], "metadata surfaces both recent shortfalls")
 
 
 def test_pre_fit_full_denominator_and_unlabelled_latest_prefix() -> None:
@@ -2340,6 +2359,7 @@ def main() -> int:
     test_pre_fit_cli_without_u0_and_financial_training_fail_closed()
     test_pre_fit_hash_path_code_and_parquet_budgets_precede_decode()
     test_pre_fit_separate_issuer_generations()
+    test_pre_fit_mature_history_cannot_substitute_for_recent_cohort()
     test_pre_fit_public_price_reader_replay_is_not_financial_authority()
     test_pre_fit_optional_timing_and_peer_actual_maturity()
     test_pre_fit_optional_21_labels_absent_remain_unknown()
